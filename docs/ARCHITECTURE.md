@@ -308,7 +308,7 @@ MVP에서는 Supabase 클라이언트 SDK로 직접 DB 호출. 별도 API 서버
 
 | 동작 | 방식 |
 |------|------|
-| 회원가입/로그인 | Supabase Auth (이메일 or 소셜 로그인) |
+| 회원가입/로그인 | Supabase Auth — 카카오, Google, Apple Sign In |
 | 세션 관리 | Supabase SDK 자동 처리 |
 
 #### 책 검색 (외부 API)
@@ -523,7 +523,7 @@ recommendation-server/
 
 | 구분 | 포함 | 미포함 (Phase 2~3) |
 |------|------|-------------------|
-| **인증** | 이메일/소셜 로그인 | - |
+| **인증** | 카카오 + Google + Apple 소셜 로그인 | - |
 | **책 검색** | 카카오 (메인) + 알라딘 (보완/배치) | - |
 | **서재** | 책 등록/삭제, 상태 관리, 서재 UI | 마일스톤 배경 진화 (있으면 좋지만 후순위) |
 | **피드백** | 카테고리 선택 + 자유 텍스트 | - |
@@ -543,5 +543,5 @@ recommendation-server/
 - [ ] Feature-first 디렉토리 구조 괜찮은지
 - [ ] 상태 관리 라이브러리 선호 (Riverpod vs Bloc vs Provider)
 - [ ] 카카오 책 검색 API + 알라딘 API 사용 조건 확인
-- [ ] 소셜 로그인 범위 (Google, Apple, Kakao 등)
+- [x] ~~소셜 로그인 범위~~ → 카카오 + Google + Apple 확정 (Apple은 App Store 정책상 필수)
 - [ ] 추천 서버를 별도 서버로 둘지, Supabase Edge Function으로 할지
