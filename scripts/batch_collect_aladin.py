@@ -39,10 +39,40 @@ def fetch_aladin_bestsellers(max_results=50, start=1):
     return data.get("item", [])
 
 
+SKIP_TITLE_KEYWORDS = [
+    "토익", "토플", "TOEIC", "TOEFL", "IELTS",
+    "기출문제", "모의고사", "기출 500",
+    "한국사능력검정", "GSAT", "공무원",
+    "수능", "EBS", "내신",
+]
+
+SKIP_GENRE_KEYWORDS = [
+    "수험", "문제집", "자격증", "검정시험",
+    "대학입시", "공무원", "취업/수험서",
+]
+
+
+def is_non_book(item):
+    """문제집/수험서 여부 판별"""
+    title = item.get("title", "")
+    genre = item.get("categoryName", "")
+    for kw in SKIP_TITLE_KEYWORDS:
+        if kw in title:
+            return True
+    for kw in SKIP_GENRE_KEYWORDS:
+        if kw in genre:
+            return True
+    return False
+
+
 def transform_to_book(item):
     """알라딘 API 응답 → books 테이블 형식으로 변환"""
     isbn = item.get("isbn13") or item.get("isbn") or ""
     if not isbn:
+        return None
+
+    if is_non_book(item):
+        print(f"  ⏭ 스킵 (문제집): {item.get('title', '')[:30]}")
         return None
 
     return {
