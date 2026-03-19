@@ -500,6 +500,7 @@ recommendation-server/
 |--------|------|------|
 | `palette_generator` | 표지 이미지에서 dominant color 추출 → 책등 색상 자동 생성 | [pub.dev](https://pub.dev/packages/palette_generator_master) |
 | `flutter_animate` | 책 꽂히는 모션, 마일스톤 celebration 등 커스텀 애니메이션 | [pub.dev](https://pub.dev/packages/flutter_animate) |
+| `forui` | 40+ 미니멀 위젯 라이브러리 (버튼, 카드, 인풋 등 기본 UI) | [forui.dev](https://forui.dev/docs) / [GitHub](https://github.com/duobaseio/forui) |
 
 ### 디자인 레퍼런스
 
