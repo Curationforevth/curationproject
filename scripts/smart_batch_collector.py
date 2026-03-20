@@ -64,8 +64,9 @@ API_CALL_DELAY = 0.15  # API 콜 사이 대기 (초)
 
 
 class SmartBatchCollector:
-    def __init__(self, dry_run=False):
+    def __init__(self, dry_run=False, daily_target=0):
         self.dry_run = dry_run
+        self.daily_target = daily_target
 
         # Supabase 클라이언트
         self.sb = create_client(
@@ -91,6 +92,15 @@ class SmartBatchCollector:
             "filtered_no_isbn": 0,
             "saved": 0,
         }
+
+    def has_capacity(self):
+        """API 예산과 일일 목표 모두 체크"""
+        if not self.has_capacity():
+            return False
+        if self.daily_target > 0 and self.stats["saved"] >= self.daily_target:
+            print(f"\n✅ 일일 목표 달성: {self.stats['saved']}/{self.daily_target}권")
+            return False
+        return True
 
     def load_known_isbns(self):
         """DB에서 기존 ISBN 전체 로드 → in-memory set"""
@@ -152,7 +162,7 @@ class SmartBatchCollector:
         return books
 
     def save_batch(self, books):
-        """DB에 배치 upsert"""
+        """DB에 배치 upsert (카운트는 호출부에서 관리)"""
         if not books or self.dry_run:
             return
 
@@ -160,7 +170,6 @@ class SmartBatchCollector:
             self.sb.table("books").upsert(
                 books, on_conflict="isbn"
             ).execute()
-            self.stats["saved"] += len(books)
         except Exception as e:
             print(f"    ✗ DB 저장 오류: {e}")
             # 개별 저장 fallback
@@ -169,7 +178,6 @@ class SmartBatchCollector:
                     self.sb.table("books").upsert(
                         book, on_conflict="isbn"
                     ).execute()
-                    self.stats["saved"] += 1
                 except Exception:
                     pass
 
@@ -184,7 +192,7 @@ class SmartBatchCollector:
         for page in range(1, MAX_PAGES + 1):
             for cat_id, cat_name in CATEGORIES.items():
                 for qt in QUERY_TYPES:
-                    if not self.aladin.has_budget():
+                    if not self.has_capacity():
                         print("\n⚠ 일일 API 한도 도달. 다음 실행에서 이어갑니다.")
                         return
 
@@ -216,6 +224,7 @@ class SmartBatchCollector:
                         continue
 
                     books = self.process_items(items)
+                    self.stats["saved"] += len(books)
                     unique_saved += len(books)
                     yield_rate = len(books) / len(items) if items else 0
 
@@ -298,7 +307,7 @@ class SmartBatchCollector:
     def _run_search_phase(self, keywords, source_type):
         """ItemSearch 공통 로직"""
         for keyword in keywords:
-            if not self.aladin.has_budget():
+            if not self.has_capacity():
                 print("\n⚠ 일일 API 한도 도달. 다음 실행에서 이어갑니다.")
                 return
 
@@ -317,7 +326,7 @@ class SmartBatchCollector:
             page_new_count = 0  # 이 키워드에서 새로 발견한 수
 
             for page in range(last_page + 1, SEARCH_MAX_PAGES + 1):
-                if not self.aladin.has_budget():
+                if not self.has_capacity():
                     break
 
                 items, total = self.aladin.search_books(keyword, page)
@@ -327,6 +336,7 @@ class SmartBatchCollector:
                     break
 
                 books = self.process_items(items)
+                self.stats["saved"] += len(books)
                 unique_saved += len(books)
                 page_new_count += len(books)
 
@@ -423,15 +433,18 @@ def main():
     parser.add_argument("--phase", choices=["item_list", "author_search", "keyword_search"])
     parser.add_argument("--status", action="store_true", help="진행 현황 조회")
     parser.add_argument("--dry-run", action="store_true", help="DB 저장 없이 테스트")
+    parser.add_argument("--daily-target", type=int, default=0,
+                        help="일일 신규 도서 목표 (0=무제한)")
     args = parser.parse_args()
 
-    collector = SmartBatchCollector(dry_run=args.dry_run)
+    collector = SmartBatchCollector(dry_run=args.dry_run, daily_target=args.daily_target)
 
     if args.status:
         collector.show_status()
         return
 
     collector.load_known_isbns()
+    collector.state_mgr.reset_expired_states(days=30)
 
     if args.dry_run:
         print("🧪 DRY-RUN 모드 — DB에 저장하지 않습니다\n")
