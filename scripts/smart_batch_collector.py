@@ -143,6 +143,7 @@ class SmartBatchCollector:
                 "genre": item.get("categoryName", ""),
                 "source": "aladin",
                 "source_id": str(item.get("itemId", "")),
+                "sales_point": item.get("salesPoint"),
             }
 
             books.append(book)
