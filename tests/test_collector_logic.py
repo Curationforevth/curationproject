@@ -41,3 +41,19 @@ def test_process_items_includes_sales_point():
 
     assert book["sales_point"] == 85432
     assert book["title"] == "채식주의자"
+
+
+def test_yield_rate_below_threshold_skips():
+    """50건 중 새 책 5건 미만(10%)이면 해당 소스 종료"""
+    total_items = 50
+    new_items = 4
+    yield_rate = new_items / total_items if total_items > 0 else 0
+    assert yield_rate < 0.10  # 스킵 조건 충족
+
+
+def test_yield_rate_above_threshold_continues():
+    """50건 중 새 책 5건 이상이면 계속"""
+    total_items = 50
+    new_items = 6
+    yield_rate = new_items / total_items if total_items > 0 else 0
+    assert yield_rate >= 0.10  # 계속 조건

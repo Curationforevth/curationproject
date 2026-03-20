@@ -354,8 +354,9 @@ class SmartBatchCollector:
                     completed=(page >= SEARCH_MAX_PAGES or len(items) < 50),
                 )
 
-                # 조기 종료: 이 페이지에서 새 책 0권이면 다음 페이지 안 감
-                if len(books) == 0:
+                # 조기 종료: yield rate 10% 미만이면 소스 종료
+                yield_rate = len(books) / len(items) if items else 0
+                if yield_rate < 0.10:
                     self.state_mgr.upsert_state(
                         source_type=source_type,
                         search_keyword=keyword,
