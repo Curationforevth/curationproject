@@ -44,7 +44,7 @@ class AladinClient:
                     data = json.loads(response.read().decode("utf-8"))
                 self.api_calls += 1
                 return data
-            except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as e:
+            except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ConnectionError, OSError) as e:
                 if attempt < max_retries - 1:
                     wait = 2 ** attempt
                     print(f"    ⚠ API 오류, {wait}초 후 재시도: {e}")
