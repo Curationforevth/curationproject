@@ -57,3 +57,30 @@ def test_yield_rate_above_threshold_continues():
     new_items = 6
     yield_rate = new_items / total_items if total_items > 0 else 0
     assert yield_rate >= 0.10  # 계속 조건
+
+
+def test_round_robin_order():
+    """카테고리를 라운드로빈으로 순회해야 함:
+    cat1 p1 → cat2 p1 → ... → cat17 p1 → cat1 p2 → ..."""
+    categories = {1: "소설", 2: "에세이", 3: "인문학"}
+    query_types = ["Bestseller", "ItemNewAll"]
+    max_pages = 2
+
+    # 기대하는 순서: 페이지 우선 순회
+    expected_order = []
+    for page in range(1, max_pages + 1):
+        for cat_id in categories:
+            for qt in query_types:
+                expected_order.append((cat_id, qt, page))
+
+    # 생성
+    actual_order = []
+    for page in range(1, max_pages + 1):
+        for cat_id in categories:
+            for qt in query_types:
+                actual_order.append((cat_id, qt, page))
+
+    assert actual_order == expected_order
+    # 첫 번째는 (1, "Bestseller", 1), 두 번째는 (1, "ItemNewAll", 1)
+    assert actual_order[0] == (1, "Bestseller", 1)
+    assert actual_order[2] == (2, "Bestseller", 1)

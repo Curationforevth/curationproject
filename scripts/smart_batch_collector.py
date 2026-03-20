@@ -176,73 +176,63 @@ class SmartBatchCollector:
     # ── Phase 1: ItemList 스윕 ──────────────────────────
 
     def run_item_list(self):
-        """Phase 1: 카테고리 × QueryType 전수 스윕"""
+        """Phase 1: 라운드로빈 — 페이지별로 전 카테고리 순회"""
         print("=" * 60)
-        print("Phase 1: ItemList 전카테고리 스윕")
+        print("Phase 1: ItemList 전카테고리 스윕 (라운드로빈)")
         print("=" * 60)
 
-        for cat_id, cat_name in CATEGORIES.items():
-            for qt in QUERY_TYPES:
-                if not self.aladin.has_budget():
-                    print("\n⚠ 일일 API 한도 도달. 다음 실행에서 이어갑니다.")
-                    return
-
-                # 상태 확인 — 이미 완료된 조합은 스킵
-                state = self.state_mgr.get_state(
-                    source_type="item_list",
-                    query_type=qt,
-                    category_id=cat_id,
-                )
-                if state and state.get("completed"):
-                    continue
-
-                last_page = state["last_page_fetched"] if state else 0
-                total_found = state["total_items_found"] if state else 0
-                unique_saved = state["unique_items_saved"] if state else 0
-
-                for page in range(last_page + 1, MAX_PAGES + 1):
+        for page in range(1, MAX_PAGES + 1):
+            for cat_id, cat_name in CATEGORIES.items():
+                for qt in QUERY_TYPES:
                     if not self.aladin.has_budget():
-                        break
+                        print("\n⚠ 일일 API 한도 도달. 다음 실행에서 이어갑니다.")
+                        return
+
+                    state = self.state_mgr.get_state(
+                        source_type="item_list",
+                        query_type=qt,
+                        category_id=cat_id,
+                    )
+                    if state and state.get("completed"):
+                        continue
+
+                    last_page = state["last_page_fetched"] if state else 0
+                    if page <= last_page:
+                        continue  # 이미 처리한 페이지
+
+                    total_found = state["total_items_found"] if state else 0
+                    unique_saved = state["unique_items_saved"] if state else 0
 
                     items, total = self.aladin.fetch_item_list(qt, cat_id, page)
                     total_found += len(items)
 
                     if not items:
-                        break
+                        self.state_mgr.upsert_state(
+                            source_type="item_list", query_type=qt,
+                            category_id=cat_id, last_page_fetched=page,
+                            total_items_found=total_found,
+                            unique_items_saved=unique_saved, completed=True,
+                        )
+                        continue
 
                     books = self.process_items(items)
                     unique_saved += len(books)
+                    yield_rate = len(books) / len(items) if items else 0
 
                     if books:
                         self.save_batch(books)
-                        print(f"  {cat_name} / {qt} p{page}: +{len(books)}권")
+                        print(f"  {cat_name} / {qt} p{page}: +{len(books)}권 (yield {yield_rate:.0%})")
 
-                    # 상태 저장
+                    completed = (yield_rate < 0.10) or (page >= MAX_PAGES) or (len(items) < 50)
+
                     self.state_mgr.upsert_state(
-                        source_type="item_list",
-                        query_type=qt,
-                        category_id=cat_id,
-                        last_page_fetched=page,
+                        source_type="item_list", query_type=qt,
+                        category_id=cat_id, last_page_fetched=page,
                         total_items_found=total_found,
-                        unique_items_saved=unique_saved,
-                        completed=(page >= MAX_PAGES or len(items) < 50),
+                        unique_items_saved=unique_saved, completed=completed,
                     )
 
                     time.sleep(API_CALL_DELAY)
-
-                # 모든 페이지 완료 시 completed 마킹
-                if last_page + 1 > MAX_PAGES or not self.aladin.has_budget():
-                    pass
-                else:
-                    self.state_mgr.upsert_state(
-                        source_type="item_list",
-                        query_type=qt,
-                        category_id=cat_id,
-                        last_page_fetched=MAX_PAGES,
-                        total_items_found=total_found,
-                        unique_items_saved=unique_saved,
-                        completed=True,
-                    )
 
     # ── Phase 2: 저자 기반 검색 ──────────────────────────
 
