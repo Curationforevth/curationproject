@@ -2,9 +2,9 @@
 
 ## 1. 개요
 
-카카오 + Google + Apple 소셜 로그인 구현. Supabase Auth 기반.
+카카오 + Google 소셜 로그인 구현. Supabase Auth 기반. Apple은 앱스토어 출시 전에 추가.
 
-- Google/Apple: Supabase OAuth 직접 사용
+- Google: Supabase OAuth 직접 사용
 - 카카오: `kakao_flutter_sdk`로 토큰 획득 → Supabase `signInWithIdToken()`
 - 프로필: Supabase Auth 기본 제공 정보만 (email, avatar). 닉네임은 나중에.
 - UI: 최소한 — 로고 + 소셜 버튼 3개
