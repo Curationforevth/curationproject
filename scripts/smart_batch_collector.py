@@ -95,7 +95,7 @@ class SmartBatchCollector:
 
     def has_capacity(self):
         """API 예산과 일일 목표 모두 체크"""
-        if not self.has_capacity():
+        if not self.aladin.has_budget():
             return False
         if self.daily_target > 0 and self.stats["saved"] >= self.daily_target:
             print(f"\n✅ 일일 목표 달성: {self.stats['saved']}/{self.daily_target}권")
