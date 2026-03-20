@@ -2,6 +2,7 @@
 배치 수집 상태 관리 모듈
 Supabase batch_collection_state 테이블 CRUD
 """
+from datetime import datetime, timezone
 
 
 class StateManager:
@@ -45,13 +46,32 @@ class StateManager:
             "total_items_found": total_items_found,
             "unique_items_saved": unique_items_saved,
             "completed": completed,
-            "updated_at": "now()",
+            "updated_at": datetime.now(timezone.utc).isoformat(),
         }
 
         self.sb.table(self.table).upsert(
             row,
             on_conflict="source_type,query_type,category_id,search_keyword"
         ).execute()
+
+    def reset_expired_states(self, days=30):
+        """Phase 2-3의 completed 상태를 days일 경과 시 리셋.
+        Phase 1 (item_list)은 영구 완료이므로 제외."""
+        from datetime import timedelta
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+        result = (
+            self.sb.table(self.table)
+            .update({"completed": False})
+            .eq("completed", True)
+            .neq("source_type", "item_list")
+            .lt("updated_at", cutoff)
+            .execute()
+        )
+        count = len(result.data) if result.data else 0
+        if count > 0:
+            print(f"  ♻ {count}개 소스 상태 리셋 (30일 경과)")
+        return count
 
     def get_all_states(self):
         """전체 상태 조회 (진행 현황 리포트용)"""
