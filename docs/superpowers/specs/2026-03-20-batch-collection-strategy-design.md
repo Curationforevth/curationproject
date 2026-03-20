@@ -2,6 +2,7 @@
 
 > 작성일: 2026-03-20
 > 상태: 설계 확정, 구현 대기
+> 리뷰: 스펙 리뷰 통과 (Critical/Important 이슈 반영 완료)
 
 ---
 
@@ -65,9 +66,14 @@ Supabase books 테이블 조회
               비동기 임베딩 큐 → Tier 1 임베딩 생성
 ```
 
-- DB 결과가 N건 미만이면 카카오 API로 보충 (Option 1 방식)
+- DB 결과가 **5건 미만**이면 카카오 API로 보충
+  - 5건 기준: 검색 결과로 최소한의 선택지를 제공하는 임계치
+  - 향후 유저 행동 데이터로 조정 가능
 - DB가 커질수록 카카오 API 의존도 자연 감소
-- 캐싱된 책은 비동기로 Tier 1 임베딩 생성 → 추천 대상에 즉시 포함
+- 캐싱된 책의 Tier 1 임베딩: **Supabase Edge Function** (service role)으로 비동기 생성
+  - 앱 클라이언트(유저 컨텍스트)에서 직접 book_embeddings에 쓰지 않음
+  - books에 INSERT 이벤트 → Edge Function 트리거 → OpenAI API → 임베딩 저장
+  - service role 사용으로 RLS 우회
 
 ### 2-3. Daily Batch
 
@@ -79,6 +85,11 @@ Supabase books 테이블 조회
   - Phase 3 (키워드 검색): 문학상/시리즈/장르/트렌드
 - **"새 책 1,000건"** = DB에 새로 저장된 건수 기준 (중복 스킵분 미포함)
 - 수집 직후 Tier 1 임베딩 자동 생성
+- **1,000건 목표의 현실성**: DB가 커질수록 yield rate 하락 → API 콜 증가
+  - DB 10K: ~20~30% yield → ~70~150 API콜로 1,000건 (여유)
+  - DB 50K: ~10~15% yield → ~150~300 API콜 (여유)
+  - DB 80K+: ~5% yield → ~500~1,000 API콜 (한도 내 가능하지만 빠듯)
+  - DB 90K 근처: 1,000건/일 목표 하향 조정 필요 → 남은 미수집 영역 기준으로 재설정
 
 ---
 
@@ -133,9 +144,20 @@ Supabase books 테이블 조회
   - 캐릭터(character), 문체(writing_style), 세계관(worldbuilding)
   - 플롯(plot), 메시지(message), 분위기(atmosphere)
 - **저장**: `books.enriched_description` 컬럼에 분석 텍스트 저장
+- **enriched_description 포맷**: 구조화된 prose (JSON 아님)
+  ```
+  [캐릭터] 주인공 OOO는 ... 성장형/몰락형/관찰자형 등의 특성을 보인다.
+  [문체] 간결하고 건조한 문체로 ... 1인칭/3인칭 시점.
+  [세계관] 현실 기반 / 판타지 / SF 등. 시대적 배경은 ...
+  [플롯] 성장 서사 / 미스터리 / 로맨스 등. 전개 속도와 구조.
+  [메시지] 핵심 주제와 메시지. 사회적/철학적/감성적 방향.
+  [분위기] 따뜻한/어두운/유머러스/서정적 등 전반적 톤.
+  ```
+- **Tier 2 임베딩 입력**: `title + author + genre + enriched_description` (원본 description 대체)
 - **임베딩**: 강화된 텍스트로 재임베딩 → `book_embeddings` 벡터 덮어쓰기
+  - Tier 1 벡터는 별도 보관하지 않음 (Tier 2가 상위 호환이므로 의도적 덮어쓰기)
 - **비용**: Claude Code 구독으로 해결 (추가 API 비용 0)
-- **처리량**: 세션당 200~500권 (병렬 서브에이전트 5개)
+- **처리량**: 세션당 200~500권 (병렬 서브에이전트 5개, 1라운드 ~10분)
 
 ### 4-3. 처리량 예상
 
@@ -196,9 +218,16 @@ steps:
 ### 6-1. books 테이블 — 컬럼 추가
 
 ```sql
+ALTER TABLE books ADD COLUMN sales_point INT;
+-- 알라딘 SalesPoint (판매량 지표). Tier 2 강화 우선순위 결정에 사용.
+-- NULL이면 SalesPoint 미수집 (Demand Layer 캐싱 등).
+
 ALTER TABLE books ADD COLUMN enriched_description TEXT;
 -- AI 강화 분석 텍스트. Tier 2 임베딩의 입력으로 사용.
 -- NULL이면 미강화 상태.
+
+ALTER TABLE books ADD COLUMN updated_at TIMESTAMPTZ DEFAULT now();
+-- enriched_description 업데이트 추적용.
 ```
 
 ### 6-2. book_embeddings 테이블 — 컬럼 추가
@@ -207,16 +236,32 @@ ALTER TABLE books ADD COLUMN enriched_description TEXT;
 ALTER TABLE book_embeddings ADD COLUMN tier SMALLINT DEFAULT 1;
 -- 1: 기본 임베딩 (title+author+genre+description)
 -- 2: AI 강화 임베딩 (enriched_description 기반)
+
+ALTER TABLE book_embeddings ADD COLUMN updated_at TIMESTAMPTZ DEFAULT now();
+-- Tier 업그레이드 시점 추적. created_at은 최초 생성, updated_at은 마지막 갱신.
 ```
 
 ### 6-3. pgvector 인덱스
 
 ```sql
-CREATE INDEX ON book_embeddings
-  USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX idx_book_embeddings_hnsw
+  ON book_embeddings
+  USING hnsw (embedding vector_cosine_ops)
+  WITH (m = 16, ef_construction = 64);
 -- HNSW: 리빌드 불필요, recall 높음, 벡터 업데이트 자동 반영
--- 90K 규모에서 성능 문제 없음
+-- m=16, ef_construction=64: 90K 규모에서 recall/성능 균형 기본값
 ```
+
+### 6-4. batch_collection_state — Daily Batch 상태 리셋
+
+Daily Batch는 매일 반복 실행되므로, 상태 추적 방식 명확화:
+- Phase 1 (ItemList): 소스 조합(카테고리×QueryType)이 `completed=true`면 **영구 스킵** (리스트가 크게 변하지 않음)
+- Phase 2-3 (검색): 검색 결과는 시간에 따라 변하므로, **30일 경과 시 completed 리셋** → 재수집 허용
+- 리셋 로직: Daily Batch 시작 시 `completed=true AND updated_at < now() - 30 days` → `completed=false`로 업데이트
+
+### 6-5. 참고: 배치 스크립트는 반드시 service role key 사용
+
+`SUPABASE_SERVICE_ROLE_KEY`는 RLS를 우회한다. 배치 수집/임베딩 스크립트는 반드시 이 키를 사용해야 한다. anon key로는 books/book_embeddings INSERT가 차단됨.
 
 ---
 
@@ -292,5 +337,5 @@ supabase/
 
 | 문서 | 변경 내용 |
 |------|----------|
-| `docs/ARCHITECTURE.md` | 3-Layer 구조 반영, 2-Tier 임베딩 전략 추가, Demand Layer 검색 흐름 추가 |
+| `docs/ARCHITECTURE.md` | 3-Layer 구조 반영, 2-Tier 임베딩 전략 추가, Demand Layer 검색 흐름 추가, `books.source` 값 `google_books` → `kakao`로 수정 |
 | `docs/plans/batch-collection-agent.md` | 이 스펙으로 대체 (Phase 2-3 삭제 → Daily Batch로 통합, 스킬 설계 업데이트) |
