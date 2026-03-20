@@ -236,9 +236,12 @@ Supabase Auth와 연동. 추가 프로필 정보 저장.
 | page_count | int | 페이지 수 (책등 너비 계산용) |
 | description | text | 줄거리/설명 |
 | genre | text | 장르 |
-| source | text | 'aladin' or 'google_books' |
+| source | text | 'aladin' or 'kakao' |
 | source_id | text | 외부 API의 고유 ID |
+| sales_point | int | 알라딘 판매지수 (Tier 2 강화 우선순위) |
+| enriched_description | text | AI 강화 설명 (Tier 2) |
 | created_at | timestamptz | 등록일 |
+| updated_at | timestamptz | 갱신일 (auto trigger) |
 
 #### `user_books`
 유저의 서재. 책과 유저의 N:M 관계.
@@ -266,15 +269,37 @@ Supabase Auth와 연동. 추가 프로필 정보 저장.
 | free_text | text | 자유 텍스트 |
 | created_at | timestamptz | |
 
-#### `book_embeddings` (Phase 2~3)
-책의 벡터 표현. 줄거리 + 리뷰 + 장르 기반.
+#### `book_embeddings`
+책의 벡터 표현. 2-Tier 임베딩 파이프라인.
 
 | 컬럼 | 타입 | 설명 |
 |------|------|------|
 | id | uuid (PK) | |
-| book_id | uuid (FK → books) | |
-| embedding | vector(1536) | OpenAI embedding 벡터 |
+| book_id | uuid (FK → books, unique) | |
+| embedding | vector(1536) | OpenAI text-embedding-3-small 벡터 |
+| tier | smallint (default 1) | 1=기본(메타데이터), 2=강화(AI enriched) |
 | created_at | timestamptz | |
+| updated_at | timestamptz | 갱신일 (auto trigger) |
+
+> HNSW 인덱스 (`idx_book_embeddings_hnsw`) 적용 — 코사인 유사도 검색용
+
+#### `batch_collection_state`
+배치 수집 진행 상태 추적. 중단/재개 지원.
+
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| id | uuid (PK) | |
+| source_type | text | 'item_list', 'author_search', 'keyword_search' |
+| query_type | text | 'Bestseller', 'ItemNewAll' 등 |
+| category_id | int | 카테고리 ID (item_list용) |
+| search_keyword | text | 검색 키워드 (author/keyword_search용) |
+| last_page_fetched | int | 마지막 처리 페이지 |
+| total_items_found | int | 총 발견 아이템 수 |
+| unique_items_saved | int | 신규 저장 수 |
+| completed | boolean | 완료 여부 |
+| updated_at | timestamptz | 갱신일 (auto trigger) |
+
+> unique constraint: (source_type, query_type, category_id, search_keyword)
 
 #### `user_taste_vectors` (Phase 2~3)
 유저의 취향 벡터. 클러스터별로 분리 저장.
@@ -372,23 +397,26 @@ FastAPI 서버. Supabase DB에서 벡터 데이터를 읽어 추천 계산.
 ```
 내부 엔진 (Background Workers)
   │
-  ├─ 1. 알라딘 배치 수집기
-  │   → 매일/매주 베스트셀러·신간 수집 → books 테이블에 저장
-  │   → 초기: Claude Code로 수동 실행
-  │   → 나중: Cron + Supabase Edge Function
+  ├─ 1. 알라딘 배치 수집기 ✅ 구현 완료 + 자동화
+  │   → 3-Layer 수집: Seed(ItemList) + Daily Batch(저자/키워드 검색) + Demand(앱 검색)
+  │   → 라운드로빈 카테고리 순회 (장르 균형 확보)
+  │   → yield rate 10% 미만 시 소스 자동 스킵
+  │   → --daily-target으로 일일 수집량 제어
+  │   → 30일 경과 소스 자동 리셋
+  │   → GitHub Actions로 매일 KST 03:00 자동 실행
+  │   → 스크립트: scripts/smart_batch_collector.py
   │
-  ├─ 2. 책 메타데이터 강화기 (AI)
+  ├─ 2. 책 메타데이터 강화기 (AI) — Tier 2
   │   → 알라딘/카카오의 짧은 description을 AI로 보강
-  │   → "이 책의 장르, 분위기, 캐릭터 특성, 주제를 분석해줘"
-  │   → 풍부한 텍스트 → 더 좋은 임베딩 벡터 생성
-  │   → 초기: Claude Code로 수동 실행
-  │   → 나중: Claude API 자동 호출
+  │   → enriched_description → 더 좋은 임베딩 벡터 생성
+  │   → 미구현 — 별도 스킬로 수동 트리거 예정
   │
-  ├─ 3. 책 임베딩 생성기
-  │   → 강화된 메타데이터 → 임베딩 벡터 생성
-  │   → book_embeddings 테이블에 저장
-  │   → 초기: Claude Code로 수동 실행
-  │   → 나중: OpenAI Embedding API 자동 호출
+  ├─ 3. 책 임베딩 생성기 ✅ 구현 완료 + 자동화
+  │   → Tier 1: title + author + genre + description → 기본 임베딩
+  │   → Tier 2: enriched_description 기반 강화 임베딩 (미구현)
+  │   → OpenAI text-embedding-3-small (1536차원)
+  │   → 배치 수집 직후 GitHub Actions에서 자동 실행
+  │   → 스크립트: scripts/tier1_embedder.py
   │
   ├─ 4. 유저 취향 벡터 갱신기
   │   → 피드백 쌓일 때마다 취향 벡터 재계산
@@ -408,18 +436,18 @@ FastAPI 서버. Supabase DB에서 벡터 데이터를 읽어 추천 계산.
       → 나중: Claude API 자동 생성
 ```
 
-### 초기 수동 운영 예시
+### 자동화 현황
 
 ```
-[주 1~2회, PM이 Claude Code로 실행]
+[자동 — GitHub Actions, 매일 KST 03:00]
+1. smart_batch_collector.py --daily-target 1000  (알라딘 수집)
+2. tier1_embedder.py                              (Tier 1 임베딩 생성)
+3. smart_batch_collector.py --status               (상태 리포트)
 
-1. "알라딘 베스트셀러 100권 가져와서 DB에 넣어줘"
-2. "이번 주 새로 등록된 책 30권 메타데이터 분석해줘"
-3. "분석 결과로 임베딩 텍스트 만들어줘"
-4. "피드백 10개 이상 쌓인 유저들 취향 벡터 갱신해줘"
-
-→ 결과를 Supabase DB에 저장
-→ 비용: $0 (Claude Code 구독으로 해결)
+[수동 — PM이 Claude Code로 실행 (미구현)]
+1. Tier 2 메타데이터 강화 (enriched_description 생성)
+2. Tier 2 임베딩 재생성 (강화된 텍스트 기반)
+3. 유저 취향 벡터 갱신
 ```
 
 ---
