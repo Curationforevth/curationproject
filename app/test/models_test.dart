@@ -1,0 +1,124 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:curation_app/core/models/book.dart';
+import 'package:curation_app/core/models/user_book.dart';
+import 'package:curation_app/core/models/feedback.dart';
+import 'package:curation_app/core/models/user_profile.dart';
+
+void main() {
+  group('Book', () {
+    test('fromJson/toJson roundtrip', () {
+      final json = {
+        'id': '123',
+        'isbn': '9788936434267',
+        'title': '채식주의자',
+        'author': '한강',
+        'publisher': '창비',
+        'cover_url': 'https://example.com/cover.jpg',
+        'page_count': 247,
+        'description': '소설',
+        'genre': '한국소설',
+        'source': 'aladin',
+        'source_id': 'ext-123',
+        'created_at': '2026-03-22T10:00:00Z',
+      };
+
+      final book = Book.fromJson(json);
+      expect(book.title, '채식주의자');
+      expect(book.author, '한강');
+      expect(book.pageCount, 247);
+      expect(book.source, 'aladin');
+
+      final output = book.toJson();
+      expect(output['title'], '채식주의자');
+      expect(output['cover_url'], 'https://example.com/cover.jpg');
+      expect(output['page_count'], 247);
+    });
+  });
+
+  group('UserBook', () {
+    test('fromJson with status enum', () {
+      final json = {
+        'id': 'ub-1',
+        'user_id': 'user-1',
+        'book_id': 'book-1',
+        'status': 'want_to_read',
+        'created_at': '2026-03-22T10:00:00Z',
+        'updated_at': '2026-03-22T10:00:00Z',
+      };
+
+      final userBook = UserBook.fromJson(json);
+      expect(userBook.status, BookStatus.wantToRead);
+      expect(userBook.book, isNull);
+    });
+
+    test('fromJson with joined book', () {
+      final json = {
+        'id': 'ub-1',
+        'user_id': 'user-1',
+        'book_id': 'book-1',
+        'status': 'read',
+        'created_at': '2026-03-22T10:00:00Z',
+        'updated_at': '2026-03-22T10:00:00Z',
+        'books': {
+          'id': 'book-1',
+          'title': '채식주의자',
+          'author': '한강',
+        },
+      };
+
+      final userBook = UserBook.fromJson(json);
+      expect(userBook.book, isNotNull);
+      expect(userBook.book!.title, '채식주의자');
+    });
+
+    test('toJson outputs snake_case status', () {
+      final userBook = UserBook(
+        id: 'ub-1',
+        userId: 'user-1',
+        bookId: 'book-1',
+        status: BookStatus.wantToRead,
+      );
+      expect(userBook.toJson()['status'], 'want_to_read');
+    });
+  });
+
+  group('BookFeedback', () {
+    test('fromJson/toJson roundtrip', () {
+      final json = {
+        'id': 'fb-1',
+        'user_book_id': 'ub-1',
+        'category': 'writing_style',
+        'sentiment': 'positive',
+        'free_text': '문체가 아름다워요',
+        'created_at': '2026-03-22T10:00:00Z',
+      };
+
+      final feedback = BookFeedback.fromJson(json);
+      expect(feedback.category, FeedbackCategory.writingStyle);
+      expect(feedback.sentiment, FeedbackSentiment.positive);
+      expect(feedback.freeText, '문체가 아름다워요');
+
+      final output = feedback.toJson();
+      expect(output['category'], 'writing_style');
+      expect(output['sentiment'], 'positive');
+    });
+  });
+
+  group('UserProfile', () {
+    test('fromJson/toJson roundtrip', () {
+      final json = {
+        'id': 'user-1',
+        'email': 'test@example.com',
+        'nickname': '독서왕',
+        'avatar_url': 'https://example.com/avatar.jpg',
+        'created_at': '2026-03-22T10:00:00Z',
+      };
+
+      final profile = UserProfile.fromJson(json);
+      expect(profile.nickname, '독서왕');
+
+      final output = profile.toJson();
+      expect(output['avatar_url'], 'https://example.com/avatar.jpg');
+    });
+  });
+}
