@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -6,11 +7,13 @@ class AuthService {
 
   /// 카카오 로그인 — KakaoTalk 앱 우선, 없으면 웹 로그인
   Future<AuthResponse> signInWithKakao() async {
+    // nonce를 전달해야 OpenID Connect idToken이 발급됨
+    final nonce = _generateNonce();
     OAuthToken token;
     if (await isKakaoTalkInstalled()) {
-      token = await UserApi.instance.loginWithKakaoTalk(scopes: ['openid']);
+      token = await UserApi.instance.loginWithKakaoTalk(nonce: nonce);
     } else {
-      token = await UserApi.instance.loginWithKakaoAccount(scopes: ['openid']);
+      token = await UserApi.instance.loginWithKakaoAccount(nonce: nonce);
     }
 
     final idToken = token.idToken;
@@ -45,4 +48,12 @@ class AuthService {
   /// 인증 상태 스트림
   Stream<AuthState> get onAuthStateChange =>
       _supabase.auth.onAuthStateChange;
+
+  String _generateNonce([int length = 32]) {
+    const chars =
+        'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    final random = Random.secure();
+    return List.generate(length, (_) => chars[random.nextInt(chars.length)])
+        .join();
+  }
 }
