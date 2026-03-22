@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../features/auth/providers/auth_provider.dart';
 import '../features/auth/screens/login_screen.dart';
+import '../features/search/screens/book_search_screen.dart';
 
 GoRouter createRouter(AuthNotifier authNotifier) {
   return GoRouter(
@@ -25,6 +26,10 @@ GoRouter createRouter(AuthNotifier authNotifier) {
         path: '/login',
         builder: (context, state) => const LoginScreen(),
       ),
+      GoRoute(
+        path: '/search',
+        builder: (context, state) => const BookSearchScreen(),
+      ),
     ],
   );
 }
@@ -41,6 +46,10 @@ class HomePage extends StatelessWidget {
           onPressed: () => Supabase.instance.client.auth.signOut(),
           child: const Text('로그아웃'),
         ),
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => context.push('/search'),
+        child: const Icon(Icons.search),
       ),
     );
   }
