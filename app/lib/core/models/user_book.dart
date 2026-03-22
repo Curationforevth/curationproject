@@ -2,8 +2,7 @@ import 'book.dart';
 
 enum BookStatus {
   read,
-  reading,
-  wantToRead;
+  reading;
 
   String toJson() {
     switch (this) {
@@ -11,8 +10,6 @@ enum BookStatus {
         return 'read';
       case BookStatus.reading:
         return 'reading';
-      case BookStatus.wantToRead:
-        return 'want_to_read';
     }
   }
 
@@ -22,8 +19,6 @@ enum BookStatus {
         return BookStatus.read;
       case 'reading':
         return BookStatus.reading;
-      case 'want_to_read':
-        return BookStatus.wantToRead;
       default:
         throw ArgumentError('Unknown BookStatus: $value');
     }
@@ -35,6 +30,10 @@ class UserBook {
   final String userId;
   final String bookId;
   final BookStatus status;
+
+  /// 서가 뷰 드래그 정렬 순서
+  final int? shelfOrder;
+
   final DateTime? createdAt;
   final DateTime? updatedAt;
   final Book? book;
@@ -44,6 +43,7 @@ class UserBook {
     required this.userId,
     required this.bookId,
     required this.status,
+    this.shelfOrder,
     this.createdAt,
     this.updatedAt,
     this.book,
@@ -55,6 +55,7 @@ class UserBook {
       userId: json['user_id'] as String,
       bookId: json['book_id'] as String,
       status: BookStatus.fromJson(json['status'] as String),
+      shelfOrder: json['shelf_order'] as int?,
       createdAt: json['created_at'] != null
           ? DateTime.parse(json['created_at'] as String)
           : null,
@@ -72,6 +73,7 @@ class UserBook {
       'user_id': userId,
       'book_id': bookId,
       'status': status.toJson(),
+      'shelf_order': shelfOrder,
     };
   }
 }

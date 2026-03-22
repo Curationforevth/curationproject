@@ -13,13 +13,20 @@ class AppColors {
   static const accentLight = Color(0xFFF4997F);
   static const accentDark = Color(0xFFD4533A);
 
-  // Surface — 배경
-  static const surface = Color(0xFFFDFBF7);
-  static const surfaceVariant = Color(0xFFF5F1EB);
+  // Surface — 배경 (warm cream)
+  static const surface = Color(0xFFF6F1EA);
+  static const surfaceVariant = Color(0xFFF0EAE0);
 
-  // Shelf — 서재 선반
-  static const shelf = Color(0xFFE8E0D4);
-  static const shelfDark = Color(0xFFD4C9B9);
+  // Shelf — 서재 선반 (심플 라인)
+  static const shelf = Color(0xFFE0D8CC);
+  static const shelfDark = Color(0xFFD0C8BC);
+
+  // 마일스톤 배경 테마
+  static const milestone0 = Color(0xFFF6F1EA);   // 0~9권: 크림/따뜻한 베이지
+  static const milestone10 = Color(0xFFE8DFD0);  // 10~29권: 우드톤
+  static const milestone30 = Color(0xFF3A3530);   // 30~49권: 짙은 라이브러리 톤
+  static const milestone50 = Color(0xFF2A2520);   // 50~99권: 다크 우드
+  static const milestone100 = Color(0xFF1A1818);  // 100권+: 풀 다크 라이브러리
 
   // Text
   static const textPrimary = Color(0xFF2B2D42);

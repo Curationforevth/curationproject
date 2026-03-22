@@ -48,12 +48,6 @@ class BookshelfScreen extends ConsumerWidget {
                   title: '읽은 책',
                   books: booksByStatus[BookStatus.read] ?? [],
                 ),
-                const SizedBox(height: 24),
-                _buildSection(
-                  context,
-                  title: '읽고 싶은 책',
-                  books: booksByStatus[BookStatus.wantToRead] ?? [],
-                ),
               ],
             ),
           );

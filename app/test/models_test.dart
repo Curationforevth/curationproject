@@ -41,13 +41,13 @@ void main() {
         'id': 'ub-1',
         'user_id': 'user-1',
         'book_id': 'book-1',
-        'status': 'want_to_read',
+        'status': 'reading',
         'created_at': '2026-03-22T10:00:00Z',
         'updated_at': '2026-03-22T10:00:00Z',
       };
 
       final userBook = UserBook.fromJson(json);
-      expect(userBook.status, BookStatus.wantToRead);
+      expect(userBook.status, BookStatus.reading);
       expect(userBook.book, isNull);
     });
 
@@ -76,9 +76,9 @@ void main() {
         id: 'ub-1',
         userId: 'user-1',
         bookId: 'book-1',
-        status: BookStatus.wantToRead,
+        status: BookStatus.reading,
       );
-      expect(userBook.toJson()['status'], 'want_to_read');
+      expect(userBook.toJson()['status'], 'reading');
     });
   });
 

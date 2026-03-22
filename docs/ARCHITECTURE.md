@@ -57,6 +57,8 @@
 [MVP - Phase 1]
 유저 → Flutter 앱 → Supabase Auth (로그인)
 유저 → 책 검색 → 카카오 책 검색 API → 결과 표시 → 선택 시 books 테이블에 캐싱
+유저 → 책 등록 → palette_generator로 표지 dominant color 추출 → books.dominant_colors 저장
+  → LLM으로 메타데이터 분석 → mood_tags + spine_font 자동 배정 → books 테이블 업데이트
 유저 → 책 등록 → Supabase DB (user_books)
 유저 → 피드백 입력 → Supabase DB (feedbacks)
 
@@ -91,27 +93,30 @@ lib/
 ├── core/                        # 공통 모듈
 │   ├── models/                  # 데이터 모델
 │   │   ├── book.dart            # 책 정보 (제목, 저자, ISBN, 표지URL, 페이지수 등)
-│   │   ├── user_book.dart       # 유저-책 관계 (상태: 읽음/읽는중/읽고싶은)
+│   │   ├── user_book.dart       # 유저-책 관계 (상태: 읽음/읽는중)
 │   │   ├── feedback.dart        # 피드백 (카테고리, 자유텍스트, 긍정/부정)
 │   │   └── user_profile.dart    # 유저 프로필
 │   │
 │   ├── services/                # 외부 서비스 연동
 │   │   ├── supabase_service.dart    # Supabase 클라이언트
-│   │   ├── book_search_service.dart # 알라딘 + Google Books API
+│   │   ├── book_search_service.dart # 카카오 책 검색 API (메인)
+│   │   ├── mood_tag_service.dart    # LLM으로 책 메타데이터 → 무드 태그 + 폰트 배정
 │   │   └── auth_service.dart        # 인증 로직
 │   │
 │   ├── theme/                   # 디자인 시스템
-│   │   ├── app_theme.dart       # 테마 정의 (warm wood tones, 폰트 등)
+│   │   ├── app_theme.dart       # 테마 정의 (warm cream, 마일스톤별 테마 전환)
 │   │   ├── app_colors.dart      # 컬러 팔레트
 │   │   └── app_typography.dart  # 타이포그래피
 │   │
 │   ├── widgets/                 # 재사용 위젯
-│   │   ├── book_spine.dart      # 책등 위젯 (색상 추출, 세로 텍스트)
+│   │   ├── book_spine.dart      # 책등 위젯 (컬러 블록 + 세로 텍스트)
 │   │   ├── bookshelf_row.dart   # 서재 선반 한 줄
+│   │   ├── cover_card.dart      # 커버 피드용 표지 카드
 │   │   └── animated_book_add.dart # 책 꽂히는 애니메이션
 │   │
 │   └── utils/                   # 유틸리티
-│       ├── color_extractor.dart # 표지 이미지에서 dominant color 추출
+│       ├── color_extractor.dart # 표지 이미지에서 dominant color 2~3개 추출
+│       ├── font_assigner.dart   # 장르/무드 기반 책등 폰트 자동 배정
 │       └── constants.dart       # 상수값
 │
 ├── features/                    # 기능별 모듈
@@ -126,13 +131,15 @@ lib/
 │   │
 │   ├── bookshelf/               # 서재 (메인 화면)
 │   │   ├── screens/
-│   │   │   └── bookshelf_screen.dart         # 서재 메인
+│   │   │   └── bookshelf_screen.dart         # 서재 메인 (뷰 토글 관리)
 │   │   ├── widgets/
-│   │   │   ├── bookshelf_view.dart           # 서재 전체 뷰 (선반들)
+│   │   │   ├── cover_feed_view.dart          # 커버 피드 뷰 (넷플릭스형 행)
+│   │   │   ├── shelf_view.dart               # 서가 뷰 (책등 + 드래그 정렬)
+│   │   │   ├── feed_section.dart             # 피드 행 (가로 스크롤 섹션)
 │   │   │   ├── milestone_background.dart     # 마일스톤별 배경
-│   │   │   └── empty_shelf.dart              # 빈 선반 (CTA 포함)
+│   │   │   └── empty_shelf.dart              # 빈 서재 (CTA 포함)
 │   │   └── providers/
-│   │       └── bookshelf_provider.dart       # 서재 상태 관리
+│   │       └── bookshelf_provider.dart       # 서재 상태 + 피드 행 로직
 │   │
 │   ├── search/                  # 책 검색
 │   │   ├── screens/
@@ -209,6 +216,8 @@ lib/
                      └───────────────────┘
 ```
 
+> **주의:** ERD 다이어그램은 주요 컬럼만 표시. books 테이블의 dominant_colors, mood_tags, spine_font 및 user_books의 shelf_order는 아래 테이블 상세 참조.
+
 ### 테이블 상세
 
 #### `users`
@@ -240,6 +249,9 @@ Supabase Auth와 연동. 추가 프로필 정보 저장.
 | source_id | text | 외부 API의 고유 ID |
 | sales_point | int | 알라딘 판매지수 (Tier 2 강화 우선순위) |
 | enriched_description | text | AI 강화 설명 (Tier 2) |
+| dominant_colors | jsonb | 표지 dominant color 2~3개 (hex 배열, 예: ["#3A2518","#8B6B4A","#D4C4A8"]) |
+| mood_tags | text[] | LLM 자동 부여 무드 태그 (예: {"잔잔한","따뜻한"}) |
+| spine_font | text | 책등 폰트 이름 (LLM 자동 배정, 예: 'Nanum Myeongjo') |
 | created_at | timestamptz | 등록일 |
 | updated_at | timestamptz | 갱신일 (auto trigger) |
 
@@ -251,7 +263,8 @@ Supabase Auth와 연동. 추가 프로필 정보 저장.
 | id | uuid (PK) | |
 | user_id | uuid (FK → users) | |
 | book_id | uuid (FK → books) | |
-| status | text | 'read', 'reading', 'want_to_read' |
+| status | text | 'read', 'reading' (MVP에서 'want_to_read' 제외) |
+| shelf_order | int | 서가 뷰 드래그 정렬 순서 (유저가 직접 배치한 위치) |
 | created_at | timestamptz | 등록일 |
 | updated_at | timestamptz | 상태 변경일 |
 
@@ -353,7 +366,7 @@ MVP에서는 Supabase 클라이언트 SDK로 직접 DB 호출. 별도 API 서버
 |------|--------------|------|
 | 서재 조회 | `user_books.select('*, books(*)')` | 내 서재의 모든 책 + 책 정보 |
 | 책 추가 | `books.upsert()` → `user_books.insert()` | 책 캐싱 후 서재에 추가 |
-| 상태 변경 | `user_books.update({ status })` | 읽음/읽는중/읽고싶은 |
+| 상태 변경 | `user_books.update({ status })` | 읽음/읽는중 |
 | 책 제거 | `user_books.delete()` | 서재에서 제거 |
 
 #### 피드백 CRUD
@@ -554,7 +567,9 @@ recommendation-server/
 |------|------|-------------------|
 | **인증** | 카카오 + Google + Apple 소셜 로그인 | - |
 | **책 검색** | 카카오 (메인) + 알라딘 (보완/배치) | - |
-| **서재** | 책 등록/삭제, 상태 관리, 서재 UI | 마일스톤 배경 진화 (있으면 좋지만 후순위) |
+| **서재** | 커버 피드 + 서가 뷰 하이브리드, 드래그 정렬, 마일스톤 배경 | - |
+| **책등 생성** | 표지 색상 추출 + 무드 기반 폰트 배정 (LLM) | - |
+| **무드 태그** | 책 메타데이터 → LLM 무드 태그 자동 부여 | 피드백 기반 정확도 개선 |
 | **피드백** | 카테고리 선택 + 자유 텍스트 | - |
 | **온보딩** | 책 선택 + 첫 피드백 | - |
 | **내부 엔진** | 알라딘 배치 수집, 메타데이터 강화 (Claude Code 수동) | 자동화 전환 (Claude API + OpenAI API) |

@@ -10,6 +10,16 @@ class Book {
   final String? genre;
   final String? source;
   final String? sourceId;
+
+  /// 표지에서 추출한 dominant color 2~3개 (hex 문자열)
+  final List<String>? dominantColors;
+
+  /// LLM이 자동 부여한 무드 태그 (예: "잔잔한", "몰입감 있는")
+  final List<String>? moodTags;
+
+  /// 장르/무드 기반 자동 배정된 책등 폰트명 (예: "Nanum Myeongjo")
+  final String? spineFont;
+
   final DateTime? createdAt;
 
   const Book({
@@ -24,6 +34,9 @@ class Book {
     this.genre,
     this.source,
     this.sourceId,
+    this.dominantColors,
+    this.moodTags,
+    this.spineFont,
     this.createdAt,
   });
 
@@ -40,6 +53,13 @@ class Book {
       genre: json['genre'] as String?,
       source: json['source'] as String?,
       sourceId: json['source_id'] as String?,
+      dominantColors: (json['dominant_colors'] as List<dynamic>?)
+          ?.map((e) => e as String)
+          .toList(),
+      moodTags: (json['mood_tags'] as List<dynamic>?)
+          ?.map((e) => e as String)
+          .toList(),
+      spineFont: json['spine_font'] as String?,
       createdAt: json['created_at'] != null
           ? DateTime.parse(json['created_at'] as String)
           : null,
@@ -59,6 +79,9 @@ class Book {
       'genre': genre,
       'source': source,
       'source_id': sourceId,
+      'dominant_colors': dominantColors,
+      'mood_tags': moodTags,
+      'spine_font': spineFont,
     };
   }
 }
