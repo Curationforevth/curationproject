@@ -1,15 +1,33 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../features/auth/providers/auth_provider.dart';
+import '../features/auth/screens/login_screen.dart';
 
-final goRouter = GoRouter(
-  initialLocation: '/',
-  routes: [
-    GoRoute(
-      path: '/',
-      builder: (context, state) => const HomePage(),
-    ),
-  ],
-);
+GoRouter createRouter(AuthNotifier authNotifier) {
+  return GoRouter(
+    initialLocation: '/',
+    refreshListenable: authNotifier,
+    redirect: (context, state) {
+      final session = Supabase.instance.client.auth.currentSession;
+      final isLoginRoute = state.matchedLocation == '/login';
+
+      if (session == null && !isLoginRoute) return '/login';
+      if (session != null && isLoginRoute) return '/';
+      return null;
+    },
+    routes: [
+      GoRoute(
+        path: '/',
+        builder: (context, state) => const HomePage(),
+      ),
+      GoRoute(
+        path: '/login',
+        builder: (context, state) => const LoginScreen(),
+      ),
+    ],
+  );
+}
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -17,10 +35,11 @@ class HomePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: AppBar(title: const Text('Curation')),
       body: Center(
-        child: Text(
-          'Curation',
-          style: Theme.of(context).textTheme.headlineLarge,
+        child: ElevatedButton(
+          onPressed: () => Supabase.instance.client.auth.signOut(),
+          child: const Text('로그아웃'),
         ),
       ),
     );
