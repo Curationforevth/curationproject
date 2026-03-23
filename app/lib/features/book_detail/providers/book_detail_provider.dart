@@ -9,6 +9,9 @@ import '../../bookshelf/providers/bookshelf_provider.dart';
 
 // --- 상태 ---
 
+// Sentinel object used to distinguish "not passed" from explicit null in copyWith.
+const _kClear = Object();
+
 class BookDetailState {
   final UserBook? userBook;
   final bool isLoading;
@@ -23,12 +26,12 @@ class BookDetailState {
   BookDetailState copyWith({
     UserBook? userBook,
     bool? isLoading,
-    String? error,
+    Object? error = _kClear,
   }) {
     return BookDetailState(
       userBook: userBook ?? this.userBook,
       isLoading: isLoading ?? this.isLoading,
-      error: error,
+      error: identical(error, _kClear) ? this.error : error as String?,
     );
   }
 }

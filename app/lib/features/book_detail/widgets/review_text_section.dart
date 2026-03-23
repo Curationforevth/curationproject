@@ -45,6 +45,7 @@ class _ReviewTextSectionState extends State<ReviewTextSection> {
   String? _selectedTopic;
   String _placeholder = '이 책에 대해 자유롭게 적어보세요...';
   bool _hasChanges = false;
+  ReflectionPrompt? _currentPrompt;
 
   @override
   void initState() {
@@ -64,6 +65,10 @@ class _ReviewTextSectionState extends State<ReviewTextSection> {
     super.dispose();
   }
 
+  void _refreshPrompt() {
+    setState(() => _currentPrompt = _getRandomPrompt());
+  }
+
   void _onTopicTap(String category) {
     setState(() {
       _selectedTopic = _selectedTopic == category ? null : category;
@@ -71,6 +76,7 @@ class _ReviewTextSectionState extends State<ReviewTextSection> {
           ? _topicHints[_selectedTopic]!
           : '이 책에 대해 자유롭게 적어보세요...';
     });
+    _refreshPrompt();
   }
 
   void _onPromptTap(ReflectionPrompt prompt) {
@@ -214,9 +220,9 @@ class _ReviewTextSectionState extends State<ReviewTextSection> {
                 const SizedBox(height: 8),
                 if (widget.prompts.isNotEmpty)
                   _ReflectionQuestionCard(
-                    prompt: _getRandomPrompt(),
+                    prompt: _currentPrompt ?? _getRandomPrompt(),
                     onTap: _onPromptTap,
-                    onRefresh: () => setState(() {}),
+                    onRefresh: _refreshPrompt,
                   ),
               ],
             ),

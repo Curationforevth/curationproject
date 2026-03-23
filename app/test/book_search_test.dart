@@ -153,6 +153,16 @@ void main() {
     });
   });
 
+  group('FakeBookRegistrationService', () {
+    test('registerBook returns a non-empty string', () async {
+      final service = FakeBookRegistrationService();
+      final book = Book(id: '1', title: '채식주의자', isbn: '9788936434267');
+      final result = await service.registerBook(book, null);
+      expect(result, isA<String>());
+      expect(result, isNotEmpty);
+    });
+  });
+
   group('BookSearchState', () {
     test('initial state is idle with empty results', () {
       const state = BookSearchState();
