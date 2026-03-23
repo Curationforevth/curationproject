@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../models/book.dart';
 import '../theme/app_colors.dart';
 
@@ -53,8 +54,26 @@ class BookSpine extends StatelessWidget {
     return bg.computeLuminance() > 0.4 ? Colors.black87 : Colors.white;
   }
 
-  /// 폰트 패밀리 (spine_font 필드 또는 기본값)
-  String get _fontFamily => book.spineFont ?? 'Pretendard';
+  /// 책등 제목 TextStyle (google_fonts 사용, 실패 시 기본 폰트 폴백)
+  TextStyle _titleTextStyle({required Color color, required double fontSize}) {
+    final fontName = book.spineFont ?? 'Pretendard';
+    try {
+      return GoogleFonts.getFont(
+        fontName,
+        color: color,
+        fontSize: fontSize,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 0.5,
+      );
+    } catch (_) {
+      return TextStyle(
+        color: color,
+        fontSize: fontSize,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 0.5,
+      );
+    }
+  }
 
   /// hex 문자열 → Color
   static Color? _parseHex(String hex) {
@@ -104,13 +123,7 @@ class BookSpine extends StatelessWidget {
                   quarterTurns: 1,
                   child: Text(
                     book.title,
-                    style: TextStyle(
-                      color: titleColor,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      fontFamily: _fontFamily,
-                      letterSpacing: 0.5,
-                    ),
+                    style: _titleTextStyle(color: titleColor, fontSize: 10),
                   ),
                 ),
               ),
