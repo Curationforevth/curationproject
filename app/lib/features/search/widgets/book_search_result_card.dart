@@ -4,17 +4,19 @@ import '../../../core/models/book.dart';
 class BookSearchResultCard extends StatelessWidget {
   final Book book;
   final VoidCallback? onTap;
+  final bool isAdded;
 
   const BookSearchResultCard({
     super.key,
     required this.book,
     this.onTap,
+    this.isAdded = false,
   });
 
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      onTap: onTap,
+      onTap: isAdded ? null : onTap,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
@@ -70,6 +72,20 @@ class BookSearchResultCard extends StatelessWidget {
                 ],
               ),
             ),
+            if (isAdded)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.grey[200],
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '추가됨',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: Colors.grey[600],
+                      ),
+                ),
+              ),
           ],
         ),
       ),

@@ -3,9 +3,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:curation_app/core/models/book.dart';
 import 'package:curation_app/core/services/book_search_service.dart';
+import 'package:curation_app/core/services/book_registration_service.dart';
 import 'package:curation_app/features/search/providers/book_search_provider.dart';
 import 'package:curation_app/features/search/screens/book_search_screen.dart';
 import 'package:curation_app/features/search/widgets/book_search_result_card.dart';
+import 'package:curation_app/features/bookshelf/providers/bookshelf_provider.dart';
 
 class FakeBookSearchService implements BookSearchService {
   @override
@@ -15,6 +17,17 @@ class FakeBookSearchService implements BookSearchService {
 
   @override
   Future<void> cacheBook(Book book) async {}
+}
+
+class FakeBookRegistrationService implements BookRegistrationService {
+  @override
+  Future<void> registerBook(Book book, dynamic status) async {}
+
+  @override
+  Future<bool> isBookInShelf(String? isbn) async => false;
+
+  @override
+  Future<Set<String>> getShelfIsbns() async => {};
 }
 
 void main() {
@@ -92,6 +105,8 @@ void main() {
           overrides: [
             bookSearchServiceProvider
                 .overrideWithValue(FakeBookSearchService()),
+            registrationServiceProvider
+                .overrideWithValue(FakeBookRegistrationService()),
           ],
           child: const MaterialApp(
             home: BookSearchScreen(),

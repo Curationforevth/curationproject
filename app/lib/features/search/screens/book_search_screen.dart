@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/models/book.dart';
+import '../../../core/models/user_book.dart';
+import '../../bookshelf/providers/bookshelf_provider.dart';
 import '../providers/book_search_provider.dart';
 import '../widgets/book_search_result_card.dart';
 
@@ -12,11 +15,68 @@ class BookSearchScreen extends ConsumerStatefulWidget {
 
 class _BookSearchScreenState extends ConsumerState<BookSearchScreen> {
   final _controller = TextEditingController();
+  bool _isRegistering = false;
 
   @override
   void dispose() {
     _controller.dispose();
     super.dispose();
+  }
+
+  Future<void> _showStatusBottomSheet(Book book) async {
+    if (_isRegistering) return;
+
+    final status = await showModalBottomSheet<BookStatus>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('읽기 상태 선택',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+            ),
+            ListTile(
+              leading: const Icon(Icons.auto_stories),
+              title: const Text('읽는 중'),
+              onTap: () => Navigator.pop(context, BookStatus.reading),
+            ),
+            ListTile(
+              leading: const Icon(Icons.check_circle_outline),
+              title: const Text('다 읽었어요'),
+              onTap: () => Navigator.pop(context, BookStatus.read),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+
+    if (status == null || !mounted) return;
+
+    setState(() => _isRegistering = true);
+
+    try {
+      await addBookToShelf(ref, book, status);
+      ref.read(bookSearchProvider.notifier).markAsAdded(book.isbn);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${book.title} 서재에 추가됨')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        final message = e.toString().contains('unique')
+            ? '이미 서재에 있어요'
+            : '추가 실패: $e';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(message)),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isRegistering = false);
+    }
   }
 
   @override
@@ -61,17 +121,16 @@ class _BookSearchScreenState extends ConsumerState<BookSearchScreen> {
             ? const Center(child: Text('검색 결과가 없습니다'))
             : ListView.separated(
                 itemCount: searchState.results.length,
-                separatorBuilder: (context, index) => const Divider(height: 1),
+                separatorBuilder: (context, index) =>
+                    const Divider(height: 1),
                 itemBuilder: (context, index) {
                   final book = searchState.results[index];
+                  final isAdded = book.isbn != null &&
+                      searchState.shelfIsbns.contains(book.isbn);
                   return BookSearchResultCard(
                     book: book,
-                    onTap: () {
-                      // TODO: 서재 추가 연결
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('${book.title} 선택됨')),
-                      );
-                    },
+                    isAdded: isAdded,
+                    onTap: () => _showStatusBottomSheet(book),
                   );
                 },
               ),
