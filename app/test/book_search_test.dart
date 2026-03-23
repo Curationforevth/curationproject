@@ -96,6 +96,40 @@ void main() {
       await tester.tap(find.text('테스트'));
       expect(tapped, isTrue);
     });
+
+    testWidgets('shows 추가됨 badge when isAdded', (tester) async {
+      final book = Book(id: '1', title: '테스트 책', isbn: '1234567890');
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: BookSearchResultCard(
+              book: book,
+              isAdded: true,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('추가됨'), findsOneWidget);
+    });
+
+    testWidgets('hides badge when not added', (tester) async {
+      final book = Book(id: '1', title: '테스트 책', isbn: '1234567890');
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: BookSearchResultCard(
+              book: book,
+              isAdded: false,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('추가됨'), findsNothing);
+    });
   });
 
   group('BookSearchScreen', () {
