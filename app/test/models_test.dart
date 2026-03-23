@@ -3,6 +3,8 @@ import 'package:curation_app/core/models/book.dart';
 import 'package:curation_app/core/models/user_book.dart';
 import 'package:curation_app/core/models/feedback.dart';
 import 'package:curation_app/core/models/user_profile.dart';
+import 'package:curation_app/core/models/emotion_tag.dart';
+import 'package:curation_app/core/models/reflection_prompt.dart';
 
 void main() {
   group('Book', () {
@@ -173,6 +175,51 @@ void main() {
 
       final output = profile.toJson();
       expect(output['avatar_url'], 'https://example.com/avatar.jpg');
+    });
+  });
+
+  group('EmotionTag', () {
+    test('fromJson parses correctly', () {
+      final json = {
+        'id': 'et-1',
+        'label': '잔잔한',
+        'sort_order': 1,
+        'is_active': true,
+      };
+
+      final tag = EmotionTag.fromJson(json);
+      expect(tag.id, 'et-1');
+      expect(tag.label, '잔잔한');
+      expect(tag.sortOrder, 1);
+      expect(tag.isActive, true);
+    });
+  });
+
+  group('ReflectionPrompt', () {
+    test('fromJson parses with category', () {
+      final json = {
+        'id': 'rp-1',
+        'question': '주인공의 어떤 선택이 인상적이었나요?',
+        'category': 'character',
+        'is_active': true,
+      };
+
+      final prompt = ReflectionPrompt.fromJson(json);
+      expect(prompt.id, 'rp-1');
+      expect(prompt.question, '주인공의 어떤 선택이 인상적이었나요?');
+      expect(prompt.category, 'character');
+    });
+
+    test('fromJson handles null category', () {
+      final json = {
+        'id': 'rp-2',
+        'question': '가장 기억에 남는 장면이 있나요?',
+        'category': null,
+        'is_active': true,
+      };
+
+      final prompt = ReflectionPrompt.fromJson(json);
+      expect(prompt.category, isNull);
     });
   });
 }
