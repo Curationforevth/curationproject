@@ -33,6 +33,23 @@ void main() {
       expect(output['cover_url'], 'https://example.com/cover.jpg');
       expect(output['page_count'], 247);
     });
+
+    test('toJsonForUpsert excludes id and createdAt', () {
+      final book = Book(
+        id: 'temp-id',
+        isbn: '9788936434267',
+        title: '채식주의자',
+        author: '한강',
+        source: 'kakao',
+      );
+
+      final json = book.toJsonForUpsert();
+      expect(json.containsKey('id'), false);
+      expect(json.containsKey('created_at'), false);
+      expect(json['isbn'], '9788936434267');
+      expect(json['title'], '채식주의자');
+      expect(json['source'], 'kakao');
+    });
   });
 
   group('UserBook', () {

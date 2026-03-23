@@ -84,4 +84,23 @@ class Book {
       'spine_font': spineFont,
     };
   }
+
+  /// Supabase upsert용 (id, created_at 제외 — DB가 자동 생성)
+  Map<String, dynamic> toJsonForUpsert() {
+    return {
+      'isbn': isbn,
+      'title': title,
+      'author': author,
+      'publisher': publisher,
+      'cover_url': coverUrl,
+      'page_count': pageCount,
+      'description': description,
+      'genre': genre,
+      'source': source,
+      'source_id': sourceId,
+      'dominant_colors': dominantColors,
+      'mood_tags': moodTags,
+      'spine_font': spineFont,
+    };
+  }
 }
