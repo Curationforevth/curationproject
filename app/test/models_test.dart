@@ -97,6 +97,43 @@ void main() {
       );
       expect(userBook.toJson()['status'], 'reading');
     });
+
+    test('fromJson parses rating, emotionTags, reviewText', () {
+      final json = {
+        'id': 'ub-1',
+        'user_id': 'u-1',
+        'book_id': 'b-1',
+        'status': 'reading',
+        'shelf_order': null,
+        'rating': 'good',
+        'emotion_tags': ['tag-id-1', 'tag-id-2'],
+        'review_text': '정말 좋은 책이었다',
+        'created_at': null,
+        'updated_at': null,
+      };
+
+      final ub = UserBook.fromJson(json);
+      expect(ub.rating, 'good');
+      expect(ub.emotionTags, ['tag-id-1', 'tag-id-2']);
+      expect(ub.reviewText, '정말 좋은 책이었다');
+    });
+
+    test('fromJson handles null feedback fields', () {
+      final json = {
+        'id': 'ub-2',
+        'user_id': 'u-1',
+        'book_id': 'b-1',
+        'status': 'read',
+        'shelf_order': null,
+        'created_at': null,
+        'updated_at': null,
+      };
+
+      final ub = UserBook.fromJson(json);
+      expect(ub.rating, isNull);
+      expect(ub.emotionTags, isNull);
+      expect(ub.reviewText, isNull);
+    });
   });
 
   group('BookFeedback', () {

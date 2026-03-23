@@ -34,6 +34,15 @@ class UserBook {
   /// 서가 뷰 드래그 정렬 순서
   final int? shelfOrder;
 
+  /// 호오 평가 ('good', 'neutral', 'bad')
+  final String? rating;
+
+  /// 감성태그 ID 배열
+  final List<String>? emotionTags;
+
+  /// 자유 리뷰 텍스트
+  final String? reviewText;
+
   final DateTime? createdAt;
   final DateTime? updatedAt;
   final Book? book;
@@ -44,6 +53,9 @@ class UserBook {
     required this.bookId,
     required this.status,
     this.shelfOrder,
+    this.rating,
+    this.emotionTags,
+    this.reviewText,
     this.createdAt,
     this.updatedAt,
     this.book,
@@ -56,6 +68,11 @@ class UserBook {
       bookId: json['book_id'] as String,
       status: BookStatus.fromJson(json['status'] as String),
       shelfOrder: json['shelf_order'] as int?,
+      rating: json['rating'] as String?,
+      emotionTags: (json['emotion_tags'] as List<dynamic>?)
+          ?.map((e) => e as String)
+          .toList(),
+      reviewText: json['review_text'] as String?,
       createdAt: json['created_at'] != null
           ? DateTime.parse(json['created_at'] as String)
           : null,
@@ -74,6 +91,9 @@ class UserBook {
       'book_id': bookId,
       'status': status.toJson(),
       'shelf_order': shelfOrder,
+      'rating': rating,
+      'emotion_tags': emotionTags,
+      'review_text': reviewText,
     };
   }
 }
