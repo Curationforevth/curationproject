@@ -12,7 +12,7 @@ class BookRegistrationService {
       : _supabase = client ?? Supabase.instance.client;
 
   /// 책 등록 파이프라인 (동기 + 비동기 백그라운드)
-  Future<void> registerBook(Book book, BookStatus status) async {
+  Future<String> registerBook(Book book, BookStatus status) async {
     final userId = _supabase.auth.currentUser?.id;
     if (userId == null) throw Exception('로그인이 필요합니다');
 
@@ -35,14 +35,17 @@ class BookRegistrationService {
     final bookId = upsertResult.first['id'] as String;
 
     // 2. user_books insert
-    await _supabase.from('user_books').insert({
+    final userBookResult = await _supabase.from('user_books').insert({
       'user_id': userId,
       'book_id': bookId,
       'status': status.toJson(),
-    });
+    }).select('id');
+
+    final userBookId = userBookResult.first['id'] as String;
 
     // 3. 비동기 백그라운드 — 실패해도 사용자 흐름 차단하지 않음
     _enrichBookAsync(bookId, book);
+    return userBookId;
   }
 
   /// 유저 서재에 해당 ISBN의 책이 있는지 확인

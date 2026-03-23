@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../../../core/models/book.dart';
 import '../../../core/models/user_book.dart';
 import '../../bookshelf/providers/bookshelf_provider.dart';
@@ -58,11 +59,17 @@ class _BookSearchScreenState extends ConsumerState<BookSearchScreen> {
     setState(() => _isRegistering = true);
 
     try {
-      await addBookToShelf(ref, book, status);
+      final userBookId = await addBookToShelf(ref, book, status);
       ref.read(bookSearchProvider.notifier).markAsAdded(book.isbn);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${book.title} 서재에 추가됨')),
+          SnackBar(
+            content: Text('${book.title} 서재에 추가됨'),
+            action: SnackBarAction(
+              label: '보러가기',
+              onPressed: () => context.push('/book/$userBookId'),
+            ),
+          ),
         );
       }
     } catch (e) {

@@ -42,9 +42,10 @@ final bookCountProvider = Provider<int>((ref) {
 final registrationServiceProvider =
     Provider<BookRegistrationService>((ref) => BookRegistrationService());
 
-/// 서재에 책 추가 (등록 파이프라인 실행 + 리프레시)
-Future<void> addBookToShelf(WidgetRef ref, Book book, BookStatus status) async {
+/// 서재에 책 추가. 등록된 userBookId를 반환.
+Future<String> addBookToShelf(WidgetRef ref, Book book, BookStatus status) async {
   final service = ref.read(registrationServiceProvider);
-  await service.registerBook(book, status);
+  final userBookId = await service.registerBook(book, status);
   ref.invalidate(bookshelfProvider);
+  return userBookId;
 }

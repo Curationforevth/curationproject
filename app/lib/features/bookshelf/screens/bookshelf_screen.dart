@@ -96,10 +96,10 @@ class BookshelfScreen extends ConsumerWidget {
         BookshelfRow(
           books: booksWithData,
           onBookTap: (book) {
-            // TODO: 책 상세 화면으로 이동
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(book.title)),
+            final userBook = books.firstWhere(
+              (ub) => ub.book?.id == book.id,
             );
+            context.push('/book/${userBook.id}');
           },
         ),
       ],

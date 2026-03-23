@@ -21,7 +21,7 @@ class FakeBookSearchService implements BookSearchService {
 
 class FakeBookRegistrationService implements BookRegistrationService {
   @override
-  Future<void> registerBook(Book book, dynamic status) async {}
+  Future<String> registerBook(Book book, dynamic status) async => 'fake-id';
 
   @override
   Future<bool> isBookInShelf(String? isbn) async => false;
