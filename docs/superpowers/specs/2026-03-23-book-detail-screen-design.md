@@ -88,13 +88,28 @@ ScaffoldMessenger.of(context).showSnackBar(
 );
 ```
 
+## 데이터 조회/저장 패턴
+
+### Provider 구조
+
+- **bookDetailProvider** (신규) — `user_books` + `books` 조인 데이터를 단건 조회하는 FutureProvider.family(userBookId)
+- 호오/감성태그 변경 → bookDetailProvider 내 mutation 메서드로 즉시 upsert + 로컬 상태 반영
+- 리뷰 텍스트 저장 → 별도 mutation (저장 버튼 탭 시)
+- 변경 후 bookshelfProvider도 invalidate하여 서재 목록과 동기화
+
+### 자동 저장 실패 처리
+
+- 호오/감성태그 자동 저장 실패 시: UI를 이전 상태로 롤백 + 스낵바("저장 실패, 다시 시도해주세요")
+- 낙관적 업데이트(optimistic update) — 탭 즉시 UI 반영, 서버 실패 시 되돌림
+
 ## DB 변경
 
 ### 컬럼 추가
 
 `user_books` 테이블:
 - `rating` text — 'good' / 'neutral' / 'bad' (nullable, 미평가 허용)
-- `emotion_tags` jsonb — ["잔잔한", "따뜻한"] (nullable)
+- `emotion_tags` jsonb — 감성태그 **ID 배열** (예: ["uuid-1", "uuid-2"]) (nullable)
+  - 라벨 문자열이 아닌 ID로 저장 — 태그 이름 변경 시 기존 데이터 정합성 유지
 - `review_text` text — 자유 텍스트 리뷰 (nullable)
 
 ### 신규 테이블
@@ -109,7 +124,12 @@ ScaffoldMessenger.of(context).showSnackBar(
 - `id` uuid PK
 - `question` text NOT NULL — "가장 기억에 남는 장면이 있나요?"
 - `category` text — 속성 칩과 연결 (nullable, 범용 질문은 null)
+  - 카테고리 값: 'character', 'writing_style', 'worldbuilding', 'plot', 'message', 'atmosphere'
 - `is_active` boolean DEFAULT true
+
+### 글쓰기 도움 패널 — 속성 칩 설명
+
+속성 칩 [캐릭터] [문체] [전개] [분위기] [메시지] [세계관]은 **UI 전용 가이드**이며 유저 데이터로 저장하지 않음. placeholder 힌트 변경과 리플렉션 질문 필터링에만 사용. 기존 `FeedbackCategory` enum과 값이 동일하지만, 이 칩은 구조화된 피드백 입력이 아니라 자유 텍스트 작성을 돕는 보조 장치.
 
 ### 기존 모델 정리
 
