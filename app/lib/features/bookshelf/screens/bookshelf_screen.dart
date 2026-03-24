@@ -5,6 +5,7 @@ import '../../../core/models/user_book.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/bookshelf_row.dart';
 import '../providers/bookshelf_provider.dart';
+import '../widgets/cover_feed_view.dart';
 
 class BookshelfScreen extends ConsumerWidget {
   const BookshelfScreen({super.key});
@@ -12,12 +13,19 @@ class BookshelfScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final booksAsync = ref.watch(bookshelfProvider);
-    final booksByStatus = ref.watch(booksByStatusProvider);
+    final isCoverMode = ref.watch(viewModeProvider);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('내 서재'),
         actions: [
+          // 커버/서가 토글
+          _ViewToggle(
+            isCoverMode: isCoverMode,
+            onChanged: (value) =>
+                ref.read(viewModeProvider.notifier).state = value,
+          ),
+          const SizedBox(width: 2),
           IconButton(
             icon: const Icon(Icons.search),
             onPressed: () => context.push('/search'),
@@ -34,24 +42,9 @@ class BookshelfScreen extends ConsumerWidget {
 
           return RefreshIndicator(
             onRefresh: () => ref.refresh(bookshelfProvider.future),
-            child: ListView(
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              children: [
-                _buildSection(
-                  context,
-                  ref: ref,
-                  title: '읽는 중',
-                  userBooks: booksByStatus[BookStatus.reading] ?? [],
-                ),
-                const SizedBox(height: 24),
-                _buildSection(
-                  context,
-                  ref: ref,
-                  title: '읽은 책',
-                  userBooks: booksByStatus[BookStatus.read] ?? [],
-                ),
-              ],
-            ),
+            child: isCoverMode
+                ? const CoverFeedView()
+                : _shelfView(context, ref),
           );
         },
       ),
@@ -62,7 +55,31 @@ class BookshelfScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildSection(
+  /// 기존 서가 뷰
+  Widget _shelfView(BuildContext context, WidgetRef ref) {
+    final booksByStatus = ref.watch(booksByStatusProvider);
+
+    return ListView(
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      children: [
+        _buildShelfSection(
+          context,
+          ref: ref,
+          title: '읽는 중',
+          userBooks: booksByStatus[BookStatus.reading] ?? [],
+        ),
+        const SizedBox(height: 24),
+        _buildShelfSection(
+          context,
+          ref: ref,
+          title: '읽은 책',
+          userBooks: booksByStatus[BookStatus.read] ?? [],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildShelfSection(
     BuildContext context, {
     required WidgetRef ref,
     required String title,
@@ -139,6 +156,62 @@ class BookshelfScreen extends ConsumerWidget {
             label: const Text('책 검색하기'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 커버/서가 뷰 토글 버튼
+class _ViewToggle extends StatelessWidget {
+  final bool isCoverMode;
+  final ValueChanged<bool> onChanged;
+
+  const _ViewToggle({
+    required this.isCoverMode,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _toggleButton(
+            icon: Icons.grid_view_rounded,
+            isSelected: isCoverMode,
+            onTap: () => onChanged(true),
+          ),
+          Container(width: 1, height: 14, color: AppColors.textSecondary.withValues(alpha: 0.15)),
+          _toggleButton(
+            icon: Icons.view_column_outlined,
+            isSelected: !isCoverMode,
+            onTap: () => onChanged(false),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _toggleButton({
+    required IconData icon,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.all(6),
+        child: Icon(
+          icon,
+          size: 18,
+          color: isSelected
+              ? AppColors.textPrimary
+              : AppColors.textSecondary.withValues(alpha: 0.4),
+        ),
       ),
     );
   }
