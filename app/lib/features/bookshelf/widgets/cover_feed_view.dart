@@ -53,7 +53,7 @@ class CoverFeedView extends ConsumerWidget {
         // 1-1. 읽는 중 나머지 (2권+ 시)
         if (otherReading.isNotEmpty)
           CoverFeedSection(
-            title: '읽는 중',
+            title: '함께 읽는 중',
             userBooks: otherReading,
             onBookTap: (ub) => context.push('/book/${ub.id}'),
           ),
