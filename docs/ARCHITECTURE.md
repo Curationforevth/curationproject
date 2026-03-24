@@ -95,76 +95,62 @@ lib/
 ├── app.dart                     # MaterialApp, 라우팅, 테마 설정
 │
 ├── core/                        # 공통 모듈
-│   ├── models/                  # 데이터 모델
-│   │   ├── book.dart            # 책 정보 (제목, 저자, ISBN, 표지URL, 페이지수 등)
-│   │   ├── user_book.dart       # 유저-책 관계 (상태: 읽음/읽는중)
-│   │   ├── feedback.dart        # 피드백 (카테고리, 자유텍스트, 긍정/부정)
-│   │   └── user_profile.dart    # 유저 프로필
+│   ├── models/
+│   │   ├── book.dart            # 책 정보
+│   │   ├── user_book.dart       # 유저-책 관계 (상태, rating, emotion_tags, review_text)
+│   │   ├── feedback.dart        # 피드백 모델 (Phase 2~3용)
+│   │   ├── user_profile.dart    # 유저 프로필
+│   │   ├── emotion_tag.dart     # 감성 태그 옵션
+│   │   └── reflection_prompt.dart # 리뷰 도우미 질문
 │   │
-│   ├── services/                # 외부 서비스 연동
-│   │   ├── supabase_service.dart    # Supabase 클라이언트
-│   │   ├── book_search_service.dart # 카카오 책 검색 API (메인)
-│   │   ├── mood_tag_service.dart    # LLM으로 책 메타데이터 → 무드 태그 + 폰트 배정
-│   │   └── auth_service.dart        # 인증 로직
+│   ├── services/
+│   │   ├── supabase_service.dart        # Supabase 클라이언트
+│   │   ├── book_search_service.dart     # 카카오 책 검색 API (페이지네이션)
+│   │   └── book_registration_service.dart # 책 등록 + 비동기 색상/폰트 보강
 │   │
-│   ├── theme/                   # 디자인 시스템
-│   │   ├── app_theme.dart       # 테마 정의 (warm cream, 마일스톤별 테마 전환)
-│   │   ├── app_colors.dart      # 컬러 팔레트
-│   │   └── app_typography.dart  # 타이포그래피
+│   ├── theme/
+│   │   ├── app_theme.dart       # Material 3 테마
+│   │   └── app_colors.dart      # 컬러 팔레트 + 마일스톤 테마 색상
 │   │
-│   ├── widgets/                 # 재사용 위젯
+│   ├── widgets/
 │   │   ├── book_spine.dart      # 책등 위젯 (컬러 블록 + 세로 텍스트)
-│   │   ├── bookshelf_row.dart   # 서재 선반 한 줄
-│   │   ├── cover_card.dart      # 커버 피드용 표지 카드
-│   │   └── animated_book_add.dart # 책 꽂히는 애니메이션
+│   │   └── bookshelf_row.dart   # 서재 선반 한 줄 (드래그 정렬 지원)
 │   │
-│   └── utils/                   # 유틸리티
-│       ├── color_extractor.dart # 표지 이미지에서 dominant color 2~3개 추출
-│       ├── font_assigner.dart   # 장르/무드 기반 책등 폰트 자동 배정
-│       └── constants.dart       # 상수값
+│   └── utils/
+│       ├── color_extractor.dart # palette_generator로 표지 색상 추출
+│       ├── font_assigner.dart   # 장르 키워드 기반 책등 폰트 배정
+│       └── constants.dart       # 상수값 (마일스톤 임계값 등)
 │
-├── features/                    # 기능별 모듈
-│   ├── onboarding/              # 온보딩
-│   │   ├── screens/
-│   │   │   ├── welcome_screen.dart          # 웰컴 화면
-│   │   │   ├── book_selection_screen.dart    # 베스트셀러 선택 (탭탭탭)
-│   │   │   ├── first_feedback_screen.dart    # 첫 피드백
-│   │   │   └── bookshelf_ready_screen.dart   # "서재가 시작됐어요!"
-│   │   └── widgets/
-│   │       └── book_grid_selector.dart       # 책 표지 그리드 선택 위젯
+├── features/
+│   ├── auth/                    # 인증
+│   │   ├── providers/auth_provider.dart
+│   │   ├── screens/login_screen.dart
+│   │   └── services/auth_service.dart     # 카카오 + Google OAuth
 │   │
 │   ├── bookshelf/               # 서재 (메인 화면)
 │   │   ├── screens/
-│   │   │   └── bookshelf_screen.dart         # 서재 메인 (뷰 토글 관리)
+│   │   │   └── bookshelf_screen.dart      # 서재 메인 (커버/서가 뷰 토글)
 │   │   ├── widgets/
-│   │   │   ├── cover_feed_view.dart          # 커버 피드 뷰 (넷플릭스형 행)
-│   │   │   ├── shelf_view.dart               # 서가 뷰 (책등 + 드래그 정렬)
-│   │   │   ├── feed_section.dart             # 피드 행 (가로 스크롤 섹션)
-│   │   │   ├── milestone_background.dart     # 마일스톤별 배경
-│   │   │   └── empty_shelf.dart              # 빈 서재 (CTA 포함)
+│   │   │   ├── cover_feed_view.dart       # ✅ 커버 피드 뷰 (기본 뷰)
+│   │   │   ├── featured_reading_card.dart # ✅ 읽는 중 피처드 카드
+│   │   │   ├── feedback_cta_row.dart      # ✅ 피드백 유도 CTA
+│   │   │   ├── book_cover_card.dart       # ✅ 표지 카드 (100×144)
+│   │   │   └── cover_feed_section.dart    # ✅ 섹션 헤더 + 가로 스크롤 행
 │   │   └── providers/
-│   │       └── bookshelf_provider.dart       # 서재 상태 + 피드 행 로직
+│   │       └── bookshelf_provider.dart    # 서재 상태 + 피드 providers
 │   │
-│   ├── search/                  # 책 검색
-│   │   ├── screens/
-│   │   │   └── book_search_screen.dart       # 검색 화면
-│   │   └── widgets/
-│   │       └── book_search_result.dart       # 검색 결과 카드
+│   ├── search/                  # 책 검색 (무한 스크롤 페이지네이션)
+│   │   ├── providers/book_search_provider.dart
+│   │   ├── screens/book_search_screen.dart
+│   │   └── widgets/book_search_result_card.dart
 │   │
-│   ├── feedback/                # 피드백 입력
-│   │   ├── screens/
-│   │   │   └── feedback_screen.dart          # 피드백 입력 화면
-│   │   └── widgets/
-│   │       ├── category_selector.dart        # 카테고리 선택 (캐릭터/문체/...)
-│   │       └── feedback_text_input.dart      # 자유 텍스트 입력
-│   │
-│   ├── book_detail/             # 책 상세
-│   │   └── screens/
-│   │       └── book_detail_screen.dart       # 책 상세 + 내 피드백 보기
-│   │
-│   └── profile/                 # 프로필
-│       └── screens/
-│           └── profile_screen.dart           # 프로필 + 통계
+│   └── book_detail/             # 책 상세 + 피드백
+│       ├── providers/book_detail_provider.dart  # rating/태그/리뷰 저장 (isSaving guard)
+│       ├── screens/book_detail_screen.dart
+│       └── widgets/
+│           ├── rating_selector.dart        # 좋았다/보통/별로 토글
+│           ├── emotion_tag_chips.dart       # 감성 태그 다중 선택
+│           └── review_text_section.dart     # 자유 텍스트 + 가이드 질문
 │
 └── routing/                     # 라우팅
     └── app_router.dart          # GoRouter 설정
