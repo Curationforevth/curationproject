@@ -94,6 +94,10 @@ def generate_embeddings(openai_client, texts):
 
 def save_embeddings(sb, book_ids, embeddings, dry_run=False):
     """book_embeddings 테이블에 저장"""
+    if len(embeddings) != len(book_ids):
+        print(f"  ⚠ 임베딩 수({len(embeddings)})와 도서 수({len(book_ids)}) 불일치 — 배치 스킵")
+        return
+
     if dry_run:
         return
 

@@ -14,20 +14,16 @@ class StateManager:
         """특정 수집 소스의 상태 조회"""
         q = self.sb.table(self.table).select("*").eq("source_type", source_type)
 
-        if query_type is not None:
-            q = q.eq("query_type", query_type)
-        else:
-            q = q.is_("query_type", "null")
-
-        if category_id is not None:
-            q = q.eq("category_id", category_id)
-        else:
-            q = q.is_("category_id", "null")
-
-        if search_keyword is not None:
-            q = q.eq("search_keyword", search_keyword)
-        else:
-            q = q.is_("search_keyword", "null")
+        # Supabase PostgREST: is_.("field", "null") → "field=is.null"
+        for field, value in [
+            ("query_type", query_type),
+            ("category_id", category_id),
+            ("search_keyword", search_keyword),
+        ]:
+            if value is not None:
+                q = q.eq(field, value)
+            else:
+                q = q.is_(field, "null")
 
         result = q.execute()
         return result.data[0] if result.data else None

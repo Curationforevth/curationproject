@@ -39,8 +39,13 @@ Browser = None
 def get_playwright():
     global pw
     if pw is None:
-        from playwright.sync_api import sync_playwright
-        pw = sync_playwright().start()
+        try:
+            from playwright.sync_api import sync_playwright
+            pw = sync_playwright().start()
+        except ImportError:
+            print("❌ playwright 패키지가 설치되어 있지 않습니다.")
+            print("   pip install playwright && playwright install firefox")
+            sys.exit(1)
     return pw
 
 
@@ -152,9 +157,11 @@ class Yes24Scraper:
             if ld_match:
                 ld = json.loads(ld_match.group(1))
                 page_isbn = ld.get('gtin13') or ld.get('isbn', '')
-                # ISBN 끝 10자리 비교 (접두사 차이 허용)
+                # ISBN-13 전체 비교, fallback으로 끝 12자리 비교
                 if page_isbn and expected_isbn:
-                    return page_isbn[-10:] == expected_isbn[-10:]
+                    if len(page_isbn) >= 13 and len(expected_isbn) >= 13:
+                        return page_isbn[-13:] == expected_isbn[-13:]
+                    return page_isbn[-12:] == expected_isbn[-12:]
             # JSON-LD 없으면 검증 스킵 (진행)
             return True
         except Exception:
@@ -212,7 +219,12 @@ class Yes24Scraper:
             # 주기적 브라우저 재시작
             if i > 0 and i % self.BROWSER_RESTART_EVERY == 0:
                 print(f"\n  🔄 브라우저 재시작 ({i}권 처리 완료)")
-                self._start_browser()
+                try:
+                    self._start_browser()
+                except Exception as e:
+                    print(f"  ✗ 브라우저 재시작 실패: {e}")
+                    self._close_browser()
+                    break
 
             book_id = book['id']
             isbn = book['isbn']

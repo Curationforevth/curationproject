@@ -175,27 +175,24 @@ class Tier2Embedder:
         if force:
             books = all_books
         else:
-            # data_sources에 yes24_intro가 없는 것만 필터
-            existing = {}
+            # 이미 Tier 2 임베딩이 있는 book_id 수집
+            tier2_ids = set()
             offset = 0
             while True:
                 result = self.sb.table("book_embeddings") \
-                    .select("book_id, data_sources") \
+                    .select("book_id") \
+                    .eq("tier", 2) \
                     .range(offset, offset + page_size - 1) \
                     .execute()
                 if not result.data:
                     break
                 for row in result.data:
-                    existing[row["book_id"]] = row.get("data_sources") or []
+                    tier2_ids.add(row["book_id"])
                 if len(result.data) < page_size:
                     break
                 offset += page_size
 
-            books = [
-                b for b in all_books
-                if b["id"] not in existing
-                or "yes24_intro" not in (existing.get(b["id"]) or [])
-            ]
+            books = [b for b in all_books if b["id"] not in tier2_ids]
 
         if limit > 0:
             books = books[:limit]
@@ -240,6 +237,11 @@ class Tier2Embedder:
                     input=texts,
                 )
                 embeddings = [item.embedding for item in response.data]
+
+                if len(embeddings) != len(book_ids):
+                    print(f"  ⚠ 임베딩 수({len(embeddings)})와 도서 수({len(book_ids)}) 불일치 — 배치 스킵")
+                    self.stats["errors"] += 1
+                    continue
 
                 if not self.dry_run:
                     rows = [

@@ -292,6 +292,7 @@ class SmartBatchCollector:
             unique_saved = state["unique_items_saved"] if state else 0
 
             page_new_count = 0  # 이 키워드에서 새로 발견한 수
+            pages_fetched = 0   # 실제 페치한 페이지 수
 
             for page in range(last_page + 1, SEARCH_MAX_PAGES + 1):
                 if not self.has_capacity():
@@ -299,8 +300,18 @@ class SmartBatchCollector:
 
                 items, total = self.aladin.search_books(keyword, page)
                 total_found += len(items)
+                pages_fetched += 1
 
                 if not items:
+                    # 결과 없음 → 이 키워드 완료
+                    self.state_mgr.upsert_state(
+                        source_type=source_type,
+                        search_keyword=keyword,
+                        last_page_fetched=page,
+                        total_items_found=total_found,
+                        unique_items_saved=unique_saved,
+                        completed=True,
+                    )
                     break
 
                 books = self.process_items(items)
@@ -336,17 +347,6 @@ class SmartBatchCollector:
                     break
 
                 time.sleep(API_CALL_DELAY)
-
-            # 모든 페이지 소진 시 완료
-            if page_new_count == 0 and not (state and state.get("completed")):
-                self.state_mgr.upsert_state(
-                    source_type=source_type,
-                    search_keyword=keyword,
-                    last_page_fetched=last_page,
-                    total_items_found=total_found,
-                    unique_items_saved=unique_saved,
-                    completed=True,
-                )
 
     # ── 리포트 ──────────────────────────────────────────
 
