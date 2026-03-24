@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Curation — Preview</title>
+<link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #1C1B1F;
+    --ink-70: #4A4650;
+    --ink-50: #7A7580;
+    --ink-30: #B0ABB8;
+    --ink-15: #D8D4DE;
+    --ink-08: #ECEAF0;
+
+    --cream: #FAF6F0;
+    --cream-mid: #F0EAE0;
+    --parch: #E4DDD0;
+    --linen: #D6CFC2;
+
+    --pri: #3D5A80;
+    --acc: #EE6C4D;
+    --acc-gl: rgba(238,108,77,0.32);
+
+    --wood-1: #DABB8E;
+    --wood-2: #C8A876;
+    --wood-3: #B09060;
+    --wood-4: #8A6E44;
+    --wood-5: #6B5232;
+
+    --sp-navy: #2E4057;
+    --sp-terra: #B85636;
+    --sp-forest: #355E48;
+    --sp-rust: #9E5438;
+    --sp-plum: #5A4468;
+    --sp-teal: #356560;
+    --sp-rose: #7E5460;
+    --sp-sage: #5A7A56;
+    --sp-amber: #A87B3C;
+    --sp-steel: #466078;
+    --sp-burg: #5E2E3E;
+    --sp-olive: #586438;
+  }
+
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  html { -webkit-font-smoothing: antialiased; }
+
+  body {
+    font-family: 'Pretendard', -apple-system, sans-serif;
+    background: #0B0A0F;
+    min-height: 100vh;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 44px;
+    padding: 48px 24px 64px;
+    background-image:
+      radial-gradient(ellipse 600px 400px at 25% 35%, rgba(120,90,50,0.04), transparent 70%),
+      radial-gradient(ellipse 500px 400px at 75% 45%, rgba(61,90,128,0.03), transparent 70%);
+  }
+
+  /* === DEVICE === */
+  .f { display: flex; flex-direction: column; align-items: center; }
+  .f-label {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 12px; font-weight: 400;
+    letter-spacing: 0.25em; text-transform: uppercase;
+    color: rgba(255,255,255,0.2);
+    margin-bottom: 12px;
+  }
+
+  .dev {
+    width: 375px; height: 812px;
+    border-radius: 48px;
+    position: relative; overflow: hidden;
+    display: flex; flex-direction: column;
+    box-shadow:
+      inset 0 0 0 0.5px rgba(255,255,255,0.04),
+      0 0 0 2px #1A191E, 0 0 0 4px #242328,
+      0 30px 60px -10px rgba(0,0,0,0.55),
+      0 50px 100px -20px rgba(0,0,0,0.35);
+  }
+
+  .di { position: absolute; top: 11px; left: 50%; transform: translateX(-50%); width: 126px; height: 36px; background: #000; border-radius: 20px; z-index: 50; }
+  .hb { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); width: 134px; height: 5px; border-radius: 100px; z-index: 50; background: rgba(0,0,0,0.12); }
+
+  /* === SCREEN 1: LOGIN === */
+  .scr-login {
+    flex: 1; background: var(--cream);
+    display: flex; flex-direction: column;
+    position: relative; overflow: hidden;
+  }
+  .scr-login::after {
+    content: ''; position: absolute; inset: 0;
+    background:
+      radial-gradient(ellipse 280px 320px at 25% 20%, rgba(168,123,60,0.05), transparent 70%),
+      radial-gradient(ellipse 200px 260px at 80% 75%, rgba(61,90,128,0.03), transparent 70%);
+    pointer-events: none; z-index: 1;
+  }
+
+  .l-body {
+    flex: 1; display: flex; flex-direction: column;
+    justify-content: center; padding: 0 38px;
+    position: relative; z-index: 2;
+  }
+
+  .deco {
+    display: flex; justify-content: center;
+    align-items: flex-end; gap: 2.5px;
+    margin-bottom: 44px;
+  }
+  .deco i {
+    display: block; border-radius: 1px 2px 2px 1px;
+    position: relative; overflow: hidden; font-style: normal;
+  }
+  .deco i::before {
+    content: ''; position: absolute; top: 0; left: 0;
+    width: 2px; height: 100%;
+    background: linear-gradient(180deg, rgba(255,255,255,0.18), rgba(255,255,255,0.03));
+  }
+
+  .logo { text-align: center; margin-bottom: 48px; }
+  .logo h1 {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 52px; font-weight: 500;
+    color: var(--ink); letter-spacing: -0.01em;
+    line-height: 1;
+  }
+  .logo p {
+    font-size: 14px; color: var(--ink-50);
+    line-height: 1.65; margin-top: 14px;
+  }
+
+  .btns { display: flex; flex-direction: column; gap: 10px; }
+  .b {
+    width: 100%; height: 54px; border: none; border-radius: 14px;
+    font-size: 15px; font-weight: 600; font-family: inherit;
+    cursor: pointer; display: flex; align-items: center;
+    justify-content: center; gap: 10px;
+    transition: transform 0.15s;
+  }
+  .b:active { transform: scale(0.98); }
+  .b-k { background: #FEE500; color: rgba(0,0,0,0.85); }
+  .b-g { background: #fff; color: var(--ink-70); box-shadow: inset 0 0 0 1.5px var(--parch); }
+  .b-a { background: var(--ink); color: #fff; }
+
+  .or {
+    display: flex; align-items: center; gap: 14px;
+    margin: 8px 0 12px;
+  }
+  .or::before, .or::after { content: ''; flex: 1; height: 1px; background: var(--parch); }
+  .or span { font-size: 11px; color: var(--linen); }
+
+  .b-ghost {
+    background: none; border: 1.5px solid var(--parch);
+    color: var(--ink-50); font-weight: 500; height: 48px; font-size: 14px;
+  }
+
+  .l-foot {
+    padding: 20px 38px 14px; text-align: center;
+    position: relative; z-index: 2;
+  }
+  .l-foot a { font-size: 11px; color: var(--ink-30); text-decoration: none; }
+
+  /* === SHARED SHELL === */
+  .scr {
+    flex: 1; background: var(--cream);
+    display: flex; flex-direction: column;
+    position: relative; overflow: hidden;
+  }
+
+  .top {
+    padding: 58px 16px 8px;
+    display: flex; align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0; z-index: 5; position: relative;
+  }
+  .top h1 {
+    font-size: 22px; font-weight: 800;
+    color: var(--ink); letter-spacing: -0.02em;
+  }
+  .top-r { display: flex; gap: 2px; align-items: center; }
+
+  .tb {
+    width: 36px; height: 36px; border: none; background: none;
+    border-radius: 10px; display: flex; align-items: center;
+    justify-content: center; cursor: pointer;
+    transition: background 0.15s;
+  }
+  .tb:hover { background: var(--cream-mid); }
+  .tb svg { width: 19px; height: 19px; }
+  .tb.on svg { color: var(--pri); }
+  .tb:not(.on) svg { color: var(--ink-30); }
+
+  .vd { width: 1px; height: 16px; background: var(--parch); margin: 0 1px; }
+
+  /* Bottom nav */
+  .bn {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    height: 82px;
+    background: rgba(250,246,240,0.88);
+    backdrop-filter: blur(24px) saturate(1.4);
+    -webkit-backdrop-filter: blur(24px) saturate(1.4);
+    border-top: 0.5px solid rgba(214,207,194,0.4);
+    display: flex; align-items: flex-start;
+    justify-content: space-around;
+    padding-top: 10px; z-index: 20;
+  }
+  .ni {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 2px; background: none; border: none;
+    cursor: pointer; padding: 4px 18px;
+  }
+  .ni svg { width: 22px; height: 22px; }
+  .ni span { font-size: 10px; font-weight: 500; font-family: inherit; }
+  .ni.on svg { color: var(--pri); }
+  .ni.on span { color: var(--pri); font-weight: 700; }
+  .ni:not(.on) svg { color: var(--ink-30); }
+  .ni:not(.on) span { color: var(--ink-30); }
+
+  /* FAB */
+  .fab {
+    position: absolute; bottom: 98px; right: 20px;
+    width: 54px; height: 54px;
+    background: var(--acc); border-radius: 16px; border: none;
+    display: flex; align-items: center; justify-content: center;
+    z-index: 25; cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+    box-shadow:
+      0 6px 20px var(--acc-gl),
+      0 2px 6px rgba(238,108,77,0.14),
+      inset 0 1px 0 rgba(255,255,255,0.12);
+  }
+  .fab:hover { transform: scale(1.06) translateY(-2px); }
+  .fab:active { transform: scale(0.95); }
+  .fab svg { width: 24px; height: 24px; fill: #fff; }
+
+  /* === SCREEN 2: GALLERY === */
+  .gal {
+    flex: 1; overflow-y: auto;
+    padding: 2px 0 100px;
+    position: relative; z-index: 2;
+  }
+
+  .gs { margin-bottom: 20px; }
+  .gh {
+    display: flex; align-items: baseline;
+    justify-content: space-between;
+    padding: 10px 20px 8px;
+  }
+  .gh h3 { font-size: 15px; font-weight: 700; color: var(--ink); }
+  .gh a {
+    font-size: 12px; font-weight: 500;
+    color: var(--pri); text-decoration: none; cursor: pointer;
+  }
+
+  /* Horizontal scroll */
+  .hs {
+    display: flex; gap: 14px; padding: 0 20px;
+    overflow-x: auto; scrollbar-width: none;
+  }
+  .hs::-webkit-scrollbar { display: none; }
+
+  .bc {
+    flex-shrink: 0; width: 120px;
+    cursor: pointer; transition: transform 0.2s;
+  }
+  .bc:hover { transform: translateY(-4px); }
+
+  .cv {
+    width: 120px; height: 172px;
+    border-radius: 4px; overflow: hidden;
+    position: relative; margin-bottom: 8px;
+    box-shadow:
+      0 3px 10px rgba(0,0,0,0.08),
+      0 1px 3px rgba(0,0,0,0.04);
+  }
+  .cv img {
+    width: 100%; height: 100%;
+    object-fit: cover; display: block;
+  }
+  /* Spine edge on cover */
+  .cv::before {
+    content: ''; position: absolute;
+    top: 0; left: 0; width: 3px; height: 100%;
+    background: linear-gradient(180deg,
+      rgba(0,0,0,0.04), rgba(0,0,0,0.1) 50%, rgba(0,0,0,0.06));
+    z-index: 2;
+  }
+  /* Subtle gloss */
+  .cv::after {
+    content: ''; position: absolute; inset: 0;
+    background: linear-gradient(
+      135deg, transparent 40%,
+      rgba(255,255,255,0.06) 47%,
+      rgba(255,255,255,0.03) 53%,
+      transparent 60%
+    );
+    z-index: 3; pointer-events: none;
+  }
+
+  .bc .mt { padding: 0 1px; }
+  .bc .tt {
+    font-size: 12px; font-weight: 600; color: var(--ink);
+    line-height: 1.3; margin-bottom: 1px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .bc .au { font-size: 11px; color: var(--ink-50); }
+
+  /* Grid */
+  .cg {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 16px 14px; padding: 0 20px;
+  }
+  .gc { cursor: pointer; transition: transform 0.2s; }
+  .gc:hover { transform: translateY(-4px); }
+  .gc .cv {
+    width: 100%; height: 0;
+    padding-bottom: 143%; position: relative;
+  }
+  .gc .cv img {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+  }
+  .gc .mt { padding: 8px 1px 0; }
+  .gc .tt {
+    font-size: 13px; font-weight: 600; color: var(--ink);
+    line-height: 1.3; margin-bottom: 1px;
+  }
+  .gc .au { font-size: 11px; color: var(--ink-50); }
+
+  /* === SCREEN 3: SPINES === */
+  .sbody {
+    flex: 1; overflow-y: auto;
+    padding: 2px 0 100px;
+    position: relative; z-index: 2;
+  }
+
+  .ss { margin-bottom: 4px; }
+  .sh {
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 20px 6px;
+  }
+  .sh h3 { font-size: 13px; font-weight: 700; color: var(--ink-70); }
+  .sb {
+    font-size: 10px; font-weight: 600; color: var(--ink-50);
+    background: var(--cream-mid); padding: 1px 7px;
+    border-radius: 100px;
+  }
+
+  .sr { position: relative; }
+
+  .sps {
+    display: flex; align-items: flex-end;
+    padding: 0 16px; gap: 2px;
+    min-height: 155px;
+    overflow-x: auto; scrollbar-width: none;
+    position: relative; z-index: 3;
+  }
+  .sps::-webkit-scrollbar { display: none; }
+
+  .sr::before {
+    content: ''; position: absolute;
+    bottom: 20px; left: 16px; right: 16px; height: 50px;
+    background: linear-gradient(180deg, transparent, rgba(74,56,32,0.02));
+    z-index: 1; pointer-events: none;
+  }
+
+  .pk {
+    height: 14px; margin: 0 10px;
+    position: relative; z-index: 4;
+    border-radius: 0 0 2px 2px;
+    background:
+      repeating-linear-gradient(0deg,
+        transparent 0, transparent 3px,
+        rgba(255,255,255,0.03) 3px, rgba(255,255,255,0.03) 4px,
+        transparent 4px, transparent 7px),
+      linear-gradient(180deg,
+        var(--wood-1), var(--wood-2) 20%,
+        var(--wood-3) 60%, var(--wood-4));
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.14),
+      0 3px 6px rgba(74,56,32,0.07),
+      0 6px 12px rgba(74,56,32,0.04);
+  }
+  .pk::after {
+    content: ''; position: absolute;
+    bottom: -5px; left: 0; right: 0; height: 5px;
+    border-radius: 0 0 3px 3px;
+    background: linear-gradient(180deg, var(--wood-4), var(--wood-5));
+    box-shadow: 0 2px 6px rgba(74,56,32,0.1);
+  }
+  .pk::before {
+    content: ''; position: absolute;
+    top: 0; left: 6px; right: 6px; height: 1px;
+    background: linear-gradient(90deg,
+      transparent, rgba(255,255,255,0.16) 15%,
+      rgba(255,255,255,0.08) 50%,
+      rgba(255,255,255,0.16) 85%, transparent);
+  }
+
+  /* Spine */
+  .sp {
+    flex-shrink: 0;
+    border-radius: 2px 3px 3px 2px;
+    display: flex; flex-direction: column;
+    padding: 8px 3px 6px;
+    cursor: pointer; position: relative; overflow: hidden;
+    box-shadow:
+      -1px 0 2px rgba(0,0,0,0.05),
+      1px 0 1px rgba(0,0,0,0.03),
+      0 2px 4px rgba(0,0,0,0.04);
+    transition:
+      transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+      box-shadow 0.3s;
+  }
+  .sp:hover {
+    transform: translateY(-10px) rotate(-1.5deg);
+    z-index: 10;
+    box-shadow:
+      -3px 2px 8px rgba(0,0,0,0.1),
+      3px 2px 6px rgba(0,0,0,0.06),
+      0 12px 24px rgba(0,0,0,0.12);
+  }
+  .sp::before {
+    content: ''; position: absolute;
+    top: 0; left: 0; width: 4px; height: 100%;
+    border-radius: 2px 0 0 2px;
+    background: linear-gradient(90deg,
+      rgba(255,255,255,0.2), rgba(255,255,255,0.05) 60%, transparent);
+    z-index: 2;
+  }
+  .sp::after {
+    content: ''; position: absolute;
+    top: 2px; right: 0; bottom: 2px; width: 2px;
+    border-radius: 0 2px 2px 0;
+    background: linear-gradient(90deg, transparent, rgba(0,0,0,0.1) 50%, rgba(0,0,0,0.14));
+    z-index: 2;
+  }
+
+  .sp-t {
+    position: absolute; inset: 0; pointer-events: none; z-index: 1;
+    background: repeating-linear-gradient(0deg,
+      transparent 0, rgba(0,0,0,0.01) 1px,
+      transparent 2px, transparent 3px);
+  }
+
+  .sp-b {
+    position: absolute; left: 5px; right: 3px;
+    height: 1px; z-index: 3; pointer-events: none;
+    background: linear-gradient(90deg,
+      transparent 5%, rgba(212,180,120,0.22) 20%,
+      rgba(212,180,120,0.1) 50%,
+      rgba(212,180,120,0.22) 80%, transparent 95%);
+  }
+
+  .sv {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis;
+    position: relative; z-index: 4;
+  }
+  .sp .st {
+    font-size: 10px; font-weight: 700;
+    letter-spacing: 0.5px; flex: 3;
+    max-height: 108px;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.1);
+  }
+  .sp .sa {
+    font-size: 7px; font-weight: 400;
+    opacity: 0.5; flex: 1;
+    max-height: 34px; margin-top: 4px;
+  }
+
+  /* === NAV ICONS (shared SVG templates) === */
+  .ic-book { }
+  .ic-search { }
+  .ic-profile { }
+</style>
+</head>
+<body>
+
+<!-- ========== LOGIN ========== -->
+<div class="f">
+  <div class="f-label">Login</div>
+  <div class="dev">
+    <div class="di"></div><div class="hb"></div>
+    <div class="scr-login">
+      <div class="l-body">
+        <div class="deco">
+          <i style="width:7px;height:38px;background:var(--sp-navy);opacity:.42"></i>
+          <i style="width:10px;height:48px;background:var(--sp-terra);opacity:.48"></i>
+          <i style="width:6px;height:34px;background:var(--sp-sage);opacity:.38"></i>
+          <i style="width:12px;height:52px;background:var(--sp-amber);opacity:.5"></i>
+          <i style="width:8px;height:44px;background:var(--sp-plum);opacity:.42"></i>
+          <i style="width:5px;height:30px;background:var(--sp-forest);opacity:.34"></i>
+          <i style="width:11px;height:46px;background:var(--sp-rose);opacity:.46"></i>
+          <i style="width:7px;height:40px;background:var(--sp-steel);opacity:.4"></i>
+          <i style="width:9px;height:50px;background:var(--sp-olive);opacity:.44"></i>
+          <i style="width:6px;height:36px;background:var(--sp-burg);opacity:.38"></i>
+          <i style="width:10px;height:42px;background:var(--sp-rust);opacity:.46"></i>
+          <i style="width:8px;height:48px;background:var(--sp-teal);opacity:.42"></i>
+        </div>
+        <div class="logo">
+          <h1>Curation</h1>
+          <p>읽고, 기록하고, 발견하는<br>나만의 서재</p>
+        </div>
+        <div class="btns">
+          <button class="b b-k">
+            <svg width="20" height="20" viewBox="0 0 20 20"><path fill="rgba(0,0,0,0.85)" d="M10 1C5.03 1 1 4.2 1 8.18c0 2.54 1.66 4.77 4.16 6.04l-1.07 3.96c-.09.33.29.6.58.41l4.7-3.1c.2.02.41.03.63.03 4.97 0 9-3.2 9-7.16C19 4.2 14.97 1 10 1"/></svg>
+            카카오로 시작하기
+          </button>
+          <button class="b b-g">
+            <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615Z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18Z"/><path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.997 8.997 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332Z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 6.29C4.672 4.163 6.656 3.58 9 3.58Z"/></svg>
+            Google로 시작하기
+          </button>
+          <button class="b b-a">
+            <svg width="16" height="18" viewBox="0 0 16 18"><path fill="#fff" d="M13.2 9.5c-.02-1.84 1.5-2.73 1.57-2.77-.86-1.25-2.19-1.42-2.67-1.44-1.13-.12-2.21.67-2.79.67-.58 0-1.47-.65-2.41-.63-1.24.02-2.39.72-3.02 1.83-1.3 2.24-.33 5.56.93 7.38.62.89 1.35 1.89 2.32 1.85.93-.04 1.28-.6 2.41-.6s1.44.6 2.42.58c1-.02 1.63-.9 2.24-1.79.7-1.03.99-2.03 1.01-2.08-.02-.01-1.94-.75-1.96-2.96ZM11.36 3.56c.51-.63.86-1.49.77-2.36-.74.03-1.64.5-2.17 1.11-.48.55-.89 1.43-.78 2.27.83.07 1.67-.42 2.18-1.02Z"/></svg>
+            Apple로 시작하기
+          </button>
+        </div>
+        <div class="or"><span>또는</span></div>
+        <button class="b b-ghost">둘러보기</button>
+      </div>
+      <div class="l-foot"><a href="#">이용약관 · 개인정보처리방침</a></div>
+    </div>
+  </div>
+</div>
+
+<!-- ========== GALLERY VIEW ========== -->
+<div class="f">
+  <div class="f-label">Gallery</div>
+  <div class="dev">
+    <div class="di"></div><div class="hb"></div>
+    <div class="scr">
+      <div class="top">
+        <h1>내 서재</h1>
+        <div class="top-r">
+          <button class="tb on" title="갤러리">
+            <svg viewBox="0 0 20 20" fill="currentColor"><rect x="2" y="2" width="7" height="7" rx="1.5"/><rect x="11" y="2" width="7" height="7" rx="1.5"/><rect x="2" y="11" width="7" height="7" rx="1.5"/><rect x="11" y="11" width="7" height="7" rx="1.5"/></svg>
+          </button>
+          <div class="vd"></div>
+          <button class="tb" title="서가">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="3" y1="17" x2="17" y2="17"/><rect x="4" y="4" width="3" height="13" rx=".5"/><rect x="8" y="6" width="4" height="11" rx=".5"/><rect x="13" y="3" width="3" height="14" rx=".5"/></svg>
+          </button>
+          <button class="tb" style="margin-left:2px">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="8.5" cy="8.5" r="5.5"/><line x1="12.5" y1="12.5" x2="17" y2="17"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="gal">
+        <!-- 읽는 중 -->
+        <div class="gs">
+          <div class="gh"><h3>읽는 중</h3><a>모두 보기</a></div>
+          <div class="hs">
+            <div class="bc">
+              <div class="cv"><img src="https://contents.kyobobook.co.kr/sih/fit-in/458x0/pdt/9788936434267.jpg" alt="작별하지 않는다"></div>
+              <div class="mt"><div class="tt">작별하지 않는다</div><div class="au">한강</div></div>
+            </div>
+            <div class="bc">
+              <div class="cv"><img src="https://contents.kyobobook.co.kr/sih/fit-in/458x0/pdt/9791168340442.jpg" alt="불편한 편의점"></div>
+              <div class="mt"><div class="tt">불편한 편의점</div><div class="au">김호연</div></div>
+            </div>
+            <div class="bc">
+              <div class="cv"><img src="https://contents.kyobobook.co.kr/sih/fit-in/458x0/pdt/9791188253241.jpg" alt="아몬드"></div>
+              <div class="mt"><div class="tt">아몬드</div><div class="au">손원평</div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 읽은 책 -->
+        <div class="gs">
+          <div class="gh"><h3>읽은 책</h3><a>7권 →</a></div>
+          <div class="cg">
+            <div class="gc">
+              <div class="cv"><img src="https://contents.kyobobook.co.kr/sih/fit-in/458x0/pdt/9788936433598.jpg" alt="채식주의자"></div>
+              <div class="mt"><div class="tt">채식주의자</div><div class="au">한강</div></div>
+            </div>
+            <div class="gc">
+              <div class="cv"><img src="https://contents.kyobobook.co.kr/sih/fit-in/458x0/pdt/9788936434120.jpg" alt="소년이 온다"></div>
+              <div class="mt"><div class="tt">소년이 온다</div><div class="au">한강</div></div>
+            </div>
+            <div class="gc">
+              <div class="cv"><img src="https://contents.kyobobook.co.kr/sih/fit-in/458x0/pdt/9791165341909.jpg" alt="달러구트 꿈 백화점"></div>
+              <div class="mt"><div class="tt">달러구트 꿈 백화점</div><div class="au">이미예</div></div>
+            </div>
+            <div class="gc">
+              <div class="cv"><img src="https://contents.kyobobook.co.kr/sih/fit-in/458x0/pdt/9791162540640.jpg" alt="파친코"></div>
+              <div class="mt"><div class="tt">파친코</div><div class="au">이민진</div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 읽고 싶은 책 -->
+        <div class="gs">
+          <div class="gh"><h3>읽고 싶은 책</h3><a>2권 →</a></div>
+          <div class="hs">
+            <div class="bc">
+              <div class="cv"><img src="https://contents.kyobobook.co.kr/sih/fit-in/458x0/pdt/9788932920535.jpg" alt="모순"></div>
+              <div class="mt"><div class="tt">모순</div><div class="au">양귀자</div></div>
+            </div>
+            <div class="bc">
+              <div class="cv"><img src="https://contents.kyobobook.co.kr/sih/fit-in/458x0/pdt/9788932917245.jpg" alt="종의 기원"></div>
+              <div class="mt"><div class="tt">종의 기원</div><div class="au">정유정</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <button class="fab"><svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg></button>
+
+      <div class="bn">
+        <button class="ni on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg><span>서재</span></button>
+        <button class="ni"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><span>탐색</span></button>
+        <button class="ni"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg><span>프로필</span></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ========== SPINE VIEW ========== -->
+<div class="f">
+  <div class="f-label">Shelf</div>
+  <div class="dev">
+    <div class="di"></div><div class="hb"></div>
+    <div class="scr">
+      <div class="top">
+        <h1>내 서재</h1>
+        <div class="top-r">
+          <button class="tb" title="갤러리">
+            <svg viewBox="0 0 20 20" fill="currentColor"><rect x="2" y="2" width="7" height="7" rx="1.5"/><rect x="11" y="2" width="7" height="7" rx="1.5"/><rect x="2" y="11" width="7" height="7" rx="1.5"/><rect x="11" y="11" width="7" height="7" rx="1.5"/></svg>
+          </button>
+          <div class="vd"></div>
+          <button class="tb on" title="서가">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="3" y1="17" x2="17" y2="17"/><rect x="4" y="4" width="3" height="13" rx=".5" fill="currentColor" opacity=".12"/><rect x="4" y="4" width="3" height="13" rx=".5"/><rect x="8" y="6" width="4" height="11" rx=".5" fill="currentColor" opacity=".12"/><rect x="8" y="6" width="4" height="11" rx=".5"/><rect x="13" y="3" width="3" height="14" rx=".5" fill="currentColor" opacity=".12"/><rect x="13" y="3" width="3" height="14" rx=".5"/></svg>
+          </button>
+          <button class="tb" style="margin-left:2px">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="8.5" cy="8.5" r="5.5"/><line x1="12.5" y1="12.5" x2="17" y2="17"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="sbody">
+        <!-- 읽는 중 -->
+        <div class="ss">
+          <div class="sh"><h3>읽는 중</h3><span class="sb">3</span></div>
+          <div class="sr">
+            <div class="sps">
+              <div class="sp" style="width:44px;height:156px;background:linear-gradient(160deg,#364E6C,var(--sp-navy),#1E3044);color:#D8D2C6">
+                <div class="sp-t"></div><div class="sp-b" style="top:16px"></div><div class="sp-b" style="top:20px"></div><div class="sp-b" style="bottom:18px"></div>
+                <span class="sv st">작별하지 않는다</span><span class="sv sa">한강</span>
+              </div>
+              <div class="sp" style="width:36px;height:146px;background:linear-gradient(160deg,#B86848,var(--sp-rust),#7A4028);color:#F4E8DC">
+                <div class="sp-t"></div><div class="sp-b" style="top:14px"></div><div class="sp-b" style="bottom:16px"></div>
+                <span class="sv st">불편한 편의점</span><span class="sv sa">김호연</span>
+              </div>
+              <div class="sp" style="width:50px;height:162px;background:linear-gradient(160deg,#3E7868,var(--sp-teal),#244840);color:#D4E4DC">
+                <div class="sp-t"></div><div class="sp-b" style="top:20px"></div><div class="sp-b" style="top:24px"></div><div class="sp-b" style="bottom:22px"></div>
+                <span class="sv st">아몬드</span><span class="sv sa">손원평</span>
+              </div>
+            </div>
+            <div class="pk"></div>
+          </div>
+        </div>
+
+        <!-- 읽은 책 -->
+        <div class="ss">
+          <div class="sh"><h3>읽은 책</h3><span class="sb">7</span></div>
+          <div class="sr">
+            <div class="sps">
+              <div class="sp" style="width:40px;height:152px;background:linear-gradient(160deg,#C96840,var(--sp-terra),#8A3E22);color:#FCF0E6">
+                <div class="sp-t"></div><div class="sp-b" style="top:14px"></div><div class="sp-b" style="bottom:16px"></div>
+                <span class="sv st">채식주의자</span><span class="sv sa">한강</span>
+              </div>
+              <div class="sp" style="width:52px;height:164px;background:linear-gradient(160deg,#3E7050,var(--sp-forest),#244236);color:#D4E8D8">
+                <div class="sp-t"></div><div class="sp-b" style="top:18px"></div><div class="sp-b" style="top:22px"></div><div class="sp-b" style="bottom:20px"></div>
+                <span class="sv st">소년이 온다</span><span class="sv sa">한강</span>
+              </div>
+              <div class="sp" style="width:30px;height:140px;background:linear-gradient(160deg,#6C5478,var(--sp-plum),#3A2848);color:#DCD4E4">
+                <div class="sp-t"></div><div class="sp-b" style="top:12px"></div>
+                <span class="sv st">달러구트 꿈 백화점</span><span class="sv sa">이미예</span>
+              </div>
+              <div class="sp" style="width:50px;height:166px;background:linear-gradient(160deg,#6A8C62,var(--sp-sage),#3E5838);color:#E4EEE0">
+                <div class="sp-t"></div><div class="sp-b" style="top:20px"></div><div class="sp-b" style="top:24px"></div><div class="sp-b" style="bottom:22px"></div>
+                <span class="sv st">파친코</span><span class="sv sa">이민진</span>
+              </div>
+              <div class="sp" style="width:26px;height:132px;background:linear-gradient(160deg,#5A7490,var(--sp-steel),#344858);color:#D8E4F0">
+                <div class="sp-t"></div><div class="sp-b" style="top:16px"></div>
+                <span class="sv st">흰</span><span class="sv sa">한강</span>
+              </div>
+              <div class="sp" style="width:42px;height:154px;background:linear-gradient(160deg,#C0924C,var(--sp-amber),#7A5828);color:#2E2820">
+                <div class="sp-t"></div><div class="sp-b" style="top:16px"></div><div class="sp-b" style="top:20px"></div>
+                <span class="sv st">82년생 김지영</span><span class="sv sa">조남주</span>
+              </div>
+              <div class="sp" style="width:44px;height:158px;background:linear-gradient(160deg,#966870,var(--sp-rose),#5A3842);color:#F0E4E8">
+                <div class="sp-t"></div><div class="sp-b" style="top:18px"></div><div class="sp-b" style="bottom:20px"></div>
+                <span class="sv st">지구 끝의 온실</span><span class="sv sa">김초엽</span>
+              </div>
+            </div>
+            <div class="pk"></div>
+          </div>
+        </div>
+
+        <!-- 읽고 싶은 책 -->
+        <div class="ss">
+          <div class="sh"><h3>읽고 싶은 책</h3><span class="sb">2</span></div>
+          <div class="sr">
+            <div class="sps" style="min-height:140px">
+              <div class="sp" style="width:38px;height:148px;background:linear-gradient(160deg,#724048,var(--sp-burg),#3E1C28);color:#E8D4DC">
+                <div class="sp-t"></div><div class="sp-b" style="top:14px"></div><div class="sp-b" style="bottom:16px"></div>
+                <span class="sv st">모순</span><span class="sv sa">양귀자</span>
+              </div>
+              <div class="sp" style="width:48px;height:160px;background:linear-gradient(160deg,#6A7642,var(--sp-olive),#3A4222);color:#E4EAD4">
+                <div class="sp-t"></div><div class="sp-b" style="top:18px"></div><div class="sp-b" style="top:22px"></div><div class="sp-b" style="bottom:20px"></div>
+                <span class="sv st">종의 기원</span><span class="sv sa">정유정</span>
+              </div>
+            </div>
+            <div class="pk"></div>
+          </div>
+        </div>
+      </div>
+
+      <button class="fab"><svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg></button>
+
+      <div class="bn">
+        <button class="ni on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg><span>서재</span></button>
+        <button class="ni"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><span>탐색</span></button>
+        <button class="ni"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg><span>프로필</span></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

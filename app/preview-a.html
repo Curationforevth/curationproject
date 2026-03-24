@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Curation — Option A: Minimal Light</title>
+<link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css" rel="stylesheet">
+<style>
+  :root {
+    --bg: #FFFFFF;
+    --ink: #1C1B1F;
+    --ink-60: #6B6570;
+    --ink-30: #AFAAB6;
+    --ink-12: #E2DFE6;
+    --ink-06: #F2F0F4;
+    --pri: #3D5A80;
+    --acc: #EE6C4D;
+    --acc-soft: rgba(238,108,77,0.08);
+  }
+
+  *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+  html { -webkit-font-smoothing: antialiased; }
+
+  body {
+    font-family: 'Pretendard', -apple-system, sans-serif;
+    background: #08080C;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 40px 20px;
+  }
+
+  .wrap { display: flex; flex-direction: column; align-items: center; }
+  .label {
+    font-size: 11px; font-weight: 500;
+    letter-spacing: 0.15em; text-transform: uppercase;
+    color: rgba(255,255,255,0.25);
+    margin-bottom: 12px;
+  }
+
+  .phone {
+    width: 375px; height: 812px;
+    border-radius: 48px;
+    overflow: hidden; position: relative;
+    display: flex; flex-direction: column;
+    background: var(--bg);
+    box-shadow:
+      0 0 0 2px #1A191E, 0 0 0 4px #242328,
+      0 30px 60px -10px rgba(0,0,0,0.5);
+  }
+
+  .notch {
+    position: absolute; top: 11px; left: 50%;
+    transform: translateX(-50%);
+    width: 126px; height: 36px;
+    background: #000; border-radius: 20px; z-index: 50;
+  }
+  .home {
+    position: absolute; bottom: 8px; left: 50%;
+    transform: translateX(-50%);
+    width: 134px; height: 5px;
+    background: rgba(0,0,0,0.12);
+    border-radius: 100px; z-index: 50;
+  }
+
+  /* Top bar */
+  .top {
+    padding: 60px 20px 12px;
+    display: flex; align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .top h1 {
+    font-size: 24px; font-weight: 800;
+    color: var(--ink); letter-spacing: -0.03em;
+  }
+  .top-r { display: flex; gap: 2px; align-items: center; }
+  .tb {
+    width: 34px; height: 34px; border: none; background: none;
+    border-radius: 8px; display: flex; align-items: center;
+    justify-content: center; cursor: pointer;
+  }
+  .tb svg { width: 18px; height: 18px; }
+  .tb.on svg { color: var(--ink); }
+  .tb:not(.on) svg { color: var(--ink-30); }
+  .vd { width: 1px; height: 14px; background: var(--ink-12); margin: 0 1px; }
+
+  /* Feed */
+  .feed {
+    flex: 1; overflow-y: auto;
+    padding-bottom: 96px;
+  }
+  .feed::-webkit-scrollbar { display: none; }
+
+  /* Section */
+  .sec { padding: 16px 0 0; }
+  .sec-h {
+    display: flex; align-items: baseline;
+    justify-content: space-between;
+    padding: 0 20px 10px;
+  }
+  .sec-h h2 {
+    font-size: 13px; font-weight: 700;
+    color: var(--ink); letter-spacing: 0.01em;
+  }
+  .sec-h span {
+    font-size: 11px; font-weight: 500;
+    color: var(--ink-30);
+  }
+
+  .divider {
+    height: 1px; margin: 0 20px;
+    background: var(--ink-06);
+  }
+
+  /* Row 1: Featured reading card */
+  .feat {
+    margin: 0 20px;
+    display: flex; gap: 16px;
+    align-items: stretch;
+    height: 170px;
+    cursor: pointer;
+    transition: opacity 0.2s;
+  }
+  .feat:active { opacity: 0.7; }
+
+  .feat-cover {
+    width: 110px; height: 170px;
+    border-radius: 4px; overflow: hidden;
+    flex-shrink: 0;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  }
+  .feat-cover img {
+    width: 100%; height: 100%;
+    object-fit: cover; display: block;
+  }
+
+  .feat-info {
+    flex: 1; display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 4px 0;
+  }
+  .feat-info .badge {
+    font-size: 10px; font-weight: 700;
+    color: var(--pri);
+    letter-spacing: 0.04em;
+    margin-bottom: 8px;
+  }
+  .feat-info h3 {
+    font-size: 18px; font-weight: 700;
+    color: var(--ink); line-height: 1.3;
+    letter-spacing: -0.02em;
+    margin-bottom: 4px;
+  }
+  .feat-info .au {
+    font-size: 13px; color: var(--ink-60);
+    margin-bottom: 16px;
+  }
+  .feat-info .hint {
+    font-size: 11px; color: var(--ink-30);
+    line-height: 1.5;
+  }
+
+  /* Horizontal scroll row */
+  .hrow {
+    display: flex; gap: 12px;
+    padding: 0 20px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .hrow::-webkit-scrollbar { display: none; }
+
+  /* Standard book card */
+  .bk {
+    flex-shrink: 0; width: 100px;
+    cursor: pointer;
+    transition: transform 0.2s;
+  }
+  .bk:hover { transform: translateY(-3px); }
+  .bk-cv {
+    width: 100px; height: 144px;
+    border-radius: 3px; overflow: hidden;
+    position: relative;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  }
+  .bk-cv img {
+    width: 100%; height: 100%;
+    object-fit: cover; display: block;
+  }
+  .bk-t {
+    font-size: 12px; font-weight: 600;
+    color: var(--ink); margin-top: 7px;
+    line-height: 1.3;
+    white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .bk-a {
+    font-size: 11px; color: var(--ink-60);
+    margin-top: 1px;
+  }
+
+  /* Feedback nudge card — accent dot */
+  .bk-cv .dot {
+    position: absolute; top: 6px; right: 6px;
+    width: 8px; height: 8px;
+    background: var(--acc);
+    border-radius: 50%;
+    box-shadow: 0 0 0 2px #fff;
+    z-index: 2;
+  }
+
+  /* Feedback CTA row */
+  .fb-row {
+    margin: 0 20px;
+    padding: 12px 16px;
+    background: var(--acc-soft);
+    border-radius: 10px;
+    display: flex; align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .fb-row:hover { background: rgba(238,108,77,0.12); }
+
+  .fb-covers {
+    display: flex; gap: 0;
+    flex-shrink: 0;
+  }
+  .fb-covers .mini {
+    width: 36px; height: 52px;
+    border-radius: 2px; overflow: hidden;
+    border: 2px solid #fff;
+    margin-left: -8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  }
+  .fb-covers .mini:first-child { margin-left: 0; }
+  .fb-covers .mini img {
+    width: 100%; height: 100%;
+    object-fit: cover; display: block;
+  }
+
+  .fb-text {
+    flex: 1;
+  }
+  .fb-text p {
+    font-size: 13px; font-weight: 600;
+    color: var(--acc); line-height: 1.4;
+  }
+  .fb-text span {
+    font-size: 11px; color: var(--ink-60);
+  }
+
+  .fb-arrow {
+    color: var(--acc); flex-shrink: 0;
+  }
+
+  /* FAB */
+  .fab {
+    position: absolute;
+    bottom: 96px; right: 20px;
+    width: 52px; height: 52px;
+    background: var(--acc);
+    border-radius: 16px; border: none;
+    display: flex; align-items: center; justify-content: center;
+    z-index: 25; cursor: pointer;
+    box-shadow:
+      0 4px 16px rgba(238,108,77,0.3),
+      0 1px 4px rgba(238,108,77,0.12);
+    transition: transform 0.2s;
+  }
+  .fab:hover { transform: scale(1.06); }
+  .fab svg { width: 22px; height: 22px; fill: #fff; }
+
+  /* Bottom nav */
+  .bn {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    height: 82px;
+    background: rgba(255,255,255,0.92);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-top: 0.5px solid var(--ink-12);
+    display: flex; align-items: flex-start;
+    justify-content: space-around;
+    padding-top: 10px; z-index: 20;
+  }
+  .ni {
+    display: flex; flex-direction: column;
+    align-items: center; gap: 2px;
+    background: none; border: none;
+    cursor: pointer; padding: 4px 18px;
+  }
+  .ni svg { width: 22px; height: 22px; }
+  .ni span { font-size: 10px; font-weight: 500; font-family: inherit; }
+  .ni.on svg { color: var(--ink); }
+  .ni.on span { color: var(--ink); font-weight: 700; }
+  .ni:not(.on) svg { color: var(--ink-30); }
+  .ni:not(.on) span { color: var(--ink-30); }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="label">A — Minimal Light</div>
+  <div class="phone">
+    <div class="notch"></div>
+    <div class="home"></div>
+
+    <div class="top">
+      <h1>내 서재</h1>
+      <div class="top-r">
+        <button class="tb on">
+          <svg viewBox="0 0 20 20" fill="currentColor"><rect x="2" y="2" width="7" height="7" rx="1.5"/><rect x="11" y="2" width="7" height="7" rx="1.5"/><rect x="2" y="11" width="7" height="7" rx="1.5"/><rect x="11" y="11" width="7" height="7" rx="1.5"/></svg>
+        </button>
+        <div class="vd"></div>
+        <button class="tb">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="3" y1="17" x2="17" y2="17"/><rect x="4" y="4" width="3" height="13" rx=".5"/><rect x="8" y="6" width="4" height="11" rx=".5"/><rect x="13" y="3" width="3" height="14" rx=".5"/></svg>
+        </button>
+        <button class="tb" style="margin-left:2px">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="8.5" cy="8.5" r="5.5"/><line x1="12.5" y1="12.5" x2="17" y2="17"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="feed">
+
+      <!-- 읽는 중 -->
+      <div class="sec">
+        <div class="sec-h"><h2>읽는 중</h2></div>
+        <div class="feat">
+          <div class="feat-cover">
+            <img src="https://contents.kyobobook.co.kr/sih/fit-in/458x0/pdt/9788936434267.jpg" alt="">
+          </div>
+          <div class="feat-info">
+            <div class="badge">읽는 중</div>
+            <h3>작별하지 않는다</h3>
+            <div class="au">한강</div>
+            <div class="hint">탭해서 피드백 남기기</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="divider" style="margin-top:16px"></div>
+
+      <!-- 피드백 유도 -->
+      <div class="sec">
+        <div class="fb-row">
+          <div class="fb-covers">
+            <div class="mini"><img src="https://contents.kyobobook.co.kr/sih/fit-in/458x0/pdt/9791188253241.jpg" alt=""></div>
+            <div class="mini"><img src="https://contents.kyobobook.co.kr/sih/fit-in/458x0/pdt/9791168340442.jpg" alt=""></div>
+            <div class="mini"><img src="https://contents.kyobobook.co.kr/sih/fit-in/458x0/pdt/9788936434120.jpg" alt=""></div>
+          </div>
+          <div class="fb-text">
+            <p>3권의 피드백이 비어있어요</p>
+            <span>기록하면 취향을 분석해드려요</span>
+          </div>
+          <div class="fb-arrow">
+            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="5" y1="10" x2="15" y2="10"/><polyline points="10,5 15,10 10,15"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <div class="divider" style="margin-top:16px"></div>
+
+      <!-- 한강의 책들 -->
+      <div class="sec">
+        <div class="sec-h"><h2>한강의 책들</h2><span>4권</span></div>
+        <div class="hrow">
+          <div class="bk">
+            <div class="bk-cv"><img src="https://contents.kyobobook.co.kr/sih/fit-in/458x0/pdt/9788936433598.jpg" alt=""></div>
+            <div class="bk-t">채식주의자</div>
+            <div class="bk-a">한강</div>
+          </div>
+          <div class="bk">
+            <div class="bk-cv"><img src="https://contents.kyobobook.co.kr/sih/fit-in/458x0/pdt/9788936434120.jpg" alt=""></div>
+            <div class="bk-t">소년이 온다</div>
+            <div class="bk-a">한강</div>
+          </div>
+          <div class="bk">
+            <div class="bk-cv"><img src="https://contents.kyobobook.co.kr/sih/fit-in/458x0/pdt/9788936434397.jpg" alt=""></div>
+            <div class="bk-t">흰</div>
+            <div class="bk-a">한강</div>
+          </div>
+          <div class="bk">
+            <div class="bk-cv"><img src="https://contents.kyobobook.co.kr/sih/fit-in/458x0/pdt/9788936434267.jpg" alt=""></div>
+            <div class="bk-t">작별하지 않는다</div>
+            <div class="bk-a">한강</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="divider" style="margin-top:16px"></div>
+
+      <!-- 읽고 싶은 책 -->
+      <div class="sec">
+        <div class="sec-h"><h2>읽고 싶은 책</h2><span>2권</span></div>
+        <div class="hrow" style="padding-bottom:16px">
+          <div class="bk">
+            <div class="bk-cv"><img src="https://contents.kyobobook.co.kr/sih/fit-in/458x0/pdt/9788932920535.jpg" alt=""></div>
+            <div class="bk-t">모순</div>
+            <div class="bk-a">양귀자</div>
+          </div>
+          <div class="bk">
+            <div class="bk-cv"><img src="https://contents.kyobobook.co.kr/sih/fit-in/458x0/pdt/9788932917245.jpg" alt=""></div>
+            <div class="bk-t">종의 기원</div>
+            <div class="bk-a">정유정</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <button class="fab"><svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg></button>
+
+    <div class="bn">
+      <button class="ni on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg><span>서재</span></button>
+      <button class="ni"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><span>탐색</span></button>
+      <button class="ni"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg><span>프로필</span></button>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
