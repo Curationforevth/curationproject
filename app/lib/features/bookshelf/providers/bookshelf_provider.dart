@@ -67,8 +67,9 @@ final authorGroupsProvider = Provider<Map<String, List<UserBook>>>((ref) {
   for (final ub in books) {
     final author = ub.book?.author;
     if (author != null && author.isNotEmpty) {
-      // 첫 번째 저자만 (콤마로 분리된 경우)
-      final primary = author.split(',').first.trim();
+      // 첫 번째 저자만 (콤마 분리 + 괄호 역할 표기 제거)
+      var primary = author.split(',').first.trim();
+      primary = primary.replaceAll(RegExp(r'\s*\(.*?\)'), '').trim();
       if (primary.isNotEmpty) {
         grouped.putIfAbsent(primary, () => []).add(ub);
       }

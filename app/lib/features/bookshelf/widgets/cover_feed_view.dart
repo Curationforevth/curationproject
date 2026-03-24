@@ -18,7 +18,24 @@ class CoverFeedView extends ConsumerWidget {
     final featured = ref.watch(featuredReadingProvider);
     final unreviewed = ref.watch(unreviewedBooksProvider);
     final authorGroups = ref.watch(authorGroupsProvider);
+    final readingBooks = byStatus[BookStatus.reading] ?? [];
     final readBooks = byStatus[BookStatus.read] ?? [];
+
+    // 작가 그룹에 포함된 책 ID (중복 제거용)
+    final groupedIds = authorGroups.values
+        .expand((list) => list)
+        .map((ub) => ub.id)
+        .toSet();
+
+    // 읽은 책 중 작가 그룹에 안 들어간 것만
+    final ungroupedReadBooks = readBooks
+        .where((ub) => ub.book != null && !groupedIds.contains(ub.id))
+        .toList();
+
+    // 읽는 중 피처드 제외 나머지
+    final otherReading = readingBooks
+        .where((ub) => ub.book != null && ub.id != featured?.id)
+        .toList();
 
     return ListView(
       padding: const EdgeInsets.only(bottom: 96),
@@ -31,12 +48,20 @@ class CoverFeedView extends ConsumerWidget {
             userBook: featured,
             onTap: () => context.push('/book/${featured.id}'),
           ),
-          _divider(),
         ],
+
+        // 1-1. 읽는 중 나머지 (2권+ 시)
+        if (otherReading.isNotEmpty)
+          CoverFeedSection(
+            title: '읽는 중',
+            userBooks: otherReading,
+            onBookTap: (ub) => context.push('/book/${ub.id}'),
+          ),
+
+        if (featured != null || otherReading.isNotEmpty) _divider(),
 
         // 2. 피드백 유도 CTA
         if (unreviewed.isNotEmpty) ...[
-          const SizedBox(height: 16),
           FeedbackCtaRow(
             unreviewedBooks: unreviewed,
             onTap: () {
@@ -59,11 +84,11 @@ class CoverFeedView extends ConsumerWidget {
               ],
             )),
 
-        // 4. 읽은 책 (작가 그룹에 안 들어간 책 포함)
-        if (readBooks.where((ub) => ub.book != null).isNotEmpty)
+        // 4. 읽은 책 (작가 그룹에 안 들어간 책만)
+        if (ungroupedReadBooks.isNotEmpty)
           CoverFeedSection(
             title: '읽은 책',
-            userBooks: readBooks,
+            userBooks: ungroupedReadBooks,
             onBookTap: (ub) => context.push('/book/${ub.id}'),
           ),
       ],
