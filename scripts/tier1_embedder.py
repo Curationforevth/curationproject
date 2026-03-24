@@ -48,17 +48,34 @@ def compose_embedding_text(book):
 
 
 def fetch_books_without_embeddings(sb, limit=0):
-    """book_embeddings에 row가 없는 books 조회"""
-    # LEFT JOIN 대신 NOT IN으로 처리 (Supabase 클라이언트 제약)
-    embedded_result = sb.table("book_embeddings").select("book_id").execute()
-    embedded_ids = {row["book_id"] for row in (embedded_result.data or [])}
+    """book_embeddings에 row가 없는 books 조회 (페이징으로 전체 조회)"""
+    # 기존 임베딩 ID 수집 (페이징)
+    embedded_ids = set()
+    offset = 0
+    page_size = 1000
+    while True:
+        result = sb.table("book_embeddings").select("book_id").range(offset, offset + page_size - 1).execute()
+        if not result.data:
+            break
+        for row in result.data:
+            embedded_ids.add(row["book_id"])
+        if len(result.data) < page_size:
+            break
+        offset += page_size
 
-    query = sb.table("books").select("id, title, author, genre, description")
-    if limit > 0:
-        query = query.limit(limit)
+    # 전체 books 조회 (페이징)
+    all_books = []
+    offset = 0
+    while True:
+        result = sb.table("books").select("id, title, author, genre, description").range(offset, offset + page_size - 1).execute()
+        if not result.data:
+            break
+        all_books.extend(result.data)
+        if len(result.data) < page_size:
+            break
+        offset += page_size
 
-    result = query.execute()
-    books = [b for b in (result.data or []) if b["id"] not in embedded_ids]
+    books = [b for b in all_books if b["id"] not in embedded_ids]
 
     if limit > 0:
         books = books[:limit]

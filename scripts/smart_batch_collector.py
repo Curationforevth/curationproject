@@ -49,7 +49,7 @@ CATEGORIES = {
     2030: "IT모바일",
     1108: "가정/요리/뷰티",
     1230: "건강/취미/레저",
-    2913: "만화",
+    # 2913: "만화",  # 제외
     13789: "유아",
     1137: "어린이",
     51377: "청소년",
@@ -196,50 +196,18 @@ class SmartBatchCollector:
                         print("\n⚠ 일일 API 한도 도달. 다음 실행에서 이어갑니다.")
                         return
 
-                    state = self.state_mgr.get_state(
-                        source_type="item_list",
-                        query_type=qt,
-                        category_id=cat_id,
-                    )
-                    if state and state.get("completed"):
-                        continue
-
-                    last_page = state["last_page_fetched"] if state else 0
-                    if page <= last_page:
-                        continue  # 이미 처리한 페이지
-
-                    total_found = state["total_items_found"] if state else 0
-                    unique_saved = state["unique_items_saved"] if state else 0
-
                     items, total = self.aladin.fetch_item_list(qt, cat_id, page)
-                    total_found += len(items)
 
                     if not items:
-                        self.state_mgr.upsert_state(
-                            source_type="item_list", query_type=qt,
-                            category_id=cat_id, last_page_fetched=page,
-                            total_items_found=total_found,
-                            unique_items_saved=unique_saved, completed=True,
-                        )
                         continue
 
                     books = self.process_items(items)
                     self.stats["saved"] += len(books)
-                    unique_saved += len(books)
-                    yield_rate = len(books) / len(items) if items else 0
 
                     if books:
                         self.save_batch(books)
+                        yield_rate = len(books) / len(items) if items else 0
                         print(f"  {cat_name} / {qt} p{page}: +{len(books)}권 (yield {yield_rate:.0%})")
-
-                    completed = (yield_rate < 0.10) or (page >= MAX_PAGES) or (len(items) < 50)
-
-                    self.state_mgr.upsert_state(
-                        source_type="item_list", query_type=qt,
-                        category_id=cat_id, last_page_fetched=page,
-                        total_items_found=total_found,
-                        unique_items_saved=unique_saved, completed=completed,
-                    )
 
                     time.sleep(API_CALL_DELAY)
 
