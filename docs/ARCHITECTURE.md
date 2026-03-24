@@ -60,18 +60,22 @@
 유저 → 책 등록 → palette_generator로 표지 dominant color 추출 → books.dominant_colors 저장
   → LLM으로 메타데이터 분석 → mood_tags + spine_font 자동 배정 → books 테이블 업데이트
 유저 → 책 등록 → Supabase DB (user_books)
-유저 → 피드백 입력 → Supabase DB (feedbacks)
+유저 → 피드백 입력 → Supabase DB (user_books.rating, emotion_tags, review_text)
 
-[MVP - Phase 1, 백그라운드]
-PM → Claude Code로 수동 실행:
-  → 알라딘 배치 수집 (베스트셀러/신간 → books 테이블)
-  → 책 메타데이터 강화 (짧은 description → AI 분석 → 풍부한 텍스트)
-  → 임베딩 생성 (강화된 텍스트 → 벡터 → book_embeddings 테이블)
+[MVP - Phase 1, 백그라운드 — GitHub Actions 자동화]
+매일 KST 03:00 (daily-batch):
+  → 알라딘 배치 수집 (베스트셀러/신간/저자/키워드 → books 테이블)
+  → Tier 1 임베딩 생성 (title+author+genre+description → book_embeddings)
+매일 KST 05:00 (daily-enrich):
+  → 색상 추출 + 폰트 배정 (cover → dominant_colors, spine_font)
+  → YES24 상세 수집 (책소개/출판사리뷰/책속으로 → rich_description)
+  → Tier 2 임베딩 생성 (rich_description 기반 → book_embeddings 업그레이드)
 
 [Phase 2 - 취향 프로필]
 PM → Claude Code로 수동 실행:
-  → 유저 피드백 → 임베딩 → 클러스터링 → 취향 벡터 (user_taste_vectors)
+  → user_books (rating, emotion_tags, review_text) → 임베딩 → 클러스터링 → 취향 벡터 (user_taste_vectors)
   → 취향 요약 생성 → 앱에 표시
+  → (선택) feedbacks 테이블 활성화하여 카테고리별 상세 피드백 수집
 
 [Phase 3 - 추천 + 자동화]
 내부 엔진 자동화 (Claude API + OpenAI API)
@@ -248,7 +252,7 @@ Supabase Auth와 연동. 추가 프로필 정보 저장.
 | source | text | 'aladin' or 'kakao' |
 | source_id | text | 외부 API의 고유 ID |
 | sales_point | int | 알라딘 판매지수 (Tier 2 강화 우선순위) |
-| enriched_description | text | AI 강화 설명 (Tier 2) |
+| rich_description | text | YES24 상세 텍스트 (책소개/출판사리뷰/책속으로) |
 | dominant_colors | jsonb | 표지 dominant color 2~3개 (hex 배열, 예: ["#3A2518","#8B6B4A","#D4C4A8"]) |
 | mood_tags | text[] | LLM 자동 부여 무드 태그 (예: {"잔잔한","따뜻한"}) |
 | spine_font | text | 책등 폰트 이름 (LLM 자동 배정, 예: 'Nanum Myeongjo') |
@@ -265,13 +269,16 @@ Supabase Auth와 연동. 추가 프로필 정보 저장.
 | book_id | uuid (FK → books) | |
 | status | text | 'read', 'reading' (MVP에서 'want_to_read' 제외) |
 | shelf_order | int | 서가 뷰 드래그 정렬 순서 (유저가 직접 배치한 위치) |
+| rating | text | 'good', 'neutral', 'bad' (호오 평가) |
+| emotion_tags | jsonb | 감성 태그 다중 선택 (emotion_tag_options 참조) |
+| review_text | text | 자유 텍스트 리뷰 |
 | created_at | timestamptz | 등록일 |
 | updated_at | timestamptz | 상태 변경일 |
 
 > unique constraint: (user_id, book_id)
 
-#### `feedbacks`
-책에 대한 유저 피드백. 하나의 user_book에 여러 피드백 가능.
+#### `feedbacks` (Phase 2~3 예정)
+구조화된 카테고리별 피드백. MVP에서는 user_books의 rating/emotion_tags/review_text를 사용하고, Phase 2에서 상세 피드백 수집 시 활용 예정.
 
 | 컬럼 | 타입 | 설명 |
 |------|------|------|
@@ -282,6 +289,28 @@ Supabase Auth와 연동. 추가 프로필 정보 저장.
 | free_text | text | 자유 텍스트 |
 | created_at | timestamptz | |
 
+#### `emotion_tag_options`
+감성 태그 선택지. 앱에서 유저에게 보여줄 태그 목록.
+
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| id | uuid (PK) | |
+| label | text | 태그 라벨 (예: '감동적인', '몰입감 있는') |
+| sort_order | int | 정렬 순서 |
+| is_active | boolean | 활성 여부 |
+| created_at | timestamptz | |
+
+#### `reflection_prompts`
+리뷰 작성 도우미 질문. 카테고리별 가이드 질문.
+
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| id | uuid (PK) | |
+| question | text | 질문 내용 |
+| category | text (nullable) | 카테고리 (character, plot 등). NULL이면 범용 |
+| is_active | boolean | 활성 여부 |
+| created_at | timestamptz | |
+
 #### `book_embeddings`
 책의 벡터 표현. 2-Tier 임베딩 파이프라인.
 
@@ -290,7 +319,9 @@ Supabase Auth와 연동. 추가 프로필 정보 저장.
 | id | uuid (PK) | |
 | book_id | uuid (FK → books, unique) | |
 | embedding | vector(1536) | OpenAI text-embedding-3-small 벡터 |
-| tier | smallint (default 1) | 1=기본(메타데이터), 2=강화(AI enriched) |
+| tier | smallint (default 1) | 1=기본(메타데이터), 2=강화(YES24 rich_description) |
+| source_text | text | 임베딩 생성에 사용된 원본 텍스트 |
+| data_sources | jsonb (default []) | 사용된 데이터 소스 (예: ["aladin", "yes24_intro", "yes24_excerpt"]) |
 | created_at | timestamptz | |
 | updated_at | timestamptz | 갱신일 (auto trigger) |
 
@@ -369,14 +400,15 @@ MVP에서는 Supabase 클라이언트 SDK로 직접 DB 호출. 별도 API 서버
 | 상태 변경 | `user_books.update({ status })` | 읽음/읽는중 |
 | 책 제거 | `user_books.delete()` | 서재에서 제거 |
 
-#### 피드백 CRUD
+#### 피드백 (MVP — user_books에 인라인 저장)
 
 | 동작 | Supabase 호출 | 설명 |
 |------|--------------|------|
-| 피드백 조회 | `feedbacks.select().eq('user_book_id', id)` | 특정 책에 대한 내 피드백 |
-| 피드백 추가 | `feedbacks.insert()` | 새 피드백 |
-| 피드백 수정 | `feedbacks.update()` | 피드백 수정 |
-| 피드백 삭제 | `feedbacks.delete()` | 피드백 삭제 |
+| 평가 저장 | `user_books.update({ rating })` | 'good', 'neutral', 'bad' |
+| 감성태그 저장 | `user_books.update({ emotion_tags })` | 다중 선택 태그 배열 |
+| 리뷰 저장 | `user_books.update({ review_text })` | 자유 텍스트 |
+| 태그 옵션 조회 | `emotion_tag_options.select()` | 앱에서 보여줄 태그 목록 |
+| 가이드 질문 조회 | `reflection_prompts.select()` | 리뷰 도우미 질문 |
 
 ### 4-2. 추천 서버 API (Phase 3)
 
@@ -419,17 +451,20 @@ FastAPI 서버. Supabase DB에서 벡터 데이터를 읽어 추천 계산.
   │   → GitHub Actions로 매일 KST 03:00 자동 실행
   │   → 스크립트: scripts/smart_batch_collector.py
   │
-  ├─ 2. 책 메타데이터 강화기 (AI) — Tier 2
-  │   → 알라딘/카카오의 짧은 description을 AI로 보강
-  │   → enriched_description → 더 좋은 임베딩 벡터 생성
-  │   → 미구현 — 별도 스킬로 수동 트리거 예정
+  ├─ 2. 책 메타데이터 강화기 ✅ 구현 완료 + 자동화
+  │   → 색상 추출: colorthief로 표지 dominant color 추출
+  │   → 폰트 배정: 장르 키워드 매칭으로 책등 폰트 자동 배정
+  │   → YES24 스크래핑: 책소개 + 출판사리뷰 + 책속으로 → rich_description
+  │   → GitHub Actions로 매일 KST 05:00 자동 실행
+  │   → 스크립트: scripts/batch_enricher.py, scripts/yes24_scraper.py
   │
   ├─ 3. 책 임베딩 생성기 ✅ 구현 완료 + 자동화
   │   → Tier 1: title + author + genre + description → 기본 임베딩
-  │   → Tier 2: enriched_description 기반 강화 임베딩 (미구현)
+  │   → Tier 2: rich_description(YES24) 기반 강화 임베딩
   │   → OpenAI text-embedding-3-small (1536차원)
-  │   → 배치 수집 직후 GitHub Actions에서 자동 실행
-  │   → 스크립트: scripts/tier1_embedder.py
+  │   → Tier 1: 배치 수집 직후 자동 실행 (KST 03:00)
+  │   → Tier 2: 보강 후 자동 실행 (KST 05:00)
+  │   → 스크립트: scripts/tier1_embedder.py, scripts/tier2_embedder.py
   │
   ├─ 4. 유저 취향 벡터 갱신기
   │   → 피드백 쌓일 때마다 취향 벡터 재계산
@@ -452,15 +487,19 @@ FastAPI 서버. Supabase DB에서 벡터 데이터를 읽어 추천 계산.
 ### 자동화 현황
 
 ```
-[자동 — GitHub Actions, 매일 KST 03:00]
+[자동 — GitHub Actions, 매일 KST 03:00 (daily-batch)]
 1. smart_batch_collector.py --daily-target 1000  (알라딘 수집)
 2. tier1_embedder.py                              (Tier 1 임베딩 생성)
 3. smart_batch_collector.py --status               (상태 리포트)
 
-[수동 — PM이 Claude Code로 실행 (미구현)]
-1. Tier 2 메타데이터 강화 (enriched_description 생성)
-2. Tier 2 임베딩 재생성 (강화된 텍스트 기반)
-3. 유저 취향 벡터 갱신
+[자동 — GitHub Actions, 매일 KST 05:00 (daily-enrich)]
+1. batch_enricher.py --limit 1000                 (색상 추출 + 폰트 배정)
+2. yes24_scraper.py --limit 250                    (YES24 rich_description 수집)
+3. tier2_embedder.py --limit 500                   (Tier 2 임베딩 생성)
+
+[수동 — PM이 Claude Code로 실행 (Phase 2~3)]
+1. 유저 취향 벡터 갱신
+2. 취향 요약 & 추천 사유 생성
 ```
 
 ---
@@ -502,13 +541,17 @@ recommendation-server/
 ### 임베딩 파이프라인
 
 ```
-[책 임베딩]
-새 책 등록 or 배치 실행 시
-→ books 테이블에서 description + genre + author
-→ (AI 강화) Claude API로 메타데이터 분석 → 풍부한 텍스트 생성
+[책 임베딩 — 2-Tier 파이프라인]
+Tier 1 (기본, daily-batch KST 03:00):
+→ books.title + author + genre + description
 → OpenAI text-embedding-3-small API 호출
-→ 1536차원 벡터 반환
-→ book_embeddings 테이블에 저장
+→ book_embeddings (tier=1)
+
+Tier 2 (강화, daily-enrich KST 05:00):
+→ books.rich_description (YES24 책소개/출판사리뷰/책속으로)
+→ title + author + genre + description + 책소개 + 발췌 조합
+→ OpenAI text-embedding-3-small API 호출
+→ book_embeddings (tier=2) — Tier 1을 덮어씀
 
 [책 벡터 강화]
 유저 피드백 n개 이상 쌓인 책
@@ -518,7 +561,7 @@ recommendation-server/
 
 [유저 취향 벡터]
 피드백 n개 이상 쌓이면 트리거
-→ feedbacks 테이블에서 유저의 모든 피드백 조회
+→ user_books에서 유저의 rating, emotion_tags, review_text 조회
 → 각 피드백 텍스트를 embedding
 → 클러스터링 (K-Means 또는 DBSCAN)
 → 클러스터별 centroid = 취향 벡터

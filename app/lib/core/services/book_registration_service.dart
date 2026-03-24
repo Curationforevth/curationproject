@@ -83,24 +83,34 @@ class BookRegistrationService {
   }
 
   /// 백그라운드: 색상 추출 + 폰트 배정
+  /// DB에 이미 값이 있으면 스킵 (배치 enricher가 먼저 처리한 경우)
   Future<void> _enrichBookAsync(String bookId, Book book) async {
     try {
+      // DB에서 현재 상태 확인
+      final existing = await _supabase
+          .from('books')
+          .select('dominant_colors, spine_font')
+          .eq('id', bookId)
+          .single();
+
       final updates = <String, dynamic>{};
 
-      // dominant color 추출
-      if (book.coverUrl != null && book.coverUrl!.isNotEmpty) {
+      // dominant color 추출 (DB에 없을 때만)
+      final hasColors = existing['dominant_colors'] != null;
+      if (!hasColors && book.coverUrl != null && book.coverUrl!.isNotEmpty) {
         final colors = await ColorExtractor.extractFromUrl(book.coverUrl!);
         if (colors.isNotEmpty) {
           updates['dominant_colors'] = colors;
         }
       }
 
-      // spine font 배정
-      final font = FontAssigner.assignFont(
-        genre: book.genre,
-        description: book.description,
-      );
-      if (font != FontAssigner.defaultFont) {
+      // spine font 배정 (DB에 없을 때만)
+      final hasFont = existing['spine_font'] != null;
+      if (!hasFont) {
+        final font = FontAssigner.assignFont(
+          genre: book.genre,
+          description: book.description,
+        );
         updates['spine_font'] = font;
       }
 
