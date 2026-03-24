@@ -14,6 +14,7 @@ final bookshelfProvider = FutureProvider<List<UserBook>>((ref) async {
       .from('user_books')
       .select('*, books(*)')
       .eq('user_id', userId)
+      .order('shelf_order', ascending: true, nullsFirst: false)
       .order('created_at', ascending: false);
 
   return (response as List<dynamic>)
@@ -48,4 +49,16 @@ Future<String> addBookToShelf(WidgetRef ref, Book book, BookStatus status) async
   final userBookId = await service.registerBook(book, status);
   ref.invalidate(bookshelfProvider);
   return userBookId;
+}
+
+/// 서재 책 순서 변경 (shelf_order batch update)
+Future<void> reorderBooks(WidgetRef ref, List<UserBook> reordered) async {
+  final supabase = Supabase.instance.client;
+  for (int i = 0; i < reordered.length; i++) {
+    await supabase
+        .from('user_books')
+        .update({'shelf_order': i})
+        .eq('id', reordered[i].id);
+  }
+  ref.invalidate(bookshelfProvider);
 }

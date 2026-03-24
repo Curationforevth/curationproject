@@ -15,22 +15,26 @@ const _kClear = Object();
 class BookDetailState {
   final UserBook? userBook;
   final bool isLoading;
+  final bool isSaving;
   final String? error;
 
   const BookDetailState({
     this.userBook,
     this.isLoading = true,
+    this.isSaving = false,
     this.error,
   });
 
   BookDetailState copyWith({
     UserBook? userBook,
     bool? isLoading,
+    bool? isSaving,
     Object? error = _kClear,
   }) {
     return BookDetailState(
       userBook: userBook ?? this.userBook,
       isLoading: isLoading ?? this.isLoading,
+      isSaving: isSaving ?? this.isSaving,
       error: identical(error, _kClear) ? this.error : error as String?,
     );
   }
@@ -69,7 +73,8 @@ class BookDetailNotifier extends StateNotifier<BookDetailState> {
   /// 호오 평가 변경 (낙관적 업데이트)
   Future<void> updateRating(String rating) async {
     final prev = state.userBook;
-    if (prev == null) return;
+    if (prev == null || state.isSaving) return;
+    state = state.copyWith(isSaving: true);
 
     // 같은 값이면 해제 (토글)
     final newRating = prev.rating == rating ? null : rating;
@@ -98,17 +103,19 @@ class BookDetailNotifier extends StateNotifier<BookDetailState> {
           .eq('id', _userBookId);
       _ref.invalidate(bookshelfProvider);
     } catch (e) {
-      // 롤백
       state = state.copyWith(userBook: prev);
       debugPrint('rating 저장 실패: $e');
       rethrow;
+    } finally {
+      state = state.copyWith(isSaving: false);
     }
   }
 
   /// 감성태그 토글 (낙관적 업데이트)
   Future<void> toggleEmotionTag(String tagId) async {
     final prev = state.userBook;
-    if (prev == null) return;
+    if (prev == null || state.isSaving) return;
+    state = state.copyWith(isSaving: true);
 
     final currentTags = List<String>.from(prev.emotionTags ?? []);
     if (currentTags.contains(tagId)) {
@@ -142,17 +149,19 @@ class BookDetailNotifier extends StateNotifier<BookDetailState> {
           .eq('id', _userBookId);
       _ref.invalidate(bookshelfProvider);
     } catch (e) {
-      // 롤백
       state = state.copyWith(userBook: prev);
       debugPrint('감성태그 저장 실패: $e');
       rethrow;
+    } finally {
+      state = state.copyWith(isSaving: false);
     }
   }
 
   /// 리뷰 텍스트 저장 (명시적, 저장 버튼)
   Future<void> saveReviewText(String text) async {
     final prev = state.userBook;
-    if (prev == null) return;
+    if (prev == null || state.isSaving) return;
+    state = state.copyWith(isSaving: true);
 
     final reviewText = text.trim().isEmpty ? null : text.trim();
 
@@ -181,13 +190,16 @@ class BookDetailNotifier extends StateNotifier<BookDetailState> {
     } catch (e) {
       debugPrint('리뷰 저장 실패: $e');
       rethrow;
+    } finally {
+      state = state.copyWith(isSaving: false);
     }
   }
 
   /// 읽기 상태 변경
   Future<void> updateStatus(BookStatus newStatus) async {
     final prev = state.userBook;
-    if (prev == null) return;
+    if (prev == null || state.isSaving) return;
+    state = state.copyWith(isSaving: true);
 
     state = state.copyWith(
       userBook: UserBook(
@@ -215,6 +227,8 @@ class BookDetailNotifier extends StateNotifier<BookDetailState> {
       state = state.copyWith(userBook: prev);
       debugPrint('상태 변경 실패: $e');
       rethrow;
+    } finally {
+      state = state.copyWith(isSaving: false);
     }
   }
 }

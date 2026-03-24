@@ -39,14 +39,16 @@ class BookshelfScreen extends ConsumerWidget {
               children: [
                 _buildSection(
                   context,
+                  ref: ref,
                   title: '읽는 중',
-                  books: booksByStatus[BookStatus.reading] ?? [],
+                  userBooks: booksByStatus[BookStatus.reading] ?? [],
                 ),
                 const SizedBox(height: 24),
                 _buildSection(
                   context,
+                  ref: ref,
                   title: '읽은 책',
-                  books: booksByStatus[BookStatus.read] ?? [],
+                  userBooks: booksByStatus[BookStatus.read] ?? [],
                 ),
               ],
             ),
@@ -62,11 +64,11 @@ class BookshelfScreen extends ConsumerWidget {
 
   Widget _buildSection(
     BuildContext context, {
+    required WidgetRef ref,
     required String title,
-    required List<UserBook> books,
+    required List<UserBook> userBooks,
   }) {
-    final booksWithData =
-        books.where((ub) => ub.book != null).map((ub) => ub.book!).toList();
+    final count = userBooks.where((ub) => ub.book != null).length;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -84,7 +86,7 @@ class BookshelfScreen extends ConsumerWidget {
               ),
               const SizedBox(width: 8),
               Text(
-                '${booksWithData.length}',
+                '$count',
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       color: AppColors.textSecondary,
                     ),
@@ -94,12 +96,12 @@ class BookshelfScreen extends ConsumerWidget {
         ),
         const SizedBox(height: 12),
         BookshelfRow(
-          books: booksWithData,
-          onBookTap: (book) {
-            final userBook = books.firstWhere(
-              (ub) => ub.book?.id == book.id,
-            );
+          userBooks: userBooks,
+          onBookTap: (userBook) {
             context.push('/book/${userBook.id}');
+          },
+          onReorder: (reordered) {
+            reorderBooks(ref, reordered);
           },
         ),
       ],

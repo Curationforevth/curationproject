@@ -3,11 +3,13 @@ import '../../../core/theme/app_colors.dart';
 
 class RatingSelector extends StatelessWidget {
   final String? currentRating;
+  final bool disabled;
   final ValueChanged<String> onChanged;
 
   const RatingSelector({
     super.key,
     this.currentRating,
+    this.disabled = false,
     required this.onChanged,
   });
 
@@ -30,22 +32,28 @@ class RatingSelector extends StatelessWidget {
               ),
         ),
         const SizedBox(height: 12),
-        Row(
-          children: _options.map((option) {
-            final (value, label, iconOutlined, iconFilled) = option;
-            final isSelected = currentRating == value;
-            return Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: _RatingButton(
-                  label: label,
-                  icon: isSelected ? iconFilled : iconOutlined,
-                  isSelected: isSelected,
-                  onTap: () => onChanged(value),
-                ),
-              ),
-            );
-          }).toList(),
+        IgnorePointer(
+          ignoring: disabled,
+          child: Opacity(
+            opacity: disabled ? 0.6 : 1.0,
+            child: Row(
+              children: _options.map((option) {
+                final (value, label, iconOutlined, iconFilled) = option;
+                final isSelected = currentRating == value;
+                return Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: _RatingButton(
+                      label: label,
+                      icon: isSelected ? iconFilled : iconOutlined,
+                      isSelected: isSelected,
+                      onTap: () => onChanged(value),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
         ),
       ],
     );

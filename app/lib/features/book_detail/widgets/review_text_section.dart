@@ -26,12 +26,14 @@ const _topicHints = {
 class ReviewTextSection extends StatefulWidget {
   final String? initialText;
   final List<ReflectionPrompt> prompts;
+  final bool isSaving;
   final ValueChanged<String> onSave;
 
   const ReviewTextSection({
     super.key,
     this.initialText,
     required this.prompts,
+    this.isSaving = false,
     required this.onSave,
   });
 
@@ -147,15 +149,26 @@ class _ReviewTextSectionState extends State<ReviewTextSection> {
             // 저장 버튼
             if (_hasChanges)
               FilledButton(
-                onPressed: () {
-                  widget.onSave(_controller.text);
-                  setState(() => _hasChanges = false);
-                },
+                onPressed: widget.isSaving
+                    ? null
+                    : () {
+                        widget.onSave(_controller.text);
+                        setState(() => _hasChanges = false);
+                      },
                 style: FilledButton.styleFrom(
                   backgroundColor: AppColors.primary,
                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                 ),
-                child: const Text('저장', style: TextStyle(fontSize: 13)),
+                child: widget.isSaving
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Text('저장', style: TextStyle(fontSize: 13)),
               ),
           ],
         ),

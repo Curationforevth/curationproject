@@ -4,6 +4,14 @@ import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/book.dart';
 
+/// 검색 결과 + 페이지네이션 정보
+class BookSearchResult {
+  final List<Book> books;
+  final bool isEnd;
+
+  const BookSearchResult({required this.books, required this.isEnd});
+}
+
 class BookSearchService {
   final String _apiKey = dotenv.env['KAKAO_REST_API_KEY']!;
   final SupabaseClient _supabase = Supabase.instance.client;
@@ -11,8 +19,10 @@ class BookSearchService {
   static const _baseUrl = 'https://dapi.kakao.com/v3/search/book';
 
   /// 카카오 책 검색 API 호출
-  Future<List<Book>> search(String query, {int page = 1, int size = 20}) async {
-    if (query.trim().isEmpty) return [];
+  Future<BookSearchResult> search(String query, {int page = 1, int size = 20}) async {
+    if (query.trim().isEmpty) {
+      return const BookSearchResult(books: [], isEnd: true);
+    }
 
     final uri = Uri.parse(_baseUrl).replace(queryParameters: {
       'query': query,
@@ -31,10 +41,14 @@ class BookSearchService {
 
     final data = jsonDecode(response.body) as Map<String, dynamic>;
     final documents = data['documents'] as List<dynamic>;
+    final meta = data['meta'] as Map<String, dynamic>?;
+    final isEnd = meta?['is_end'] as bool? ?? true;
 
-    return documents
+    final books = documents
         .map((doc) => _documentToBook(doc as Map<String, dynamic>))
         .toList();
+
+    return BookSearchResult(books: books, isEnd: isEnd);
   }
 
   /// 검색 결과를 books 테이블에 캐싱 (ISBN 기준 upsert)

@@ -23,12 +23,20 @@ class BookSearchState {
   final List<Book> results;
   final String? errorMessage;
   final Set<String> shelfIsbns;
+  final int currentPage;
+  final bool hasMore;
+  final bool isLoadingMore;
+  final String currentQuery;
 
   const BookSearchState({
     this.status = BookSearchStatus.idle,
     this.results = const [],
     this.errorMessage,
     this.shelfIsbns = const {},
+    this.currentPage = 1,
+    this.hasMore = true,
+    this.isLoadingMore = false,
+    this.currentQuery = '',
   });
 
   BookSearchState copyWith({
@@ -36,12 +44,20 @@ class BookSearchState {
     List<Book>? results,
     String? errorMessage,
     Set<String>? shelfIsbns,
+    int? currentPage,
+    bool? hasMore,
+    bool? isLoadingMore,
+    String? currentQuery,
   }) {
     return BookSearchState(
       status: status ?? this.status,
       results: results ?? this.results,
       errorMessage: errorMessage,
       shelfIsbns: shelfIsbns ?? this.shelfIsbns,
+      currentPage: currentPage ?? this.currentPage,
+      hasMore: hasMore ?? this.hasMore,
+      isLoadingMore: isLoadingMore ?? this.isLoadingMore,
+      currentQuery: currentQuery ?? this.currentQuery,
     );
   }
 }
@@ -82,19 +98,50 @@ class BookSearchNotifier extends StateNotifier<BookSearchState> {
   }
 
   Future<void> _performSearch(String query) async {
-    state = state.copyWith(status: BookSearchStatus.loading);
+    state = state.copyWith(
+      status: BookSearchStatus.loading,
+      currentQuery: query,
+      currentPage: 1,
+      hasMore: true,
+    );
 
     try {
-      final results = await _service.search(query);
+      final result = await _service.search(query);
       state = state.copyWith(
         status: BookSearchStatus.loaded,
-        results: results,
+        results: result.books,
+        currentPage: 1,
+        hasMore: !result.isEnd,
       );
     } catch (e) {
       state = state.copyWith(
         status: BookSearchStatus.error,
         errorMessage: e.toString(),
       );
+    }
+  }
+
+  Future<void> loadMore() async {
+    if (state.isLoadingMore || !state.hasMore || state.currentQuery.isEmpty) {
+      return;
+    }
+
+    state = state.copyWith(isLoadingMore: true);
+
+    try {
+      final nextPage = state.currentPage + 1;
+      final result = await _service.search(
+        state.currentQuery,
+        page: nextPage,
+      );
+      state = state.copyWith(
+        results: [...state.results, ...result.books],
+        currentPage: nextPage,
+        hasMore: !result.isEnd,
+        isLoadingMore: false,
+      );
+    } catch (e) {
+      state = state.copyWith(isLoadingMore: false);
     }
   }
 

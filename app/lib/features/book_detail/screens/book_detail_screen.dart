@@ -56,6 +56,7 @@ class BookDetailScreen extends ConsumerWidget {
             // 2. 호오 평가
             RatingSelector(
               currentRating: userBook.rating,
+              disabled: detailState.isSaving,
               onChanged: (rating) async {
                 try {
                   await ref
@@ -78,6 +79,7 @@ class BookDetailScreen extends ConsumerWidget {
               data: (tags) => EmotionTagChips(
                 options: tags,
                 selectedIds: userBook.emotionTags ?? [],
+                disabled: detailState.isSaving,
                 onToggle: (tagId) async {
                   try {
                     await ref
@@ -103,6 +105,7 @@ class BookDetailScreen extends ConsumerWidget {
               data: (prompts) => ReviewTextSection(
                 initialText: userBook.reviewText,
                 prompts: prompts,
+                isSaving: detailState.isSaving,
                 onSave: (text) async {
                   try {
                     await ref

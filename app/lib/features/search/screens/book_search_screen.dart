@@ -126,18 +126,38 @@ class _BookSearchScreenState extends ConsumerState<BookSearchScreen> {
           ),
         BookSearchStatus.loaded => searchState.results.isEmpty
             ? const Center(child: Text('검색 결과가 없습니다'))
-            : ListView.separated(
-                itemCount: searchState.results.length,
-                separatorBuilder: (context, index) =>
-                    const Divider(height: 1),
+            : ListView.builder(
+                itemCount: searchState.results.length +
+                    (searchState.hasMore ? 1 : 0),
                 itemBuilder: (context, index) {
+                  // 하단 로딩 인디케이터
+                  if (index == searchState.results.length) {
+                    return const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Center(child: CircularProgressIndicator()),
+                    );
+                  }
+
+                  // 끝에서 4개 전에 다음 페이지 로드
+                  if (index == searchState.results.length - 4 &&
+                      searchState.hasMore &&
+                      !searchState.isLoadingMore) {
+                    ref.read(bookSearchProvider.notifier).loadMore();
+                  }
+
                   final book = searchState.results[index];
                   final isAdded = book.isbn != null &&
                       searchState.shelfIsbns.contains(book.isbn);
-                  return BookSearchResultCard(
-                    book: book,
-                    isAdded: isAdded,
-                    onTap: () => _showStatusBottomSheet(book),
+                  return Column(
+                    children: [
+                      BookSearchResultCard(
+                        book: book,
+                        isAdded: isAdded,
+                        onTap: () => _showStatusBottomSheet(book),
+                      ),
+                      if (index < searchState.results.length - 1)
+                        const Divider(height: 1),
+                    ],
                   );
                 },
               ),

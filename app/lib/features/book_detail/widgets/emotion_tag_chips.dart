@@ -5,12 +5,14 @@ import '../../../core/theme/app_colors.dart';
 class EmotionTagChips extends StatelessWidget {
   final List<EmotionTag> options;
   final List<String> selectedIds;
+  final bool disabled;
   final ValueChanged<String> onToggle;
 
   const EmotionTagChips({
     super.key,
     required this.options,
     required this.selectedIds,
+    this.disabled = false,
     required this.onToggle,
   });
 
@@ -27,7 +29,11 @@ class EmotionTagChips extends StatelessWidget {
               ),
         ),
         const SizedBox(height: 12),
-        Wrap(
+        IgnorePointer(
+          ignoring: disabled,
+          child: Opacity(
+            opacity: disabled ? 0.6 : 1.0,
+            child: Wrap(
           spacing: 8,
           runSpacing: 8,
           children: options.map((tag) {
@@ -48,6 +54,8 @@ class EmotionTagChips extends StatelessWidget {
               ),
             );
           }).toList(),
+        ),
+          ),
         ),
       ],
     );
