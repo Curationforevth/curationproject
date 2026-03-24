@@ -93,7 +93,7 @@ jobs:
 ### Step 1: batch_enricher.py
 
 - **대상**: `dominant_colors IS NULL` 또는 `spine_font IS NULL`인 책
-- **기본 limit**: 200권 (충분, 신규 수집분만 처리)
+- **limit**: 200권 (커버 이미지 CDN 차단 방지. 현재 99% 완료 상태라 신규 수집분만 처리하면 충분)
 - **소요시간**: ~5분
 - **의존성**: colorthief (requirements.txt에 포함)
 - **실패 시**: `continue-on-error: true`로 scraper는 정상 실행됨
