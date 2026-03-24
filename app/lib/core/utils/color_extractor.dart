@@ -44,11 +44,11 @@ class ColorExtractor {
     return (dr + dg + db) < 0.15; // 0~1 범위 기준
   }
 
-  /// Color → hex 문자열
+  /// Color → hex 문자열 (Color.r/g/b는 0.0~1.0 float)
   static String colorToHex(Color color) {
-    final r = color.r.toInt().toRadixString(16).padLeft(2, '0');
-    final g = color.g.toInt().toRadixString(16).padLeft(2, '0');
-    final b = color.b.toInt().toRadixString(16).padLeft(2, '0');
+    final r = (color.r * 255).round().toRadixString(16).padLeft(2, '0');
+    final g = (color.g * 255).round().toRadixString(16).padLeft(2, '0');
+    final b = (color.b * 255).round().toRadixString(16).padLeft(2, '0');
     return '#${r.toUpperCase()}${g.toUpperCase()}${b.toUpperCase()}';
   }
 

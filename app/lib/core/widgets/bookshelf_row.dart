@@ -28,14 +28,14 @@ class _BookshelfRowState extends State<BookshelfRow> {
   @override
   void initState() {
     super.initState();
-    _items = List.from(widget.userBooks);
+    _items = widget.userBooks.where((ub) => ub.book != null).toList();
   }
 
   @override
   void didUpdateWidget(BookshelfRow oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.userBooks != widget.userBooks) {
-      _items = List.from(widget.userBooks);
+      _items = widget.userBooks.where((ub) => ub.book != null).toList();
     }
   }
 
@@ -50,21 +50,19 @@ class _BookshelfRowState extends State<BookshelfRow> {
 
   @override
   Widget build(BuildContext context) {
-    final books = _items.where((ub) => ub.book != null).toList();
-
     return Column(
       children: [
         SizedBox(
           height: 168,
-          child: books.isEmpty
+          child: _items.isEmpty
               ? _emptyRow(context)
               : SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.end,
-                    children: List.generate(books.length, (index) {
-                      final userBook = books[index];
+                    children: List.generate(_items.length, (index) {
+                      final userBook = _items[index];
                       return _DraggableSpine(
                         index: index,
                         userBook: userBook,

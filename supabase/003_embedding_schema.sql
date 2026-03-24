@@ -5,7 +5,7 @@
 
 -- 1. books 테이블 확장
 ALTER TABLE public.books ADD COLUMN IF NOT EXISTS sales_point INT;
-ALTER TABLE public.books ADD COLUMN IF NOT EXISTS enriched_description TEXT;
+-- rich_description은 007에서 추가됨 (YES24 상세 텍스트용)
 ALTER TABLE public.books ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now();
 
 -- books에도 updated_at 자동 갱신 트리거 (기존 handle_updated_at 함수 재사용)
