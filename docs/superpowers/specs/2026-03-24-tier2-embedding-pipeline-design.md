@@ -1,5 +1,7 @@
 # Tier 2 Embedding Pipeline Design
 
+> **Deprecated (2026-03-25)**: 파이프라인 재설계로 워크플로우 구조 변경됨. `2026-03-25-pipeline-redesign.md` 참조.
+
 > 점진적 임베딩 파이프라인 — 데이터가 쌓일수록 임베딩이 풍성해지는 구조
 
 ---

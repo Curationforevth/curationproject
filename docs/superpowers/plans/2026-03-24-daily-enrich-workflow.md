@@ -1,5 +1,7 @@
 # Daily Enrich Workflow Implementation Plan
 
+> **Deprecated (2026-03-25)**: 파이프라인 재설계로 대체됨. `2026-03-25-pipeline-redesign.md` 참조.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** GitHub Actions 워크플로우 `daily-enrich.yml`을 생성하여 batch_enricher + yes24_scraper를 매일 자동 실행한다.

@@ -1,5 +1,7 @@
 # Daily Enrich Workflow Design
 
+> **Deprecated (2026-03-25)**: 파이프라인 재설계로 대체됨. `2026-03-25-pipeline-redesign.md` 참조.
+
 > GitHub Actions 워크플로우: batch_enricher + yes24_scraper 자동화
 
 ---
