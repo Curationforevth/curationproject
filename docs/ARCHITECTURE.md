@@ -63,12 +63,13 @@
 유저 → 피드백 입력 → Supabase DB (user_books.rating, emotion_tags, review_text)
 
 [MVP - Phase 1, 백그라운드 — GitHub Actions 자동화]
-매일 KST 03:00 (daily-batch):
+매일 KST 03:00 (daily-collect):
   → 알라딘 배치 수집 (베스트셀러/신간/저자/키워드 → books 테이블)
-  → Tier 1 임베딩 생성 (title+author+genre+description → book_embeddings)
-매일 KST 05:00 (daily-enrich):
   → 색상 추출 + 폰트 배정 (cover → dominant_colors, spine_font)
-  → YES24 상세 수집 (책소개/출판사리뷰/책속으로 → rich_description)
+  → Tier 1 임베딩 생성 (title+author+genre+description → book_embeddings)
+2시간마다 (daily-scrape):
+  → YES24 상세 수집 80권/회 (책소개/출판사리뷰/책속으로 → rich_description)
+매일 KST 06:30 (daily-embed-t2):
   → Tier 2 임베딩 생성 (rich_description 기반 → book_embeddings 업그레이드)
 
 [Phase 2 - 취향 프로필]
