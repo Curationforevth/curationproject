@@ -442,15 +442,16 @@ FastAPI 서버. Supabase DB에서 벡터 데이터를 읽어 추천 계산.
   │   → 색상 추출: colorthief로 표지 dominant color 추출
   │   → 폰트 배정: 장르 키워드 매칭으로 책등 폰트 자동 배정
   │   → YES24 스크래핑: 책소개 + 출판사리뷰 + 책속으로 → rich_description
-  │   → GitHub Actions로 매일 KST 05:00 자동 실행
+  │   → 색상/폰트: daily-collect (KST 03:00) 내 자동 실행
+  │   → YES24: daily-scrape (2시간마다 80권) 자동 실행
   │   → 스크립트: scripts/batch_enricher.py, scripts/yes24_scraper.py
   │
   ├─ 3. 책 임베딩 생성기 ✅ 구현 완료 + 자동화
   │   → Tier 1: title + author + genre + description → 기본 임베딩
   │   → Tier 2: rich_description(YES24) 기반 강화 임베딩
   │   → OpenAI text-embedding-3-small (1536차원)
-  │   → Tier 1: 배치 수집 직후 자동 실행 (KST 03:00)
-  │   → Tier 2: 보강 후 자동 실행 (KST 05:00)
+  │   → Tier 1: daily-collect 내 자동 실행 (KST 03:00)
+  │   → Tier 2: daily-embed-t2 자동 실행 (KST 06:30)
   │   → 스크립트: scripts/tier1_embedder.py, scripts/tier2_embedder.py
   │
   ├─ 4. 유저 취향 벡터 갱신기
