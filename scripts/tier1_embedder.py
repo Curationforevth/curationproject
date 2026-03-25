@@ -15,11 +15,12 @@ import os
 import sys
 import time
 
+from dotenv import load_dotenv
+from supabase import create_client
+load_dotenv()
+
 try:
-    from dotenv import load_dotenv
     from openai import OpenAI
-    from supabase import create_client
-    load_dotenv()
 except ImportError:
     pass  # 테스트 환경에서는 compose_embedding_text만 사용
 

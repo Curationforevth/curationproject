@@ -18,11 +18,12 @@ import os
 import sys
 import time
 
+from dotenv import load_dotenv
+from supabase import create_client
+load_dotenv()
+
 try:
-    from dotenv import load_dotenv
     from openai import OpenAI
-    from supabase import create_client
-    load_dotenv()
 except ImportError:
     pass  # 테스트 환경에서는 순수 함수만 사용
 
@@ -156,8 +157,14 @@ class Tier2Embedder:
             os.getenv("SUPABASE_URL"),
             os.getenv("SUPABASE_SERVICE_ROLE_KEY"),
         )
-        self.openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        self._openai_client = None  # lazy init — --status에서는 불필요
         self.stats = {"embedded": 0, "skipped": 0, "errors": 0}
+
+    @property
+    def openai_client(self):
+        if self._openai_client is None:
+            self._openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        return self._openai_client
 
     def fetch_books_needing_tier2(self, limit=0, force=False):
         """rich_description이 있고, Tier 2 임베딩이 아직 없는 책 조회."""
