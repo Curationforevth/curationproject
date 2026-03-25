@@ -24,6 +24,11 @@ import urllib.error
 from dotenv import load_dotenv
 from supabase import create_client
 
+try:
+    from lib.retry import with_retry
+except ImportError:
+    def with_retry(fn, **kwargs): return fn()
+
 load_dotenv()
 
 # colorthief는 선택 의존성
@@ -103,11 +108,11 @@ class BatchEnricher:
         offset = 0
         page_size = 1000
         while True:
-            result = self.sb.table("books") \
+            result = with_retry(lambda: self.sb.table("books") \
                 .select("id, cover_url, genre, description, dominant_colors, spine_font") \
                 .or_("dominant_colors.is.null,spine_font.is.null") \
                 .range(offset, offset + page_size - 1) \
-                .execute()
+                .execute())
             if not result.data:
                 break
             all_books.extend(result.data)
@@ -153,7 +158,7 @@ class BatchEnricher:
                 updates = self.enrich_book(book)
 
                 if updates and not self.dry_run:
-                    self.sb.table("books").update(updates).eq("id", book["id"]).execute()
+                    with_retry(lambda: self.sb.table("books").update(updates).eq("id", book["id"]).execute())
 
                 self.stats["processed"] += 1
 
@@ -186,9 +191,9 @@ class BatchEnricher:
 
     def show_status(self):
         """현재 보강 현황"""
-        total = self.sb.table("books").select("id", count="exact").execute()
-        has_colors = self.sb.table("books").select("id", count="exact").not_.is_("dominant_colors", "null").execute()
-        has_font = self.sb.table("books").select("id", count="exact").not_.is_("spine_font", "null").execute()
+        total = with_retry(lambda: self.sb.table("books").select("id", count="exact").execute())
+        has_colors = with_retry(lambda: self.sb.table("books").select("id", count="exact").not_.is_("dominant_colors", "null").execute())
+        has_font = with_retry(lambda: self.sb.table("books").select("id", count="exact").not_.is_("spine_font", "null").execute())
 
         print(f"\n{'=' * 50}")
         print("메타데이터 보강 현황")

@@ -26,6 +26,11 @@ try:
 except ImportError:
     pass  # 테스트 환경에서는 순수 함수만 사용
 
+try:
+    from lib.retry import with_retry
+except ImportError:
+    def with_retry(fn, **kwargs): return fn()
+
 EMBEDDING_MODEL = "text-embedding-3-small"
 BATCH_SIZE = 50
 MAX_CHARS = 15000  # ~7500 토큰 (한국어 ~2자 = ~1토큰)
@@ -160,11 +165,11 @@ class Tier2Embedder:
         offset = 0
         page_size = 1000
         while True:
-            result = self.sb.table("books") \
+            result = with_retry(lambda o=offset: self.sb.table("books") \
                 .select("id, title, author, genre, description, rich_description") \
                 .not_.is_("rich_description", "null") \
-                .range(offset, offset + page_size - 1) \
-                .execute()
+                .range(o, o + page_size - 1) \
+                .execute())
             if not result.data:
                 break
             all_books.extend(result.data)
@@ -179,11 +184,11 @@ class Tier2Embedder:
             tier2_ids = set()
             offset = 0
             while True:
-                result = self.sb.table("book_embeddings") \
+                result = with_retry(lambda o=offset: self.sb.table("book_embeddings") \
                     .select("book_id") \
                     .eq("tier", 2) \
-                    .range(offset, offset + page_size - 1) \
-                    .execute()
+                    .range(o, o + page_size - 1) \
+                    .execute())
                 if not result.data:
                     break
                 for row in result.data:
@@ -254,9 +259,9 @@ class Tier2Embedder:
                         }
                         for bid, emb, txt, src in zip(book_ids, embeddings, texts, sources_list)
                     ]
-                    self.sb.table("book_embeddings").upsert(
+                    with_retry(lambda: self.sb.table("book_embeddings").upsert(
                         rows, on_conflict="book_id"
-                    ).execute()
+                    ).execute())
 
                 self.stats["embedded"] += len(batch)
                 prefix = "(dry-run) " if self.dry_run else ""
@@ -282,14 +287,14 @@ class Tier2Embedder:
         print(f"{'=' * 50}")
 
     def show_status(self):
-        total = self.sb.table("books").select("id", count="exact").execute()
-        has_rich = self.sb.table("books").select("id", count="exact") \
-            .not_.is_("rich_description", "null").execute()
+        total = with_retry(lambda: self.sb.table("books").select("id", count="exact").execute())
+        has_rich = with_retry(lambda: self.sb.table("books").select("id", count="exact") \
+            .not_.is_("rich_description", "null").execute())
 
-        tier1 = self.sb.table("book_embeddings").select("id", count="exact") \
-            .eq("tier", 1).execute()
-        tier2 = self.sb.table("book_embeddings").select("id", count="exact") \
-            .eq("tier", 2).execute()
+        tier1 = with_retry(lambda: self.sb.table("book_embeddings").select("id", count="exact") \
+            .eq("tier", 1).execute())
+        tier2 = with_retry(lambda: self.sb.table("book_embeddings").select("id", count="exact") \
+            .eq("tier", 2).execute())
 
         print(f"\n{'=' * 50}")
         print("Tier 2 임베딩 현황")

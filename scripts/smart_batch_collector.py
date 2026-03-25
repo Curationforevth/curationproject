@@ -30,6 +30,10 @@ from lib.aladin_client import AladinClient
 from lib.book_filter import is_non_book
 from lib.title_cleaner import clean_title
 from lib.state_manager import StateManager
+try:
+    from lib.retry import with_retry
+except ImportError:
+    def with_retry(fn, **kwargs): return fn()
 
 load_dotenv()
 
@@ -108,7 +112,7 @@ class SmartBatchCollector:
         offset = 0
         page_size = 1000
         while True:
-            result = self.sb.table("books").select("isbn").range(offset, offset + page_size - 1).execute()
+            result = with_retry(lambda: self.sb.table("books").select("isbn").range(offset, offset + page_size - 1).execute())
             if not result.data:
                 break
             for row in result.data:
@@ -167,17 +171,17 @@ class SmartBatchCollector:
             return
 
         try:
-            self.sb.table("books").upsert(
+            with_retry(lambda: self.sb.table("books").upsert(
                 books, on_conflict="isbn"
-            ).execute()
+            ).execute())
         except Exception as e:
             print(f"    ✗ DB 저장 오류: {e}")
             # 개별 저장 fallback
             for book in books:
                 try:
-                    self.sb.table("books").upsert(
-                        book, on_conflict="isbn"
-                    ).execute()
+                    with_retry(lambda b=book: self.sb.table("books").upsert(
+                        b, on_conflict="isbn"
+                    ).execute())
                 except Exception:
                     pass
 
@@ -223,7 +227,7 @@ class SmartBatchCollector:
         authors = set()
         offset = 0
         while True:
-            result = self.sb.table("books").select("author").range(offset, offset + 999).execute()
+            result = with_retry(lambda: self.sb.table("books").select("author").range(offset, offset + 999).execute())
             if not result.data:
                 break
             for row in result.data:
@@ -373,7 +377,7 @@ class SmartBatchCollector:
         print("=" * 60)
 
         # DB 총 도서 수
-        result = self.sb.table("books").select("id", count="exact").execute()
+        result = with_retry(lambda: self.sb.table("books").select("id", count="exact").execute())
         print(f"\n  DB 총 도서: {result.count}권")
 
         # 소스별 요약

@@ -23,6 +23,11 @@ try:
 except ImportError:
     pass  # 테스트 환경에서는 compose_embedding_text만 사용
 
+try:
+    from lib.retry import with_retry
+except ImportError:
+    def with_retry(fn, **kwargs): return fn()
+
 EMBEDDING_MODEL = "text-embedding-3-small"
 BATCH_SIZE = 50  # OpenAI에 한 번에 보낼 텍스트 수
 
@@ -54,7 +59,7 @@ def fetch_books_without_embeddings(sb, limit=0):
     offset = 0
     page_size = 1000
     while True:
-        result = sb.table("book_embeddings").select("book_id").range(offset, offset + page_size - 1).execute()
+        result = with_retry(lambda o=offset: sb.table("book_embeddings").select("book_id").range(o, o + page_size - 1).execute())
         if not result.data:
             break
         for row in result.data:
@@ -67,7 +72,7 @@ def fetch_books_without_embeddings(sb, limit=0):
     all_books = []
     offset = 0
     while True:
-        result = sb.table("books").select("id, title, author, genre, description").range(offset, offset + page_size - 1).execute()
+        result = with_retry(lambda o=offset: sb.table("books").select("id, title, author, genre, description").range(o, o + page_size - 1).execute())
         if not result.data:
             break
         all_books.extend(result.data)
@@ -110,9 +115,9 @@ def save_embeddings(sb, book_ids, embeddings, dry_run=False):
         for book_id, embedding in zip(book_ids, embeddings)
     ]
 
-    sb.table("book_embeddings").upsert(
+    with_retry(lambda: sb.table("book_embeddings").upsert(
         rows, on_conflict="book_id"
-    ).execute()
+    ).execute())
 
 
 def main():

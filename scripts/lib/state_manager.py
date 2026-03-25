@@ -3,6 +3,7 @@
 Supabase batch_collection_state 테이블 CRUD
 """
 from datetime import datetime, timezone
+from .retry import with_retry
 
 
 class StateManager:
@@ -25,7 +26,7 @@ class StateManager:
             else:
                 q = q.is_(field, "null")
 
-        result = q.execute()
+        result = with_retry(lambda: q.execute())
         return result.data[0] if result.data else None
 
     def upsert_state(self, source_type, query_type=None, category_id=None,
@@ -45,10 +46,10 @@ class StateManager:
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
 
-        self.sb.table(self.table).upsert(
+        with_retry(lambda: self.sb.table(self.table).upsert(
             row,
             on_conflict="source_type,query_type,category_id,search_keyword"
-        ).execute()
+        ).execute())
 
     def reset_expired_states(self, days=30):
         """Phase 2-3의 completed 상태를 days일 경과 시 리셋.
@@ -56,14 +57,14 @@ class StateManager:
         from datetime import timedelta
         cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
-        result = (
+        result = with_retry(lambda: (
             self.sb.table(self.table)
             .update({"completed": False})
             .eq("completed", True)
             .neq("source_type", "item_list")
             .lt("updated_at", cutoff)
             .execute()
-        )
+        ))
         count = len(result.data) if result.data else 0
         if count > 0:
             print(f"  ♻ {count}개 소스 상태 리셋 (30일 경과)")
@@ -71,7 +72,7 @@ class StateManager:
 
     def get_all_states(self):
         """전체 상태 조회 (진행 현황 리포트용)"""
-        result = self.sb.table(self.table).select("*").execute()
+        result = with_retry(lambda: self.sb.table(self.table).select("*").execute())
         return result.data
 
     def get_summary(self):
