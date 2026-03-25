@@ -1,12 +1,12 @@
-name: Daily Batch Collection & Embedding
+name: Daily Collect (Batch + Enrich + Tier 1 Embed)
 
 on:
   schedule:
     - cron: '0 18 * * *'  # UTC 18:00 = KST 03:00
-  workflow_dispatch:  # 수동 실행 가능
+  workflow_dispatch:
 
 jobs:
-  batch-collect-and-embed:
+  collect-enrich-embed:
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -22,13 +22,22 @@ jobs:
         run: pip install -r scripts/requirements.txt
 
       - name: Run batch collector (target 1000 new books)
+        continue-on-error: true
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           ALADIN_TTB_KEY: ${{ secrets.ALADIN_TTB_KEY }}
         run: python scripts/smart_batch_collector.py --daily-target 1000
 
+      - name: Run batch enricher (color + font for new books)
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python scripts/batch_enricher.py --limit 500
+
       - name: Run Tier 1 embedder
+        continue-on-error: true
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -36,8 +45,11 @@ jobs:
         run: python scripts/tier1_embedder.py
 
       - name: Show status
+        if: always()
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           ALADIN_TTB_KEY: ${{ secrets.ALADIN_TTB_KEY }}
-        run: python scripts/smart_batch_collector.py --status
+        run: |
+          python scripts/smart_batch_collector.py --status
+          python scripts/batch_enricher.py --status

@@ -1,0 +1,39 @@
+name: Daily Scrape (YES24 Rich Descriptions)
+
+on:
+  schedule:
+    - cron: '7 */2 * * *'  # 2시간마다 (매 :07분)
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: '처리할 최대 권수'
+        default: '80'
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r scripts/requirements.txt
+
+      - name: Run YES24 scraper
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python scripts/yes24_scraper.py --limit ${{ github.event.inputs.limit || '80' }}
+
+      - name: Show status
+        if: always()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python scripts/yes24_scraper.py --status
