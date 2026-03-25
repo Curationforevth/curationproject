@@ -112,7 +112,7 @@ class SmartBatchCollector:
         offset = 0
         page_size = 1000
         while True:
-            result = with_retry(lambda: self.sb.table("books").select("isbn").range(offset, offset + page_size - 1).execute())
+            result = with_retry(lambda o=offset: self.sb.table("books").select("isbn").range(o, o + page_size - 1).execute())
             if not result.data:
                 break
             for row in result.data:
@@ -227,7 +227,7 @@ class SmartBatchCollector:
         authors = set()
         offset = 0
         while True:
-            result = with_retry(lambda: self.sb.table("books").select("author").range(offset, offset + 999).execute())
+            result = with_retry(lambda o=offset: self.sb.table("books").select("author").range(o, o + 999).execute())
             if not result.data:
                 break
             for row in result.data:

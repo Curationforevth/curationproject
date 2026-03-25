@@ -108,10 +108,10 @@ class BatchEnricher:
         offset = 0
         page_size = 1000
         while True:
-            result = with_retry(lambda: self.sb.table("books") \
+            result = with_retry(lambda o=offset: self.sb.table("books") \
                 .select("id, cover_url, genre, description, dominant_colors, spine_font") \
                 .or_("dominant_colors.is.null,spine_font.is.null") \
-                .range(offset, offset + page_size - 1) \
+                .range(o, o + page_size - 1) \
                 .execute())
             if not result.data:
                 break
@@ -158,7 +158,7 @@ class BatchEnricher:
                 updates = self.enrich_book(book)
 
                 if updates and not self.dry_run:
-                    with_retry(lambda: self.sb.table("books").update(updates).eq("id", book["id"]).execute())
+                    with_retry(lambda u=updates, bid=book["id"]: self.sb.table("books").update(u).eq("id", bid).execute())
 
                 self.stats["processed"] += 1
 

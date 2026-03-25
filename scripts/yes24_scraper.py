@@ -170,14 +170,17 @@ class Yes24Scraper:
 
     def _find_matching_page(self, goods_ids, expected_isbn):
         """goods ID 리스트를 순회하며 ISBN 일치하는 상세 페이지 HTML 반환"""
-        for goods_id in goods_ids:
+        for i, goods_id in enumerate(goods_ids):
             html = self._fetch_detail_page(goods_id)
             if not html:
                 continue
             page_isbn = extract_isbn_from_html(html)
             if isbn_matches(page_isbn, expected_isbn):
                 return html
-            if page_isbn is None:
+            # JSON-LD 없는 경우 첫 번째 결과만 fallback (검증 불가)
+            if page_isbn is None and i == 0:
+                self.stats.setdefault("isbn_unverified", 0)
+                self.stats["isbn_unverified"] += 1
                 return html
             time.sleep(0.3)
         return None

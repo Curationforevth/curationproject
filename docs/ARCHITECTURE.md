@@ -474,15 +474,16 @@ FastAPI 서버. Supabase DB에서 벡터 데이터를 읽어 추천 계산.
 ### 자동화 현황
 
 ```
-[자동 — GitHub Actions, 매일 KST 03:00 (daily-batch)]
+[자동 — GitHub Actions, 매일 KST 03:00 (daily-collect)]
 1. smart_batch_collector.py --daily-target 1000  (알라딘 수집)
-2. tier1_embedder.py                              (Tier 1 임베딩 생성)
-3. smart_batch_collector.py --status               (상태 리포트)
+2. batch_enricher.py --limit 500                  (색상 추출 + 폰트 배정)
+3. tier1_embedder.py                              (Tier 1 임베딩 생성)
 
-[자동 — GitHub Actions, 매일 KST 05:00 (daily-enrich)]
-1. batch_enricher.py --limit 1000                 (색상 추출 + 폰트 배정)
-2. yes24_scraper.py --limit 250                    (YES24 rich_description 수집)
-3. tier2_embedder.py --limit 500                   (Tier 2 임베딩 생성)
+[자동 — GitHub Actions, 2시간마다 (daily-scrape)]
+1. yes24_scraper.py --limit 80                    (YES24 rich_description 수집)
+
+[자동 — GitHub Actions, 매일 KST 06:30 (daily-embed-t2)]
+1. tier2_embedder.py --limit 500                   (Tier 2 임베딩 생성)
 
 [수동 — PM이 Claude Code로 실행 (Phase 2~3)]
 1. 유저 취향 벡터 갱신
@@ -529,12 +530,12 @@ recommendation-server/
 
 ```
 [책 임베딩 — 2-Tier 파이프라인]
-Tier 1 (기본, daily-batch KST 03:00):
+Tier 1 (기본, daily-collect KST 03:00):
 → books.title + author + genre + description
 → OpenAI text-embedding-3-small API 호출
 → book_embeddings (tier=1)
 
-Tier 2 (강화, daily-enrich KST 05:00):
+Tier 2 (강화, daily-embed-t2 KST 06:30):
 → books.rich_description (YES24 책소개/출판사리뷰/책속으로)
 → title + author + genre + description + 책소개 + 발췌 조합
 → OpenAI text-embedding-3-small API 호출
