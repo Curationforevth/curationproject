@@ -51,7 +51,7 @@ Supabase 마이그레이션 007번.
 | `related_isbns` | `jsonb` | 함께 빌린 책 ISBN 목록 | `{"co_loan": ["9788932920...", ...]}` |
 
 - `library_keywords`: `mood_tags text[]`와 동일 패턴. `compose_embedding()`에서 바로 사용.
-- `related_isbns`: co_loan만 저장. 타입별 최대 50개 cap. Phase 3에서 정규화 테이블로 마이그레이션 가능성 있음.
+- `related_isbns`: co_loan만 저장. 타입별 최대 50개 cap. jsonb wrapper(`{"co_loan": [...]}`)는 Phase 3에서 `mania`, `reader` 타입 확장 대비. 정규화 테이블 마이그레이션 가능성 있음.
 
 ## 4. 스크립트
 
@@ -76,14 +76,16 @@ CLI:
   --limit N      최대 처리 권수 (기본 300)
   --dry-run      DB 저장 없이 테스트
   --status       현황 조회
-  --backfill     초기 백필 모드 (--limit 10000)
 ```
+
+요청 간 딜레이: **0.5초** (yes24_scraper의 1.0초보다 짧게 — 공공 API라 봇 차단 위험 낮음). 8,589권 백필 시 예상 소요: ~72분.
 
 ### 의존성
 
 - `requests` (이미 설치됨)
 - `lib/retry.py`의 `with_retry` 재사용
 - `supabase`, `dotenv` (기존)
+- `requirements.txt` 변경 없음
 
 ## 5. 임베딩 연동
 
@@ -96,10 +98,34 @@ if book.get('library_keywords'):
     data_sources.append('library_keywords')
 ```
 
-### 재임베딩 트리거
+### tier2_embedder.py 변경
 
-키워드가 새로 수집된 책 = `library_keywords IS NOT NULL` AND `data_sources`에 `'library_keywords'` 미포함.
-기존 `tier2_embedder.py`의 대상 선정 로직에 이 조건 추가.
+**1) `fetch_books_needing_tier2()` SELECT 절 수정:**
+
+```python
+# 기존
+.select("id, title, author, genre, description, rich_description")
+# 변경
+.select("id, title, author, genre, description, rich_description, library_keywords")
+```
+
+**2) 재임베딩 대상 확장:**
+
+현재 로직은 "tier 2 임베딩이 없는 책"만 대상으로 삼음. 키워드 추가 후 재임베딩이 필요한 책도 포함해야 함:
+
+```python
+# 기존: tier2_ids에 있으면 스킵
+books = [b for b in all_books if b["id"] not in tier2_ids]
+
+# 변경: tier2_ids에 있더라도, data_sources에 'library_keywords' 없고
+#       library_keywords가 있는 책은 재임베딩 대상에 포함
+needs_reembed = set()  # data_sources에 library_keywords 없는 tier2 book_ids
+# book_embeddings에서 tier=2이고 data_sources NOT LIKE '%library_keywords%' 조회
+books = [b for b in all_books
+         if b["id"] not in tier2_ids or b["id"] in needs_reembed]
+```
+
+이렇게 하면 일일 운영에서 키워드가 새로 수집된 책이 자동으로 재임베딩 대상이 됨.
 
 ## 6. 워크플로우 통합
 
@@ -133,18 +159,20 @@ KST 06:30  daily-embed-t2:
 ## 7. 백필 전략
 
 1. GitHub Secrets에 `DATA4LIBRARY_API_KEY` 추가
-2. 로컬에서 수동 실행: `python scripts/data4library_collector.py --backfill`
-3. --backfill은 --limit 10000으로 동작, 8,589권 1회에 완료
-4. 백필 완료 후 tier2_embedder를 --force로 실행하여 키워드 포함 재임베딩
+2. 로컬에서 수동 실행: `python scripts/data4library_collector.py --limit 10000`
+3. 8,589권 × 0.5초 딜레이 = ~72분 소요
+4. 백필 완료 후 재임베딩: `python scripts/tier2_embedder.py --force --limit 9000`
+   - rich_description이 있는 책만 대상 (현재 ~53권, YES24 수집 진행에 따라 증가)
+   - OpenAI 임베딩 비용: ~53권 × ~7,500토큰 ≈ 0.004 USD (무시할 수준)
 
 ## 8. 에러 처리
 
 | 상황 | 처리 |
 |------|------|
-| ISBN이 정보나루에 없음 | 빈 결과, 스킵 (에러 아님). `library_keywords`를 빈 배열 `{}` 로 설정하여 재처리 방지 |
-| API 일일 한도 초과 | 로그 남기고 중단, 다음 날 이어서 처리 |
+| ISBN이 정보나루에 없음 | `library_keywords`를 빈 배열 `{}`로 설정하여 재처리 방지. 향후 정보나루에 등록될 수 있으므로 주기적 재시도는 Phase 3에서 고려 |
+| API 일일 한도 초과 | HTTP 응답 확인 후 로그 남기고 중단 (구현 시 정보나루의 한도 초과 응답 코드 확인 필요) |
 | 네트워크/타임아웃 | `with_retry` (exponential backoff + jitter) |
-| 응답 파싱 실패 | 해당 책 스킵, 에러 로그 |
+| 응답 파싱 실패 | 키워드/co_loan 각각 독립 파싱. 한쪽 실패해도 성공한 쪽만 저장 |
 
 ## 9. 모니터링
 
@@ -157,8 +185,20 @@ KST 06:30  daily-embed-t2:
 연관도서 있음: 6,150 (71.6%)
 ```
 
-## 10. 범위 외 (Phase 3)
+## 10. Deliverables
+
+- [ ] Supabase 마이그레이션 007 (library_keywords, related_isbns)
+- [ ] `scripts/data4library_collector.py`
+- [ ] `scripts/tier2_embedder.py` 수정 (SELECT 절 + 재임베딩 로직 + compose_embedding 주석 해제)
+- [ ] `.github/workflows/daily-embed-t2.yml` 수정
+- [ ] GitHub Secrets에 `DATA4LIBRARY_API_KEY` 추가
+- [ ] `docs/ARCHITECTURE.md` 동기화 (파이프라인 흐름 + books 테이블 컬럼)
+- [ ] 테스트
+- [ ] 백필 실행
+
+## 11. 범위 외 (Phase 3)
 
 - `recommandList` (mania/reader) 수집
 - `related_isbns` → `book_relations` 정규화 테이블 마이그레이션
 - 연관도서 기반 그래프 추천 알고리즘
+- 빈 배열 키워드 책 주기적 재시도
