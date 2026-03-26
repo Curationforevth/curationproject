@@ -41,7 +41,7 @@ GET http://data4library.kr/api/usageAnalysisList
 
 ## 3. DB 스키마 변경
 
-Supabase 마이그레이션 007번.
+Supabase 마이그레이션 008번. (007은 rich_description용으로 이미 존재)
 
 ### `books` 테이블 컬럼 추가
 
@@ -66,11 +66,11 @@ class Data4LibraryCollector:
     def fetch_usage(isbn) → (keywords: list[str], co_loan_isbns: list[str])
         # usageAnalysisList 1콜 → 키워드 + co_loan 파싱
 
-    def collect(limit) → 처리 결과 통계
+    def run(limit) → 처리 결과 통계
         # 대상: library_keywords IS NULL인 책
         # ISBN 기반으로 수집 → books 테이블 업데이트
 
-    def status() → 현황 출력
+    def show_status() → 현황 출력
 
 CLI:
   --limit N      최대 처리 권수 (기본 300)
