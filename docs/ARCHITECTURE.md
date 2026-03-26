@@ -76,10 +76,22 @@
   → 전체 유저 취향 벡터 재계산 (가중 평균 또는 K-means 자동 전환)
   → 추천 신뢰도 스코어 갱신
 
+매일 KST 05:00 (daily-extract-reasons, Phase 2+ 추천 엔진 v2):
+  → book_love_reasons가 없는 신규 책 조회
+  → LLM으로 "좋아할 이유" 5~8개 추출 (title+genre+description+rich_description+library_keywords)
+  → OpenAI text-embedding-3-large로 각 이유 임베딩 (3072차원)
+  → book_love_reasons에 저장 (source='llm_extracted')
+
+매일 KST 07:30 (daily-enrich-reasons, Phase 2+ 추천 엔진 v2):
+  → 최근 24시간 유저 피드백의 taste_reasons 조회
+  → 각 reason이 책의 기존 book_love_reasons와 유사도 < 0.7인지 확인
+  → 2명+ 유저가 같은 책에서 비슷한 새 이유 언급 시 추가 (source='user_feedback')
+
 실시간 (유저 피드백 제출 시):
   → RPC: recompute_taste_vector_immediate → 즉시 취향 벡터 갱신
   → RPC: match_books_by_similarity → book-to-book 유사도
-  → RPC: recommend_books_for_user → 취향 기반 추천
+  → RPC: recommend_books_for_user → 취향 기반 추천 (v1)
+  → (Phase 2+) LLM으로 "좋아하는 이유" 추출 → user_taste_reasons 저장
 
 [Phase 2 - 취향 프로필 + 추천 고도화]
 배치에서 자동 처리:
@@ -359,6 +371,36 @@ Supabase Auth와 연동. 추가 프로필 정보 저장.
 | method | text | 계산 방식 ('weighted_avg' 또는 'kmeans') |
 | updated_at | timestamptz | |
 
+#### `book_love_reasons` (Phase 2+ — 추천 엔진 v2)
+책의 "좋아할 이유" 저장. 이유 기반 추천 매칭용.
+
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| id | uuid (PK) | |
+| book_id | uuid (FK → books) | |
+| reason | text | "호그와트의 수업, 기숙사, 퀴디치 등 디테일하게 구축된 마법 학교 생활" |
+| reason_embedding | vector(3072) | OpenAI text-embedding-3-large 벡터 |
+| source | text | 'llm_extracted' or 'user_feedback' |
+| user_mention_count | int (default 0) | user_feedback 일 경우 언급 유저 수 |
+| created_at | timestamptz | |
+
+> ivfflat 인덱스 적용 (idx_blr_embedding) — 코사인 유사도 검색용
+
+#### `user_taste_reasons` (Phase 2+ — 추천 엔진 v2)
+유저의 "좋아하는 이유" 저장. 이유 기반 추천 매칭용.
+
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| id | uuid (PK) | |
+| user_id | uuid (FK → users) | |
+| book_id | uuid (FK → books) | 피드백이 입력된 책 |
+| reason | text | "새롭고 디테일한 세계관" |
+| reason_embedding | vector(3072) | OpenAI text-embedding-3-large 벡터 |
+| weight | float (default 1.0) | rating 기반: good=1.0, neutral=0.5, bad=0.0 |
+| created_at | timestamptz | |
+
+> ivfflat 인덱스 적용 (idx_utr_embedding) — 코사인 유사도 검색용
+
 ### RLS (Row Level Security)
 
 ```sql
@@ -423,6 +465,17 @@ FastAPI 서버. Supabase DB에서 벡터 데이터를 읽어 추천 계산.
 | `POST /embeddings/user/{user_id}` | POST | 유저 취향 벡터 갱신 |
 | `GET /recommendations/{user_id}` | GET | 추천 도서 리스트 |
 | `GET /taste-profile/{user_id}` | GET | 취향 요약 (Phase 2) |
+
+### 4-3. Supabase RPC 함수 목록
+
+Supabase PostgreSQL에서 직접 실행 가능한 저수준 함수들.
+
+| RPC 함수 | 입력 | 반환 | 설명 |
+|---------|------|------|------|
+| `recommend_books_for_user` | `user_id`, `limit` | `{book_id, title, score}` | v1 — recommend_books_by_reasons로 대체 예정 |
+| `recommend_books_by_reasons` | `user_id`, `match_count` | `{book_id, title, score, matched_reason}` | v2 — 이유 임베딩 매칭 기반 추천 |
+| `match_books_by_similarity` | `book_id`, `limit` | `{id, title, similarity_score}` | book-to-book 유사도 검색 (book_embeddings 기반) |
+| `recompute_taste_vector_immediate` | `user_id` | `{success, updated_at}` | 유저 취향 벡터 즉시 재계산 |
 
 ---
 
@@ -499,8 +552,14 @@ FastAPI 서버. Supabase DB에서 벡터 데이터를 읽어 추천 계산.
 [자동 — GitHub Actions, 2시간마다 (daily-scrape)]
 1. yes24_scraper.py --limit 80                    (YES24 rich_description 수집)
 
+[자동 — GitHub Actions, 매일 KST 05:00 (daily-extract-reasons, Phase 2+)]
+1. extract_reasons.py                              ("좋아할 이유" LLM 추출 + embedding-3-large 임베딩)
+
 [자동 — GitHub Actions, 매일 KST 06:30 (daily-embed-t2)]
 1. tier2_embedder.py --limit 500                   (Tier 2 임베딩 생성)
+
+[자동 — GitHub Actions, 매일 KST 07:30 (daily-enrich-reasons, Phase 2+)]
+1. enrich_reasons.py                               (유저 피드백 기반 이유 보강)
 
 [수동 — PM이 Claude Code로 실행 (Phase 2~3)]
 1. 유저 취향 벡터 갱신
@@ -578,6 +637,27 @@ Tier 2 (강화, daily-embed-t2 KST 06:30):
 → 상위 N개 반환
 → (AI 강화) Claude API로 추천 사유 생성
 ```
+
+---
+
+## 5-2. 임베딩 모델 설정 (Dual Model)
+
+이유 기반 추천 도입 (Phase 2+) 시 **두 개의 임베딩 모델**을 병렬로 운영.
+
+| 모델 | 차원 | 용도 | 비용 | 주의사항 |
+|------|------|------|------|---------|
+| **text-embedding-3-small** | 1536 | book_embeddings (book-to-book 유사도) | 저비용 | 기존 운영 유지 |
+| **text-embedding-3-large** | 3072 | book_love_reasons, user_taste_reasons (이유 매칭) | 중비용 | 정확도 높음 (v2 필수) |
+
+**중요 주의사항:**
+- 두 모델의 벡터는 **서로 비교 불가능** (차원이 다름)
+- book-to-book 유사도 검색: book_embeddings(small) 만 사용
+- 이유 기반 추천: book_love_reasons + user_taste_reasons (large) 만 사용
+- 혼용 시 오류 발생 → 데이터 스키마 설계 단계에서 신경 쓰기
+
+**v2 추천 정확도:**
+- text-embedding-3-small 대비 정확도: 83% → 100% (테스트 케이스)
+- 예: "재밌는 소재" ↔ "과거와 현재를 오가는 편지 매개 시간여행 소재" → small에서 미매칭, large에서 1위
 
 ---
 
