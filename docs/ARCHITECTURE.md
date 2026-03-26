@@ -72,11 +72,20 @@
 매일 KST 06:30 (daily-embed-t2):
   → 정보나루 키워드/연관도서 수집 300권 (usageAnalysisList → library_keywords, related_isbns)
   → Tier 2 임베딩 생성 (rich_description + library_keywords 기반 → book_embeddings 업그레이드)
+매일 KST 07:00 (daily-taste-recompute):
+  → 전체 유저 취향 벡터 재계산 (가중 평균 또는 K-means 자동 전환)
+  → 추천 신뢰도 스코어 갱신
 
-[Phase 2 - 취향 프로필]
-PM → Claude Code로 수동 실행:
-  → user_books (rating, emotion_tags, review_text) → 임베딩 → 클러스터링 → 취향 벡터 (user_taste_vectors)
-  → 취향 요약 생성 → 앱에 표시
+실시간 (유저 피드백 제출 시):
+  → RPC: recompute_taste_vector_immediate → 즉시 취향 벡터 갱신
+  → RPC: match_books_by_similarity → book-to-book 유사도
+  → RPC: recommend_books_for_user → 취향 기반 추천
+
+[Phase 2 - 취향 프로필 + 추천 고도화]
+배치에서 자동 처리:
+  → K-means 클러스터링 → 클러스터별 LLM 라벨 생성
+  → LLM 취향 요약 ("당신은 잔잔한 캐릭터 성장 서사를 좋아하는 독자예요")
+  → 추천 이유 생성 ("이 책의 서정적인 문체가 마음에 드실 거예요")
   → (선택) feedbacks 테이블 활성화하여 카테고리별 상세 피드백 수집
 
 [Phase 3 - 추천 + 자동화]
@@ -335,15 +344,18 @@ Supabase Auth와 연동. 추가 프로필 정보 저장.
 
 > unique constraint: (source_type, query_type, category_id, search_keyword)
 
-#### `user_taste_vectors` (Phase 2~3)
-유저의 취향 벡터. 클러스터별로 분리 저장.
+#### `user_taste_vectors` (Phase 1 MVP~)
+유저의 취향 벡터. 가중 평균 단일 벡터 → K-means 클러스터별 다중 벡터로 자동 진화.
 
 | 컬럼 | 타입 | 설명 |
 |------|------|------|
 | id | uuid (PK) | |
 | user_id | uuid (FK → users) | |
-| cluster_label | text | 취향 축 라벨 (e.g., '캐릭터 성장', 'SF 세계관') |
+| cluster_label | text | 취향 축 라벨 (NULL=단일 벡터, 'cluster_0'=K-means) |
 | vector | vector(1536) | 취향 벡터 |
+| weight | float | 클러스터 크기 가중치 (기본 1.0) |
+| summary | text | LLM 취향 요약 (Phase 2) |
+| method | text | 계산 방식 ('weighted_avg' 또는 'kmeans') |
 | updated_at | timestamptz | |
 
 ### RLS (Row Level Security)

@@ -1,0 +1,36 @@
+name: Daily Taste Vector Recomputation
+
+on:
+  schedule:
+    - cron: '0 22 * * *'  # UTC 22:00 = KST 07:00 (daily-embed-t2 이후)
+  workflow_dispatch:
+
+jobs:
+  recompute-taste:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r scripts/requirements.txt
+
+      - name: Recompute taste vectors
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python scripts/taste_recomputer.py
+
+      - name: Show status
+        if: always()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python scripts/taste_recomputer.py --status
