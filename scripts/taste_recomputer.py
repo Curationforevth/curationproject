@@ -308,6 +308,7 @@ class TasteRecomputer:
                 self.save_taste_vectors(user_id, "kmeans", clusters)
                 self.stats["kmeans"] += 1
                 self.stats["processed"] += 1
+                self._refresh_confidence(user_id)
                 return
 
         avg = self.compute_weighted_average(books)
@@ -318,6 +319,19 @@ class TasteRecomputer:
             self.stats["skipped"] += 1
 
         self.stats["processed"] += 1
+        self._refresh_confidence(user_id)
+
+    def _refresh_confidence(self, user_id):
+        """추천 신뢰도 스코어 갱신 (RPC 호출)."""
+        if self.dry_run:
+            return
+        try:
+            with_retry(lambda: (
+                self.sb.rpc("calculate_recommendation_confidence",
+                            {"target_user_id": user_id}).execute()
+            ))
+        except Exception:
+            pass  # confidence 갱신 실패는 치명적이지 않음
 
     def run(self, limit=0, user_id=None):
         """메인 실행."""

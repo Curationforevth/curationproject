@@ -230,6 +230,7 @@ Supabase Auth와 연동. 추가 프로필 정보 저장.
 | email | text | 이메일 |
 | nickname | text | 닉네임 |
 | avatar_url | text | 프로필 이미지 |
+| recommendation_confidence | jsonb | 추천 신뢰도 캐싱 (score, feedback_depth, genre_diversity 등) |
 | created_at | timestamptz | 가입일 |
 
 #### `books`

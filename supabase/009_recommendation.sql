@@ -46,18 +46,16 @@ BEGIN
   WITH user_read_books AS (
     SELECT ub.book_id FROM user_books ub WHERE ub.user_id = target_user_id
   ),
-  user_bad_books AS (
-    SELECT ub.book_id FROM user_books ub
-    WHERE ub.user_id = target_user_id AND ub.rating = 'bad'
-  ),
-  bad_embeddings AS (
+  bad_book_embeddings AS (
     SELECT be.embedding FROM book_embeddings be
-    JOIN user_bad_books ubb ON ubb.book_id = be.book_id
+    JOIN user_books ub ON ub.book_id = be.book_id
+    WHERE ub.user_id = target_user_id AND ub.rating = 'bad'
   ),
   taste_matches AS (
     SELECT
-      be.book_id,
-      utv.weight * (1 - (utv.vector <=> be.embedding)) AS weighted_similarity,
+      candidate.book_id,
+      candidate.embedding AS candidate_embedding,
+      utv.weight * (1 - (utv.vector <=> candidate.embedding)) AS weighted_similarity,
       utv.cluster_label
     FROM user_taste_vectors utv
     CROSS JOIN LATERAL (
@@ -66,7 +64,7 @@ BEGIN
       WHERE be2.book_id NOT IN (SELECT urb.book_id FROM user_read_books urb)
       ORDER BY be2.embedding <=> utv.vector
       LIMIT match_count * 2
-    ) be
+    ) candidate
     WHERE utv.user_id = target_user_id
   )
   SELECT
@@ -75,8 +73,8 @@ BEGIN
     (ARRAY_AGG(tm.cluster_label ORDER BY tm.weighted_similarity DESC))[1] AS cluster_label
   FROM taste_matches tm
   WHERE NOT EXISTS (
-    SELECT 1 FROM bad_embeddings bad
-    WHERE 1 - (bad.embedding <=> (SELECT embedding FROM book_embeddings WHERE book_embeddings.book_id = tm.book_id)) > 0.85
+    SELECT 1 FROM bad_book_embeddings bad
+    WHERE 1 - (bad.embedding <=> tm.candidate_embedding) > 0.85
   )
   GROUP BY tm.book_id
   ORDER BY MAX(tm.weighted_similarity) DESC
@@ -159,13 +157,15 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- 6. RPC: 즉시 취향 벡터 재계산 (가중 평균)
+-- 6. RPC: 즉시 취향 벡터 재계산 (진짜 가중 평균: SUM(v*w)/SUM(w))
 CREATE OR REPLACE FUNCTION public.recompute_taste_vector_immediate(
   target_user_id uuid
 )
 RETURNS void AS $$
 DECLARE
   current_method text;
+  weighted_sum vector(1536);
+  total_weight float;
   avg_vector vector(1536);
 BEGIN
   SELECT method INTO current_method
@@ -178,27 +178,32 @@ BEGIN
     RETURN;
   END IF;
 
+  -- 진짜 가중 평균: SUM(embedding * weight) / SUM(weight)
   SELECT
-    AVG(be.embedding *
+    SUM(be.embedding * w.feedback_w),
+    SUM(w.feedback_w)
+  INTO weighted_sum, total_weight
+  FROM user_books ub
+  JOIN book_embeddings be ON be.book_id = ub.book_id
+  CROSS JOIN LATERAL (
+    SELECT
       CASE
         WHEN ub.review_text IS NOT NULL AND LENGTH(ub.review_text) >= 50 THEN 3.0
         WHEN ub.emotion_tags IS NOT NULL AND jsonb_array_length(ub.emotion_tags) >= 1 THEN 2.0
         WHEN ub.rating IS NOT NULL THEN 1.5
         ELSE 1.0
-      END
-    )
-  INTO avg_vector
-  FROM user_books ub
-  JOIN book_embeddings be ON be.book_id = ub.book_id
+      END AS feedback_w
+  ) w
   WHERE ub.user_id = target_user_id
     AND ub.status = 'read'
     AND ub.rating IS DISTINCT FROM 'bad';
 
-  IF avg_vector IS NOT NULL THEN
+  IF weighted_sum IS NOT NULL AND total_weight > 0 THEN
+    avg_vector := weighted_sum * (1.0 / total_weight);
+
     INSERT INTO user_taste_vectors (user_id, cluster_label, vector, weight, method)
     VALUES (target_user_id, NULL, avg_vector, 1.0, 'weighted_avg')
-    ON CONFLICT (user_id, cluster_label)
-      WHERE cluster_label IS NULL
+    ON CONFLICT ON CONSTRAINT uq_user_taste_vectors_user_null_label
     DO UPDATE SET
       vector = EXCLUDED.vector,
       weight = EXCLUDED.weight,
@@ -210,10 +215,14 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- 7. user_taste_vectors에 unique constraint 추가 (upsert용)
-ALTER TABLE public.user_taste_vectors
-  ADD CONSTRAINT uq_user_taste_vectors_user_label
-  UNIQUE (user_id, cluster_label);
+-- 7. user_taste_vectors에 partial unique index 추가 (NULL cluster_label용 upsert)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_user_taste_vectors_user_null_label
+  ON public.user_taste_vectors (user_id)
+  WHERE cluster_label IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_user_taste_vectors_user_label
+  ON public.user_taste_vectors (user_id, cluster_label)
+  WHERE cluster_label IS NOT NULL;
 
 -- 8. user_taste_vectors에 HNSW 인덱스 추가
 CREATE INDEX IF NOT EXISTS idx_user_taste_vectors_hnsw
