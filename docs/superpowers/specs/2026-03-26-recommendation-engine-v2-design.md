@@ -92,11 +92,15 @@ CREATE INDEX idx_utr_embedding ON user_taste_reasons USING ivfflat (reason_embed
 - 각 이유를 text-embedding-3-large로 임베딩
 - weight = rating에 따라 (good=1.0, neutral=0.5, bad=0.0)
 - bad 피드백의 이유는 저장하되 weight=0 (negative signal로 향후 활용 가능)
-- 추출 실패 시(모호한 피드백 "재밌었어요" 등) 원문을 그대로 임베딩하여 저장
+- 추출 실패 시(모호한 피드백 "재밌었어요" 등): taste_reasons에 저장하지 않음. rating + 감성태그로 충분히 캡처됨. 범용 표현이 taste_reasons에 유입되면 모든 책과 비슷하게 매칭되어 노이즈만 늘어남.
 
 **중복 이유 처리:**
 - 새 reason 저장 전, 해당 유저의 기존 taste_reasons와 임베딩 유사도 비교
-- 유사도 ≥ 0.8이면 새로 저장하지 않고, 기존 reason의 weight를 업데이트 (강화)
+- 유사도 ≥ 0.8이면 새로 저장하지 않고, 기존 reason의 weight를 강화:
+  - `new_weight = min(old_weight + incoming_weight × 0.3, 3.0)`
+  - 예: "세계관이 좋다"를 good 책 3권에서 언급 → weight 1.0 → 1.3 → 1.6
+  - 상한 3.0: 반복 언급이 강화되되, 한 이유가 다른 모든 이유를 압도하지 않음
+  - 0.3(증분 계수)과 3.0(상한)은 튜닝 대상
 - "세계관이 좋았다"(해리포터)와 "세계관이 훌륭하다"(반지의제왕)은 같은 취향 → 병합하여 세계관 선호 강화
 - 유사도 < 0.8이면 별개의 취향으로 저장 (추리소설의 심리묘사 vs 문학소설의 내면 성찰은 다른 이유)
 
