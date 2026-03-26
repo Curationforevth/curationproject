@@ -14,6 +14,7 @@ import argparse
 import os
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from dotenv import load_dotenv
 from supabase import create_client
@@ -31,6 +32,8 @@ except ImportError:
 
 MIN_REASON_LENGTH = 4
 BATCH_SIZE = 20
+PARALLEL_WORKERS = 5  # LLM 병렬 호출 수
+EMBEDDING_BATCH_SIZE = 50  # 임베딩 일괄 처리 크기
 
 # 범용 표현 패턴 — 구체적이지 않은 이유 필터링용
 GENERIC_PATTERNS = [
@@ -186,69 +189,101 @@ class ReasonExtractor:
             print("✅ 이유 추출이 필요한 도서가 없습니다.")
             return
 
-        for i, book in enumerate(books):
-            try:
-                self.extract_and_save(book)
-                self.stats["processed"] += 1
-            except Exception as e:
-                self.stats["errors"] += 1
-                print(f"  ✗ [{book.get('title', '?')}] 실패: {e}")
-
-            # 레이트 리밋
-            if i < len(books) - 1:
-                time.sleep(0.3)
-
-            # 진행 상황
-            if (i + 1) % BATCH_SIZE == 0:
-                print(f"  ... {i + 1}/{len(books)}권 처리 완료")
+        # 배치 단위로 처리: LLM 병렬 추출 → 임베딩 일괄 → DB 일괄 저장
+        for batch_start in range(0, len(books), BATCH_SIZE):
+            batch = books[batch_start:batch_start + BATCH_SIZE]
+            self._process_batch(batch)
+            done = min(batch_start + BATCH_SIZE, len(books))
+            print(f"  ... {done}/{len(books)}권 처리 완료")
 
         self.print_report()
 
-    def extract_and_save(self, book):
-        """단일 도서: LLM 추출 → 필터 → 임베딩 → DB 저장."""
+    def _process_batch(self, batch):
+        """배치 단위 처리: LLM 병렬 → 임베딩 일괄 → DB 일괄 저장."""
+        # 1단계: LLM으로 이유 추출 (병렬)
+        extracted = {}  # book_id → reasons list
+        with ThreadPoolExecutor(max_workers=PARALLEL_WORKERS) as pool:
+            futures = {pool.submit(self._extract_reasons, book): book for book in batch}
+            for future in as_completed(futures):
+                book = futures[future]
+                try:
+                    reasons = future.result()
+                    if reasons:
+                        extracted[book["id"]] = (book, reasons)
+                        self.stats["processed"] += 1
+                    else:
+                        self.stats["skipped"] += 1
+                except Exception as e:
+                    self.stats["errors"] += 1
+                    print(f"  ✗ [{book.get('title', '?')[:25]}] LLM 실패: {e}")
+
+        if not extracted:
+            return
+
+        # 2단계: 모든 이유를 모아서 임베딩 일괄 호출
+        all_reasons = []
+        reason_map = []  # (book_id, reason_index)
+        for book_id, (book, reasons) in extracted.items():
+            for r in reasons:
+                all_reasons.append(r)
+                reason_map.append(book_id)
+
+        try:
+            # 임베딩 API 배치 제한 대응 (50개씩)
+            all_embeddings = []
+            for i in range(0, len(all_reasons), EMBEDDING_BATCH_SIZE):
+                chunk = all_reasons[i:i + EMBEDDING_BATCH_SIZE]
+                embs = call_embedding(chunk)
+                all_embeddings.extend(embs)
+        except Exception as e:
+            print(f"  ✗ 임베딩 배치 실패: {e}")
+            self.stats["errors"] += len(extracted)
+            return
+
+        # 3단계: DB 일괄 저장
+        if not self.dry_run:
+            rows = []
+            for idx, (reason, embedding) in enumerate(zip(all_reasons, all_embeddings)):
+                rows.append({
+                    "book_id": reason_map[idx],
+                    "reason": reason,
+                    "reason_embedding": embedding,
+                    "source": "llm_extracted",
+                })
+            try:
+                # Supabase 배치 insert (1000행 제한 대응)
+                for i in range(0, len(rows), 500):
+                    chunk = rows[i:i + 500]
+                    with_retry(lambda c=chunk: self.sb.table("book_love_reasons")
+                        .insert(c).execute())
+            except Exception as e:
+                print(f"  ✗ DB 저장 실패: {e}")
+                self.stats["errors"] += 1
+                return
+
+        self.stats["reasons_created"] += len(all_reasons)
+        for book_id, (book, reasons) in extracted.items():
+            prefix = "(dry-run) " if self.dry_run else ""
+            print(f"  {prefix}✓ [{book['title'][:25]}] {len(reasons)}개")
+
+    def _extract_reasons(self, book):
+        """단일 책 LLM 이유 추출 (순수 — 임베딩/DB 없음)."""
         title = book.get("title", "")
         genre = book.get("genre", "")
         description = book.get("description", "")
-        rich_desc = book.get("rich_description", "")
+        rich_desc = book.get("rich_description")
 
-        # rich_description에서 HTML 태그 제거 후 description 보강
         if rich_desc:
             clean_rich = re.sub(r"<[^>]+>", "", rich_desc)
             if len(clean_rich) > len(description or ""):
                 description = clean_rich
 
-        library_keywords = book.get("library_keywords")
-
-        # LLM 이유 추출
-        prompt = build_extraction_prompt(title, genre, description, library_keywords)
+        prompt = build_extraction_prompt(
+            title, genre, description, book.get("library_keywords")
+        )
         raw = call_chat(prompt)
-        reasons = parse_reasons(raw)
-        reasons = filter_generic_reasons(reasons)
-
-        if not reasons:
-            self.stats["skipped"] += 1
-            print(f"  ⊘ [{title}] 유의미한 이유 없음 — 스킵")
-            return
-
-        # 이유 임베딩
-        embeddings = call_embedding(reasons)
-
-        if not self.dry_run:
-            rows = []
-            for reason, embedding in zip(reasons, embeddings):
-                rows.append({
-                    "book_id": book["id"],
-                    "reason": reason,
-                    "reason_embedding": embedding,
-                    "source": "llm_extracted",
-                })
-            with_retry(lambda: self.sb.table("book_love_reasons")
-                .insert(rows)
-                .execute())
-
-        self.stats["reasons_created"] += len(reasons)
-        prefix = "(dry-run) " if self.dry_run else ""
-        print(f"  {prefix}✓ [{title}] {len(reasons)}개 이유 추출")
+        reasons = filter_generic_reasons(parse_reasons(raw))
+        return reasons if reasons else None
 
     def print_report(self):
         """배치 결과 출력."""
