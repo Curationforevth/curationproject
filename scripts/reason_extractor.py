@@ -32,7 +32,7 @@ except ImportError:
 
 MIN_REASON_LENGTH = 4
 BATCH_SIZE = 20
-PARALLEL_WORKERS = 5  # LLM 병렬 호출 수
+PARALLEL_WORKERS = 10  # LLM 병렬 호출 수
 EMBEDDING_BATCH_SIZE = 50  # 임베딩 일괄 처리 크기
 
 # 범용 표현 패턴 — 구체적이지 않은 이유 필터링용
@@ -180,10 +180,15 @@ class ReasonExtractor:
         # 이미 처리된 도서 제외
         books = [b for b in all_books if b["id"] not in processed_ids]
 
-        if limit:
-            books = books[:limit]
+        # rich_description이 있는 책만 처리 (데이터가 충분한 것부터)
+        ready = [b for b in books if b.get("rich_description")]
+        not_ready = len(books) - len(ready)
 
-        print(f"   {len(books)}권 대상 ({len(processed_ids)}권 이미 처리됨)\n")
+        if limit:
+            ready = ready[:limit]
+
+        print(f"   {len(ready)}권 대상 (처리 완료: {len(processed_ids)}권, 데이터 미충족: {not_ready}권)\n")
+        books = ready
 
         if not books:
             print("✅ 이유 추출이 필요한 도서가 없습니다.")
@@ -251,9 +256,9 @@ class ReasonExtractor:
                     "source": "llm_extracted",
                 })
             try:
-                # Supabase 배치 insert (1000행 제한 대응)
-                for i in range(0, len(rows), 500):
-                    chunk = rows[i:i + 500]
+                # Supabase 배치 insert (타임아웃 대응, 100행씩)
+                for i in range(0, len(rows), 100):
+                    chunk = rows[i:i + 100]
                     with_retry(lambda c=chunk: self.sb.table("book_love_reasons")
                         .insert(c).execute())
             except Exception as e:
