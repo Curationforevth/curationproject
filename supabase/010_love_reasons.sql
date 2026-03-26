@@ -75,7 +75,7 @@ AS $$
       (ARRAY_AGG(matched_reason ORDER BY weight * similarity DESC))[1] AS top_reason
     FROM best_per_pair
     WHERE book_id NOT IN (
-      SELECT fb.book_id FROM public.user_book_feedback fb WHERE fb.user_id = p_user_id
+      SELECT ub.book_id FROM public.user_books ub WHERE ub.user_id = p_user_id
     )
     AND book_id NOT IN (
       SELECT b.id FROM public.books b WHERE b.canonical_book_id IS NOT NULL
