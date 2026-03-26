@@ -50,14 +50,15 @@ CREATE INDEX idx_blr_embedding ON book_love_reasons USING ivfflat (reason_embedd
 ```
 
 **생성 규칙:**
-- 초기: 책 등록 시 LLM이 5~8개 추출 (source='llm_extracted')
+- 초기: 책 등록 시 LLM이 추출 (source='llm_extracted'). 수집 파이프라인에서 즉시 실행 (배치 대기 없음).
 - 보강: 유저 피드백에서 기존 이유와 유사도 < 0.7인 새로운 이유가 2명 이상 언급되면 추가 (source='user_feedback')
 
-**이유 작성 형식:**
-- 한 문장, 10~30단어
-- 구체적 요소를 포함 (장면, 캐릭터, 설정 등)
-- "이 책의~" 서두 없이 핵심만
-- 판본/에디션이 아닌 작품 자체에 대한 내용
+**이유 품질 기준 (개수가 아닌 품질):**
+- 각 이유는 **이 책만의 구체적 특징**을 담아야 함. "재밌다", "감동적이다" 같은 범용 표현은 제외.
+- 다른 책에도 적용 가능한 이유("잘 읽힌다", "문체가 좋다")보다 **이 책에서만 해당되는 이유**("호그와트의 수업, 기숙사, 퀴디치 등 디테일한 마법 학교 생활")가 변별력 있음.
+- 이유의 가치는 **매칭의 정확성**으로 판단: 이 이유와 유사한 취향의 유저에게 이 책이 실제로 추천될 만한가?
+- 한 문장, 10~30단어. "이 책의~" 서두 없이 핵심만. 판본/에디션이 아닌 작품 자체에 대한 내용.
+- 개수는 결과이지 목표가 아님. 유의미한 이유가 3개면 3개, 8개면 8개.
 
 **예시 (해리 포터와 마법사의 돌):**
 ```
@@ -91,6 +92,13 @@ CREATE INDEX idx_utr_embedding ON user_taste_reasons USING ivfflat (reason_embed
 - 각 이유를 text-embedding-3-large로 임베딩
 - weight = rating에 따라 (good=1.0, neutral=0.5, bad=0.0)
 - bad 피드백의 이유는 저장하되 weight=0 (negative signal로 향후 활용 가능)
+- 추출 실패 시(모호한 피드백 "재밌었어요" 등) 원문을 그대로 임베딩하여 저장
+
+**중복 이유 처리:**
+- 새 reason 저장 전, 해당 유저의 기존 taste_reasons와 임베딩 유사도 비교
+- 유사도 ≥ 0.8이면 새로 저장하지 않고, 기존 reason의 weight를 업데이트 (강화)
+- "세계관이 좋았다"(해리포터)와 "세계관이 훌륭하다"(반지의제왕)은 같은 취향 → 병합하여 세계관 선호 강화
+- 유사도 < 0.8이면 별개의 취향으로 저장 (추리소설의 심리묘사 vs 문학소설의 내면 성찰은 다른 이유)
 
 ---
 
@@ -102,10 +110,11 @@ CREATE INDEX idx_utr_embedding ON user_taste_reasons USING ivfflat (reason_embed
 유저의 taste_reasons (N개)
   ↓
 각 reason_embedding으로 book_love_reasons 검색
-  → 각 이유당 top-K 매칭 (cosine similarity on reason_embedding)
+  → 각 이유당, 가장 매칭되는 책별 best reason 1개씩
   ↓
-후보 책 합산 점수 계산
-  score(book) = Σ (user_reason_weight × max_similarity(user_reason, book_reasons))
+후보 책 점수 계산 (품질 기반)
+  각 유저 이유에 대해 책별 best match 1개만 취함 (양이 아닌 질)
+  score(book) = AVG(상위 매칭들의 user_weight × similarity)
   ↓
 이미 서재에 있는 책 제외
 중복 판본 제외 (canonical_book_id)
@@ -113,10 +122,15 @@ CREATE INDEX idx_utr_embedding ON user_taste_reasons USING ivfflat (reason_embed
 Top-N 추천 결과
 ```
 
+**스코어링 원칙:**
+- 각 (유저 이유, 책) 쌍에서 **가장 잘 맞는 book reason 1개만** 점수에 반영
+- 책의 reason이 500개든 1개든, 유저 이유와의 best match 품질만 본다
+- SUM이 아닌 AVG — reason 개수가 아닌 매칭 품질로 순위 결정
+- 매우 높은 단일 매칭(0.9)이 중간 매칭 여러 개(0.5×3)보다 가치 있음
+
 **RPC 구현:**
 
 ```sql
--- 유저의 이유 임베딩들과 가장 매칭되는 책 찾기
 CREATE OR REPLACE FUNCTION recommend_books_by_reasons(
   p_user_id UUID,
   p_match_count INT DEFAULT 20
@@ -124,15 +138,17 @@ CREATE OR REPLACE FUNCTION recommend_books_by_reasons(
 RETURNS TABLE (book_id UUID, title TEXT, score FLOAT, matched_reason TEXT)
 AS $$
   WITH user_reasons AS (
-    SELECT reason_embedding, weight
+    SELECT id AS reason_id, reason_embedding, weight
     FROM user_taste_reasons
     WHERE user_id = p_user_id AND weight > 0
   ),
-  -- 각 유저 이유에 대해 가장 매칭되는 책 이유 찾기
-  reason_matches AS (
+  -- 각 유저 이유에 대해 가장 매칭되는 book_love_reasons 검색
+  raw_matches AS (
     SELECT
+      ur.reason_id,
+      ur.weight,
       blr.book_id,
-      ur.weight * (1 - (blr.reason_embedding <=> ur.reason_embedding)) AS match_score,
+      1 - (blr.reason_embedding <=> ur.reason_embedding) AS similarity,
       blr.reason AS matched_reason
     FROM user_reasons ur
     CROSS JOIN LATERAL (
@@ -142,28 +158,43 @@ AS $$
       LIMIT 100
     ) blr
   ),
-  -- 책별 합산
+  -- 핵심: 각 (유저이유, 책) 쌍에서 best match 1개만
+  best_per_pair AS (
+    SELECT DISTINCT ON (reason_id, book_id)
+      reason_id, book_id, weight, similarity, matched_reason
+    FROM raw_matches
+    ORDER BY reason_id, book_id, similarity DESC
+  ),
+  -- 책별 점수: 품질 기반 (AVG)
   book_scores AS (
     SELECT
-      rm.book_id,
-      SUM(rm.match_score) AS total_score,
-      (ARRAY_AGG(rm.matched_reason ORDER BY rm.match_score DESC))[1] AS top_reason
-    FROM reason_matches rm
-    WHERE rm.book_id NOT IN (
+      book_id,
+      AVG(weight * similarity) AS avg_score,
+      MAX(weight * similarity) AS best_score,
+      (ARRAY_AGG(matched_reason ORDER BY weight * similarity DESC))[1] AS top_reason
+    FROM best_per_pair
+    WHERE book_id NOT IN (
       SELECT fb.book_id FROM user_book_feedback fb WHERE fb.user_id = p_user_id
     )
-    AND rm.book_id NOT IN (
+    AND book_id NOT IN (
       SELECT b.id FROM books b WHERE b.canonical_book_id IS NOT NULL
     )
-    GROUP BY rm.book_id
+    GROUP BY book_id
   )
-  SELECT bs.book_id, b.title, bs.total_score AS score, bs.top_reason AS matched_reason
+  SELECT bs.book_id, b.title,
+    (bs.avg_score * 0.7 + bs.best_score * 0.3) AS score,  -- 평균 + 최고 매칭 보너스
+    bs.top_reason AS matched_reason
   FROM book_scores bs
   JOIN books b ON b.id = bs.book_id
-  ORDER BY bs.total_score DESC
+  ORDER BY score DESC
   LIMIT p_match_count;
 $$ LANGUAGE sql;
 ```
+
+**스코어 공식:** `0.7 × AVG(매칭 품질) + 0.3 × MAX(최고 매칭)`
+- AVG: 전반적으로 잘 맞는 책이 높은 점수
+- MAX 보너스: 한 가지라도 강하게 매칭되는 책에 가산점
+- 가중치(0.7/0.3)는 실험으로 튜닝
 
 ### MVP 추천 2: 책 상세 → "비슷한 책" (book-to-book)
 
@@ -256,15 +287,23 @@ $$ LANGUAGE sql;
 
 ---
 
-## 추천 신뢰도
+## 정보 수준별 추천 (Graceful Degradation)
 
-기존 confidence score 구조 유지하되, 판단 기준 변경:
+어떤 시점이든 유저가 가진 정보 수준에 맞는 최선의 추천을 제공한다. "추천 불가"는 없다.
 
-| 조건 | 추천 가능 여부 |
-|------|--------------|
-| taste_reasons 0개 | 추천 불가 (피드백 없음) |
-| taste_reasons 1~2개 | 제한적 추천 ("더 많은 피드백을 남기면 추천이 정확해져요") |
-| taste_reasons 3개+ | 정상 추천 |
+| 정보 수준 | 가용 데이터 | 추천 전략 | 품질 |
+|----------|-----------|----------|------|
+| **Lv.0** 가입 직후 | 없음 | 인기 도서 / 에디터 추천 | 최저 (개인화 없음) |
+| **Lv.1** 온보딩 완료 | 좋아하는 책 선택 + 감성태그 | 선택한 책의 book-to-book 유사도 | 낮음 (왜를 모름) |
+| **Lv.2** 첫 피드백 | taste_reasons 1~3개 | reason 기반 매칭 시작 + "피드백이 쌓이면 더 정확해져요" 안내 | 중간 |
+| **Lv.3** 피드백 축적 | taste_reasons 4개+ | reason 기반 매칭 정상 작동 | 높음 |
+| **Lv.4** 충분한 데이터 | taste_reasons 10개+, 다양한 장르 | reason 매칭 + 다중 취향 감지 가능 | 최고 |
+
+**핵심:** Lv.1 → Lv.2 전환(첫 피드백)에서 추천 품질이 눈에 띄게 개선되어야 한다. 유저가 "피드백을 남기니까 추천이 달라졌다"를 체감하는 것이 핵심 UX.
+
+**Lv.0~1 fallback:**
+- Lv.0: 인기/신간 큐레이션 (개인화 아님, 최소한의 콘텐츠 제공)
+- Lv.1: 온보딩에서 선택한 책 기반 book-to-book 유사도 (기존 match_books_by_similarity RPC 활용). reason 기반이 아니지만, 가진 정보 내에서 최선.
 
 기존 taste_vector 기반 신뢰도는 book-to-book 추천에서 계속 활용.
 
