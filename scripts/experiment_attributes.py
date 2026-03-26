@@ -15,14 +15,34 @@ import re
 import sys
 
 import numpy as np
+import requests
 from dotenv import load_dotenv
 from supabase import create_client
 
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
 sb = create_client(os.environ['SUPABASE_URL'], os.environ['SUPABASE_SERVICE_ROLE_KEY'])
+OPENAI_API_KEY = os.environ['OPENAI_API_KEY']
 
-from lib.openai_helpers import call_chat as call_openai
+
+def call_openai(prompt, temperature=0.3):
+    """OpenAI API 직접 호출 (패키지 호환 문제 우회)"""
+    resp = requests.post(
+        'https://api.openai.com/v1/chat/completions',
+        headers={
+            'Authorization': f'Bearer {OPENAI_API_KEY}',
+            'Content-Type': 'application/json',
+        },
+        json={
+            'model': 'gpt-4o-mini',
+            'messages': [{'role': 'user', 'content': prompt}],
+            'temperature': temperature,
+            'response_format': {'type': 'json_object'},
+        },
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return json.loads(resp.json()['choices'][0]['message']['content'])
 
 # 15개 속성
 ATTRIBUTES = [
@@ -373,38 +393,6 @@ def run_experiment():
             print(f"  ↑{diff:+d} {r['title'][:35]} (attr_score={r['attr_score']:.3f})")
         elif diff < 0:
             print(f"  ↓{diff:+d} {r['title'][:35]}")
-
-    # 결과 저장
-    save_results(by_embedding, by_combined, user_profile, book_attributes)
-
-
-def save_results(by_embedding, by_combined, user_profile, book_attributes):
-    """실험 결과를 JSON으로 저장 (나중에 비교 가능)"""
-    from datetime import datetime
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    output_path = os.path.join(os.path.dirname(__file__), '..', f'experiment_results_{timestamp}.json')
-
-    result = {
-        'timestamp': timestamp,
-        'user_profile': user_profile,
-        'book_attributes': {
-            name: book_attributes.get(info['id'], {})
-            for name, info in BOOKS.items()
-        },
-        'ranking_embedding': [
-            {'title': r['title'], 'similarity': round(r['similarity'], 4)}
-            for r in by_embedding[:10]
-        ],
-        'ranking_combined': [
-            {'title': r['title'], 'combined_score': round(r['combined_score'], 4),
-             'similarity': round(r['similarity'], 4), 'attr_score': round(r['attr_score'], 4)}
-            for r in by_combined[:10]
-        ],
-    }
-
-    with open(output_path, 'w', encoding='utf-8') as f:
-        json.dump(result, f, ensure_ascii=False, indent=2)
-    print(f"\n결과 저장: {output_path}")
 
 
 if __name__ == '__main__':
