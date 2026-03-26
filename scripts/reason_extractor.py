@@ -239,8 +239,8 @@ class ReasonExtractor:
                 rows.append({
                     "book_id": book["id"],
                     "reason": reason,
-                    "embedding": embedding,
-                    "source": "extraction",
+                    "reason_embedding": embedding,
+                    "source": "llm_extracted",
                 })
             with_retry(lambda: self.sb.table("book_love_reasons")
                 .insert(rows)
