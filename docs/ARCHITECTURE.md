@@ -70,7 +70,8 @@
 2시간마다 (daily-scrape):
   → YES24 상세 수집 80권/회 (책소개/출판사리뷰/책속으로 → rich_description)
 매일 KST 06:30 (daily-embed-t2):
-  → Tier 2 임베딩 생성 (rich_description 기반 → book_embeddings 업그레이드)
+  → 정보나루 키워드/연관도서 수집 300권 (usageAnalysisList → library_keywords, related_isbns)
+  → Tier 2 임베딩 생성 (rich_description + library_keywords 기반 → book_embeddings 업그레이드)
 
 [Phase 2 - 취향 프로필]
 PM → Claude Code로 수동 실행:
@@ -240,6 +241,8 @@ Supabase Auth와 연동. 추가 프로필 정보 저장.
 | source_id | text | 외부 API의 고유 ID |
 | sales_point | int | 알라딘 판매지수 (Tier 2 강화 우선순위) |
 | rich_description | text | YES24 상세 텍스트 (책소개/출판사리뷰/책속으로) |
+| library_keywords | text[] | 정보나루 키워드 (예: {"인생","성장","자아찾기"}) |
+| related_isbns | jsonb | 함께 빌린 책 ISBN (예: {"co_loan": ["978..."]}) |
 | dominant_colors | jsonb | 표지 dominant color 2~3개 (hex 배열, 예: ["#3A2518","#8B6B4A","#D4C4A8"]) |
 | mood_tags | text[] | LLM 자동 부여 무드 태그 (예: {"잔잔한","따뜻한"}) |
 | spine_font | text | 책등 폰트 이름 (LLM 자동 배정, 예: 'Nanum Myeongjo') |
