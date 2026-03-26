@@ -23,3 +23,5 @@ __pycache__/
 venv/
 .venv/
 .superpowers/
+reason_log.txt
+.claude/
