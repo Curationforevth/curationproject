@@ -136,10 +136,9 @@ def compose_embedding(book):
         parts.append(f"발췌: {excerpt[:EXCERPT_LIMIT]}")
         data_sources.append('yes24_excerpt')
 
-    # (미래) 도서관 키워드
-    # if book.get('library_keywords'):
-    #     parts.append(f"키워드: {', '.join(book['library_keywords'])}")
-    #     data_sources.append('library_keywords')
+    if book.get('library_keywords'):
+        parts.append(f"키워드: {', '.join(book['library_keywords'])}")
+        data_sources.append('library_keywords')
 
     text = '\n'.join(parts)
 
@@ -173,7 +172,7 @@ class Tier2Embedder:
         page_size = 1000
         while True:
             result = with_retry(lambda o=offset: self.sb.table("books") \
-                .select("id, title, author, genre, description, rich_description") \
+                .select("id, title, author, genre, description, rich_description, library_keywords") \
                 .not_.is_("rich_description", "null") \
                 .range(o, o + page_size - 1) \
                 .execute())
@@ -187,24 +186,32 @@ class Tier2Embedder:
         if force:
             books = all_books
         else:
-            # 이미 Tier 2 임베딩이 있는 book_id 수집
-            tier2_ids = set()
+            # 이미 Tier 2 임베딩이 있는 book_id → data_sources 조회
+            tier2_map = {}  # book_id → data_sources
             offset = 0
             while True:
                 result = with_retry(lambda o=offset: self.sb.table("book_embeddings") \
-                    .select("book_id") \
+                    .select("book_id, data_sources") \
                     .eq("tier", 2) \
                     .range(o, o + page_size - 1) \
                     .execute())
                 if not result.data:
                     break
                 for row in result.data:
-                    tier2_ids.add(row["book_id"])
+                    tier2_map[row["book_id"]] = row.get("data_sources", [])
                 if len(result.data) < page_size:
                     break
                 offset += page_size
 
-            books = [b for b in all_books if b["id"] not in tier2_ids]
+            books = []
+            for b in all_books:
+                if b["id"] not in tier2_map:
+                    # Tier 2 임베딩 없음 → 대상
+                    books.append(b)
+                elif b.get("library_keywords") and \
+                     "library_keywords" not in (tier2_map[b["id"]] or []):
+                    # 키워드 있지만 임베딩에 미반영 → 재임베딩 대상
+                    books.append(b)
 
         if limit > 0:
             books = books[:limit]

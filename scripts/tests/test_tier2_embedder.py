@@ -134,3 +134,43 @@ class TestComposeEmbedding:
         }
         text, _ = compose_embedding(book)
         assert len(text) <= 15000
+
+
+class TestComposeEmbeddingWithKeywords:
+    """키워드가 임베딩 텍스트에 포함되는지 검증"""
+
+    def test_with_library_keywords(self):
+        from tier2_embedder import compose_embedding
+        book = {
+            'title': '테스트책', 'author': '저자A', 'genre': '한국소설',
+            'description': '설명',
+            'rich_description': '[책소개]\n멋진 소설이다.',
+            'library_keywords': ['인생', '성장', '자아찾기'],
+        }
+        text, sources = compose_embedding(book)
+        assert '키워드: 인생, 성장, 자아찾기' in text
+        assert 'library_keywords' in sources
+
+    def test_without_library_keywords(self):
+        from tier2_embedder import compose_embedding
+        book = {
+            'title': '테스트책', 'author': '저자A', 'genre': '한국소설',
+            'description': '설명',
+            'rich_description': '[책소개]\n멋진 소설이다.',
+            'library_keywords': None,
+        }
+        text, sources = compose_embedding(book)
+        assert '키워드:' not in text
+        assert 'library_keywords' not in sources
+
+    def test_empty_library_keywords(self):
+        from tier2_embedder import compose_embedding
+        book = {
+            'title': '테스트책', 'author': '저자A', 'genre': '한국소설',
+            'description': '설명',
+            'rich_description': '[책소개]\n멋진 소설이다.',
+            'library_keywords': [],
+        }
+        text, sources = compose_embedding(book)
+        assert '키워드:' not in text
+        assert 'library_keywords' not in sources
