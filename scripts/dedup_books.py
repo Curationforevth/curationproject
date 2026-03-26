@@ -27,11 +27,6 @@ from supabase import create_client
 
 load_dotenv()
 
-sb = create_client(
-    os.getenv("SUPABASE_URL"),
-    os.getenv("SUPABASE_SERVICE_ROLE_KEY"),
-)
-
 # ── 시리즈 판별 패턴 ──────────────────────────────────────
 # 콜론/대시 뒤의 부제가 "내용 구분"인 경우 → 시리즈물, 중복 아님
 # 예: "스티커북 : 동물" vs "스티커북 : 마트" → 다른 책
@@ -210,7 +205,7 @@ def normalize_author(author: str) -> str:
     return author
 
 
-def fetch_all_books():
+def fetch_all_books(sb):
     """DB에서 전체 도서 로드"""
     print("도서 데이터 로드 중...")
     books = []
@@ -319,7 +314,7 @@ def print_group_detail(group: dict, canonical: dict, non_canonical: list, verbos
             print(f"      desc: {desc_len}자  rich: {rich}  sales: {sp}")
 
 
-def apply_dedup(non_canonical_books: list, canonical_id: str):
+def apply_dedup(sb, non_canonical_books: list, canonical_id: str):
     """
     DB에 중복 마킹 적용
 
@@ -353,8 +348,14 @@ def ensure_column_exists():
 def main():
     parser = argparse.ArgumentParser(description="도서 중복 제거 (소프트 머지)")
     parser.add_argument("--apply", action="store_true", help="실제 DB 반영 (기본: 미리보기)")
+    parser.add_argument("--yes", "-y", action="store_true", help="확인 프롬프트 없이 바로 적용 (CI용)")
     parser.add_argument("--verbose", action="store_true", help="상세 출력")
     args = parser.parse_args()
+
+    sb = create_client(
+        os.getenv("SUPABASE_URL"),
+        os.getenv("SUPABASE_SERVICE_ROLE_KEY"),
+    )
 
     mode = "적용 모드" if args.apply else "미리보기 모드 (--apply로 실제 반영)"
     print("=" * 60)
@@ -362,7 +363,7 @@ def main():
     print("=" * 60)
 
     # 1. 전체 도서 로드
-    books = fetch_all_books()
+    books = fetch_all_books(sb)
 
     # 2. 중복 그룹 식별
     dup_groups = find_duplicate_groups(books)
@@ -394,14 +395,15 @@ def main():
         print("\nDB에 반영 중...")
         ensure_column_exists()
 
-        confirm = input("\n계속하시겠습니까? (y/N): ")
-        if confirm.lower() != "y":
-            print("취소됨")
-            return
+        if not args.yes:
+            confirm = input("\n계속하시겠습니까? (y/N): ")
+            if confirm.lower() != "y":
+                print("취소됨")
+                return
 
         applied = 0
         for canonical, non_canonical in merge_plan:
-            apply_dedup(non_canonical, canonical["id"])
+            apply_dedup(sb, non_canonical, canonical["id"])
             applied += len(non_canonical)
             print(f"  {canonical['title'][:30]} — {len(non_canonical)}권 마킹 완료")
 

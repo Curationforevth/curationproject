@@ -24,4 +24,5 @@ venv/
 .venv/
 .superpowers/
 reason_log.txt
+experiment_results_*.json
 .claude/

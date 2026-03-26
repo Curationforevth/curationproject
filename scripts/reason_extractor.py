@@ -32,7 +32,7 @@ except ImportError:
 
 MIN_REASON_LENGTH = 4
 BATCH_SIZE = 20
-PARALLEL_WORKERS = 10  # LLM 병렬 호출 수
+PARALLEL_WORKERS = 10  # LLM 병렬 호출 수 (gpt-4o-mini rate limit 여유 있어 10으로 상향)
 EMBEDDING_BATCH_SIZE = 50  # 임베딩 일괄 처리 크기
 
 # 범용 표현 패턴 — 구체적이지 않은 이유 필터링용
@@ -233,17 +233,36 @@ class ReasonExtractor:
                 all_reasons.append(r)
                 reason_map.append(book_id)
 
-        try:
-            # 임베딩 API 배치 제한 대응 (50개씩)
-            all_embeddings = []
-            for i in range(0, len(all_reasons), EMBEDDING_BATCH_SIZE):
-                chunk = all_reasons[i:i + EMBEDDING_BATCH_SIZE]
+        # 임베딩 API 배치 제한 대응 (50개씩, chunk 단위 fallback)
+        all_embeddings = [None] * len(all_reasons)
+        for i in range(0, len(all_reasons), EMBEDDING_BATCH_SIZE):
+            chunk = all_reasons[i:i + EMBEDDING_BATCH_SIZE]
+            try:
                 embs = call_embedding(chunk)
-                all_embeddings.extend(embs)
-        except Exception as e:
-            print(f"  ✗ 임베딩 배치 실패: {e}")
+                for j, emb in enumerate(embs):
+                    all_embeddings[i + j] = emb
+            except Exception as e:
+                print(f"  ✗ 임베딩 chunk 실패 ({i}~{i+len(chunk)}): {e}")
+
+        # 임베딩 성공한 것만 필터링
+        valid_indices = [i for i, emb in enumerate(all_embeddings) if emb is not None]
+        failed_count = len(all_reasons) - len(valid_indices)
+        if failed_count > 0:
+            print(f"  ⚠ 임베딩 {failed_count}건 실패, {len(valid_indices)}건 진행")
+        if not valid_indices:
             self.stats["errors"] += len(extracted)
             return
+
+        all_reasons = [all_reasons[i] for i in valid_indices]
+        all_embeddings = [all_embeddings[i] for i in valid_indices]
+        reason_map = [reason_map[i] for i in valid_indices]
+
+        # 임베딩 실패로 이유가 모두 사라진 책 → stats 보정
+        surviving_book_ids = set(reason_map)
+        lost_book_ids = set(extracted.keys()) - surviving_book_ids
+        if lost_book_ids:
+            self.stats["errors"] += len(lost_book_ids)
+            self.stats["processed"] -= len(lost_book_ids)
 
         # 3단계: DB 일괄 저장
         if not self.dry_run:
@@ -266,10 +285,19 @@ class ReasonExtractor:
                 self.stats["errors"] += 1
                 return
 
+        # 실제 저장된 이유 수 기준으로 카운트
         self.stats["reasons_created"] += len(all_reasons)
+        # 저장 성공한 책별 이유 수 계산
+        saved_counts = {}
+        for book_id in reason_map:
+            saved_counts[book_id] = saved_counts.get(book_id, 0) + 1
         for book_id, (book, reasons) in extracted.items():
             prefix = "(dry-run) " if self.dry_run else ""
-            print(f"  {prefix}✓ [{book['title'][:25]}] {len(reasons)}개")
+            saved = saved_counts.get(book_id, 0)
+            if saved > 0:
+                print(f"  {prefix}✓ [{book['title'][:25]}] {saved}개")
+            else:
+                print(f"  {prefix}✗ [{book['title'][:25]}] 임베딩 실패로 스킵")
 
     def _extract_reasons(self, book):
         """단일 책 LLM 이유 추출 (순수 — 임베딩/DB 없음)."""

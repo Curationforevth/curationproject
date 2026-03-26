@@ -25,7 +25,15 @@ jobs:
         run: pip install -r scripts/requirements.txt
 
       - name: Extract reasons for new books
+        # 일일 100권 제한: API 비용 관리 + timeout 30분 내 완료 보장
+        # 미처리분이 많으면 workflow_dispatch로 수동 실행하여 따라잡기
         run: python scripts/reason_extractor.py --limit 100
 
       - name: Show status
         run: python scripts/reason_extractor.py --status
+
+      - name: Notify failure
+        if: failure()
+        run: |
+          echo "::error::Reason Extractor 배치 실패 — $(date -u '+%Y-%m-%d %H:%M UTC')"
+          echo "워크플로우 로그: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
