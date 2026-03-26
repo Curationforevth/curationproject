@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS public.book_love_reasons (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   book_id UUID REFERENCES public.books(id) NOT NULL,
   reason TEXT NOT NULL,
-  reason_embedding VECTOR(3072),
+  reason_embedding VECTOR(2000),
   source TEXT NOT NULL DEFAULT 'llm_extracted',
   user_mention_count INT DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT now()
@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS public.user_taste_reasons (
   user_id UUID NOT NULL,
   book_id UUID REFERENCES public.books(id) NOT NULL,
   reason TEXT NOT NULL,
-  reason_embedding VECTOR(3072),
+  reason_embedding VECTOR(2000),
   weight FLOAT NOT NULL DEFAULT 1.0,
   created_at TIMESTAMPTZ DEFAULT now()
 );

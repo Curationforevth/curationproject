@@ -12,7 +12,7 @@ import requests
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 CHAT_MODEL = "gpt-4o-mini"
 EMBEDDING_MODEL = "text-embedding-3-large"
-EMBEDDING_DIMENSIONS = 3072
+EMBEDDING_DIMENSIONS = 2000  # pgvector 인덱스 최대 2000차원, Matryoshka로 축소
 API_TIMEOUT = 60
 
 
@@ -31,6 +31,7 @@ def build_embedding_payload(texts):
     return {
         "model": EMBEDDING_MODEL,
         "input": texts,
+        "dimensions": EMBEDDING_DIMENSIONS,
     }
 
 

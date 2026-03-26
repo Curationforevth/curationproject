@@ -26,6 +26,7 @@ def test_build_embedding_payload_single():
     payload = build_embedding_payload(["hello"])
     assert payload["model"] == "text-embedding-3-large"
     assert payload["input"] == ["hello"]
+    assert payload["dimensions"] == 2000
 
 
 def test_build_embedding_payload_batch():
