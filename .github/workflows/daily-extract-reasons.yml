@@ -1,0 +1,31 @@
+name: daily-extract-reasons
+
+on:
+  schedule:
+    - cron: '0 20 * * *'  # UTC 20:00 = KST 05:00
+  workflow_dispatch:
+
+jobs:
+  extract-reasons:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r scripts/requirements.txt
+
+      - name: Extract reasons for new books
+        run: python scripts/reason_extractor.py --limit 100
+
+      - name: Show status
+        run: python scripts/reason_extractor.py --status
