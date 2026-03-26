@@ -5,10 +5,15 @@
 
 import os
 import json
+import sys
 import urllib.request
 import urllib.parse
 from dotenv import load_dotenv
 from supabase import create_client
+
+# lib 모듈 import
+sys.path.insert(0, os.path.dirname(__file__))
+from lib.dedup_checker import DeduplicateChecker
 
 # .env 로드
 load_dotenv()
@@ -88,14 +93,23 @@ def transform_to_book(item):
     }
 
 
-def save_to_db(books):
-    """books 테이블에 upsert (ISBN 기준 중복 방지)"""
+def save_to_db(books, dedup_checker=None):
+    """books 테이블에 upsert (ISBN 기준 + 에디션 중복 방지)"""
     saved = 0
     skipped = 0
+    edition_dup = 0
 
     for book in books:
         if not book:
             skipped += 1
+            continue
+
+        # 에디션 중복 체크 (ISBN은 다르지만 같은 작품)
+        if dedup_checker and dedup_checker.is_title_duplicate(
+            book["title"], book.get("author", ""), book.get("isbn", "")
+        ):
+            edition_dup += 1
+            print(f"  ⏭ 에디션 중복: {book['title'][:30]}")
             continue
 
         try:
@@ -105,9 +119,17 @@ def save_to_db(books):
             ).execute()
             saved += 1
             print(f"  ✓ {book['title'][:30]}")
+            # 에디션 인덱스에 등록
+            if dedup_checker:
+                dedup_checker.register(
+                    book["title"], book.get("author", ""), book.get("isbn", "")
+                )
         except Exception as e:
             print(f"  ✗ {book.get('title', '?')[:30]} — {e}")
             skipped += 1
+
+    if edition_dup:
+        print(f"  에디션 중복 스킵: {edition_dup}건")
 
     return saved, skipped
 
@@ -116,6 +138,12 @@ def main():
     print("=" * 50)
     print("알라딘 베스트셀러 배치 수집")
     print("=" * 50)
+
+    # 에디션 중복 체커 초기화
+    print("📖 에디션 중복 인덱스 구축 중...")
+    dedup_checker = DeduplicateChecker(supabase)
+    title_count = dedup_checker.load_title_index()
+    print(f"   {title_count}권 인덱스 완료\n")
 
     total_saved = 0
     total_skipped = 0
@@ -127,7 +155,7 @@ def main():
         print(f"   {len(items)}권 가져옴")
 
         books = [transform_to_book(item) for item in items]
-        saved, skipped = save_to_db(books)
+        saved, skipped = save_to_db(books, dedup_checker)
 
         total_saved += saved
         total_skipped += skipped

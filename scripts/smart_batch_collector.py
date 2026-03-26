@@ -29,6 +29,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from lib.aladin_client import AladinClient
 from lib.book_filter import is_non_book
 from lib.title_cleaner import clean_title
+from lib.dedup_checker import DeduplicateChecker
 from lib.state_manager import StateManager
 try:
     from lib.retry import with_retry
@@ -87,12 +88,16 @@ class SmartBatchCollector:
         # in-memory ISBN set (중복 방지)
         self.known_isbns = set()
 
+        # 에디션 중복 체커 (ISBN이 다르지만 같은 작품인 경우 감지)
+        self.dedup_checker = DeduplicateChecker(self.sb)
+
         # 통계
         self.stats = {
             "api_calls": 0,
             "raw_items": 0,
             "filtered_non_book": 0,
             "filtered_duplicate": 0,
+            "filtered_edition_dup": 0,
             "filtered_no_isbn": 0,
             "saved": 0,
         }
@@ -122,7 +127,12 @@ class SmartBatchCollector:
                 break
             offset += page_size
 
-        print(f"   {len(self.known_isbns)}권 로드 완료\n")
+        print(f"   {len(self.known_isbns)}권 로드 완료")
+
+        # 에디션 중복 인덱스 구축
+        print("📖 에디션 중복 인덱스 구축 중...")
+        title_count = self.dedup_checker.load_title_index()
+        print(f"   {title_count}권 인덱스 완료\n")
 
     def process_items(self, items):
         """API 응답 아이템 → 필터 + 정제 → 저장 가능한 책 리스트"""
@@ -146,6 +156,13 @@ class SmartBatchCollector:
                 self.stats["filtered_non_book"] += 1
                 continue
 
+            # 에디션 중복 체크 (ISBN은 다르지만 같은 작품)
+            title = clean_title(item.get("title", ""))
+            author = item.get("author", "")
+            if self.dedup_checker.is_title_duplicate(title, author, isbn):
+                self.stats["filtered_edition_dup"] += 1
+                continue
+
             # 변환 + 제목 정제
             book = {
                 "isbn": isbn,
@@ -162,6 +179,8 @@ class SmartBatchCollector:
 
             books.append(book)
             self.known_isbns.add(isbn)
+            # 에디션 중복 인덱스에도 등록 (세션 내 중복 방지)
+            self.dedup_checker.register(title, author, isbn)
 
         return books
 
@@ -364,6 +383,7 @@ class SmartBatchCollector:
         print(f"  원본 아이템: {s['raw_items']}건")
         print(f"  - ISBN 없음: {s['filtered_no_isbn']}건")
         print(f"  - 중복 (이미 DB): {s['filtered_duplicate']}건")
+        print(f"  - 에디션 중복: {s['filtered_edition_dup']}건")
         print(f"  - 문제집/수험서: {s['filtered_non_book']}건")
         prefix = "(dry-run) " if self.dry_run else ""
         print(f"  {prefix}새로 저장: {s['saved']}권")
