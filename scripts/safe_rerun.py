@@ -1,9 +1,9 @@
-"""안정적 re-run — 타임아웃 감지, 자동 복구, 진행률 실시간 출력
+"""안정적 re-run — 처리 완료 책 스킵, IO 분산, 진행률 실시간 출력
 
 사용법:
-  python3 scripts/safe_rerun.py           # 전체 (기존 reason 있는 책 전부)
+  python3 scripts/safe_rerun.py           # 전체 (미처리분만)
   python3 scripts/safe_rerun.py 200       # 200권만
-  python3 -u scripts/safe_rerun.py 500    # 500권, unbuffered stdout (백그라운드용)
+  python3 -u scripts/safe_rerun.py        # unbuffered stdout (백그라운드용)
 """
 import os, sys, time
 
@@ -16,18 +16,19 @@ from supabase import create_client
 from scripts.reason_extractor import ReasonExtractor
 
 LIMIT = int(sys.argv[1]) if len(sys.argv) > 1 else 99999
-CHUNK = 40  # 한 번에 상세조회+처리하는 권수 (BATCH_SIZE 20 × 2배치)
+CHUNK = 20  # 한 번에 처리할 권수 (작게 → IO 분산)
+SLEEP_BETWEEN_CHUNKS = 2  # chunk 사이 대기 (초)
 
 def make_client():
     return create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"])
 
 sb = make_client()
 
-# 대상 수집 (books 테이블, 가벼움)
+# 1) 전체 대상 수집
 print(f"대상 도서 수집 (limit={LIMIT})...", flush=True)
-ids = []
+all_ids = []
 offset = 0
-while len(ids) < LIMIT:
+while len(all_ids) < LIMIT:
     for attempt in range(3):
         try:
             res = sb.table("books").select("id").not_.is_("rich_description", "null") \
@@ -42,14 +43,45 @@ while len(ids) < LIMIT:
         break
     if not res.data:
         break
-    ids.extend(r["id"] for r in res.data)
+    all_ids.extend(r["id"] for r in res.data)
     if len(res.data) < 500:
         break
     offset += 500
 
-ids = ids[:LIMIT]
-print(f"  {len(ids)}권 대상\n", flush=True)
+all_ids = all_ids[:LIMIT]
+print(f"  전체 {len(all_ids)}권", flush=True)
 
+# 2) 이미 처리된 book_id 수집 → 스킵
+print("이미 처리된 책 확인 중...", flush=True)
+done_ids = set()
+offset = 0
+while True:
+    for attempt in range(3):
+        try:
+            res = sb.table("book_love_reasons").select("book_id") \
+                .range(offset, offset + 999).execute()
+            break
+        except Exception as e:
+            print(f"  조회 재시도 {attempt+1}/3: {e}", flush=True)
+            time.sleep(5)
+            sb = make_client()
+    else:
+        break
+    if not res.data:
+        break
+    done_ids.update(r["book_id"] for r in res.data)
+    if len(res.data) < 1000:
+        break
+    offset += 1000
+
+ids = [i for i in all_ids if i not in done_ids]
+print(f"  이미 처리: {len(done_ids)}권 스킵, 남은 대상: {len(ids)}권\n", flush=True)
+
+if not ids:
+    print("모든 책이 이미 처리되었습니다.", flush=True)
+    sys.exit(0)
+
+# 3) 처리 시작
 start = time.time()
 done, errors = 0, 0
 
@@ -75,16 +107,7 @@ for i in range(0, len(ids), CHUNK):
     if not books:
         continue
 
-    # 기존 reason 삭제 — IN 배치
-    for attempt in range(3):
-        try:
-            sb.table("book_love_reasons").delete().in_("book_id", chunk_ids).execute()
-            break
-        except Exception:
-            time.sleep(3)
-            sb = make_client()
-
-    # 추출 + 저장
+    # 추출 + 저장 (기존 reason은 삭제하지 않음 — 신규만)
     extractor = ReasonExtractor(sb, dry_run=False)
     try:
         extractor._process_batch(books)
@@ -102,7 +125,9 @@ for i in range(0, len(ids), CHUNK):
     eta = (len(ids) - i - len(chunk_ids)) / rate if rate > 0 else 0
     print(f"  [{pct:5.1f}%] {done}/{len(ids)}완료 {errors}에러 "
           f"{elapsed/60:.1f}분경과 ~{eta:.0f}분남음", flush=True)
-    time.sleep(0.5)
+
+    # IO 분산을 위한 대기
+    time.sleep(SLEEP_BETWEEN_CHUNKS)
 
 elapsed = time.time() - start
 print(f"\n{'='*50}", flush=True)

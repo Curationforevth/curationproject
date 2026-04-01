@@ -599,21 +599,23 @@ class ReasonExtractor:
                     "reason_embedding": embedding,
                     "source": "llm_extracted",
                 })
-            # Supabase 배치 insert (3행씩 — 2000차원 벡터 타임아웃 방지)
-            for i in range(0, len(rows), 3):
-                chunk = rows[i:i + 3]
+            # Supabase 배치 insert (20행씩)
+            INSERT_BATCH = 20
+            for i in range(0, len(rows), INSERT_BATCH):
+                chunk = rows[i:i + INSERT_BATCH]
                 try:
                     with_retry(lambda c=chunk: self.sb.table("book_love_reasons")
                         .insert(c).execute())
                 except Exception:
-                    # 배치 실패 시 1행씩 재시도
-                    for row in chunk:
+                    # 배치 실패 시 5행씩 재시도
+                    for j in range(0, len(chunk), 5):
+                        mini = chunk[j:j + 5]
                         try:
-                            with_retry(lambda r=row: self.sb.table("book_love_reasons")
-                                .insert(r).execute())
+                            with_retry(lambda m=mini: self.sb.table("book_love_reasons")
+                                .insert(m).execute())
                         except Exception as e2:
-                            print(f"  ✗ 개별 insert 실패: {row['reason'][:20]}... — {e2}")
-                            self.stats["errors"] += 1
+                            print(f"  ✗ insert 실패 ({len(mini)}행): {e2}")
+                            self.stats["errors"] += len(mini)
 
         # 실제 저장된 이유 수 기준으로 카운트
         self.stats["reasons_created"] += len(all_reasons)
