@@ -79,7 +79,7 @@
 매일 KST 05:00 (daily-extract-reasons, Phase 2+ 추천 엔진 v2):
   → book_love_reasons가 없는 신규 책 조회
   → LLM으로 "좋아할 이유" 5~8개 추출 (title+genre+description+rich_description+library_keywords)
-  → OpenAI text-embedding-3-large로 각 이유 임베딩 (3072차원)
+  → OpenAI text-embedding-3-large로 각 이유 임베딩 (2000차원, Matryoshka 축소)
   → book_love_reasons에 저장 (source='llm_extracted')
 
 매일 KST 07:30 (daily-enrich-reasons, Phase 2+ 추천 엔진 v2):
@@ -379,7 +379,7 @@ Supabase Auth와 연동. 추가 프로필 정보 저장.
 | id | uuid (PK) | |
 | book_id | uuid (FK → books) | |
 | reason | text | "호그와트의 수업, 기숙사, 퀴디치 등 디테일하게 구축된 마법 학교 생활" |
-| reason_embedding | vector(3072) | OpenAI text-embedding-3-large 벡터 |
+| reason_embedding | vector(2000) | OpenAI text-embedding-3-large 벡터 (Matryoshka 2000D) |
 | source | text | 'llm_extracted' or 'user_feedback' |
 | user_mention_count | int (default 0) | user_feedback 일 경우 언급 유저 수 |
 | created_at | timestamptz | |
@@ -395,11 +395,41 @@ Supabase Auth와 연동. 추가 프로필 정보 저장.
 | user_id | uuid (FK → users) | |
 | book_id | uuid (FK → books) | 피드백이 입력된 책 |
 | reason | text | "새롭고 디테일한 세계관" |
-| reason_embedding | vector(3072) | OpenAI text-embedding-3-large 벡터 |
+| reason_embedding | vector(2000) | OpenAI text-embedding-3-large 벡터 (Matryoshka 2000D) |
 | weight | float (default 1.0) | rating 기반: good=1.0, neutral=0.5, bad=0.0 |
 | created_at | timestamptz | |
 
 > ivfflat 인덱스 적용 (idx_utr_embedding) — 코사인 유사도 검색용
+
+#### `genre_embeddings` (Phase 3 — v3 추천 엔진)
+고유 장르 텍스트의 임베딩. L1(중분류) ~24개 + L2(소분류) ~801개.
+
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| id | uuid (PK) | |
+| genre_text | text | "소설/시/희곡", "한국소설" 등 |
+| level | text CHECK ('l1','l2') | 중분류 또는 소분류 |
+| embedding | vector(2000) | OpenAI text-embedding-3-large 벡터 (Matryoshka 2000D) |
+| created_at | timestamptz | |
+
+> UNIQUE(genre_text, level)
+
+#### `book_v3_vectors` (Phase 3 — v3 추천 엔진)
+책별 desc 임베딩 + L1/L2 장르 FK. 대상: rich_description 보유 책.
+
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| book_id | uuid (PK, FK → books) | |
+| desc_embedding | vector(2000) | rich_description 기반 책 분위기 벡터 |
+| source_text | text | 임베딩에 사용된 원본 텍스트 (디버깅용) |
+| l1_text | text | 파싱된 L1 장르 텍스트 |
+| l2_text | text | 파싱된 L2 장르 텍스트 |
+| l1_genre_id | uuid (FK → genre_embeddings) | |
+| l2_genre_id | uuid (FK → genre_embeddings) | |
+| created_at | timestamptz | |
+| updated_at | timestamptz | |
+
+> FK 인덱스: idx_book_v3_l1, idx_book_v3_l2
 
 ### RLS (Row Level Security)
 
@@ -647,7 +677,7 @@ Tier 2 (강화, daily-embed-t2 KST 06:30):
 | 모델 | 차원 | 용도 | 비용 | 주의사항 |
 |------|------|------|------|---------|
 | **text-embedding-3-small** | 1536 | book_embeddings (book-to-book 유사도) | 저비용 | 기존 운영 유지 |
-| **text-embedding-3-large** | 3072 | book_love_reasons, user_taste_reasons (이유 매칭) | 중비용 | 정확도 높음 (v2 필수) |
+| **text-embedding-3-large** | 2000 (Matryoshka) | book_love_reasons, user_taste_reasons, genre_embeddings, book_v3_vectors (v3 추천) | 중비용 | 정확도 높음, pgvector 최대 2000D |
 
 **중요 주의사항:**
 - 두 모델의 벡터는 **서로 비교 불가능** (차원이 다름)
