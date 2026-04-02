@@ -81,9 +81,35 @@ if not ids:
     print("모든 책이 이미 처리되었습니다.", flush=True)
     sys.exit(0)
 
+# 2.5) 사전 테스트 — 1권으로 API 상태 확인
+print("사전 테스트 (1권)...", flush=True)
+test_id = ids[0]
+try:
+    test_res = sb.table("books") \
+        .select("id, title, genre, description, rich_description, library_keywords") \
+        .eq("id", test_id).execute()
+    test_book = test_res.data[0] if test_res.data else None
+    if test_book:
+        test_ext = ReasonExtractor(sb, dry_run=False)
+        test_ext._process_batch([test_book])
+        # 성공하면 done_ids에 추가하여 메인 루프에서 스킵
+        ids = [i for i in ids if i != test_id]
+        print(f"  ✓ 사전 테스트 성공: {test_book.get('title', '?')[:30]}", flush=True)
+        print(f"  남은 대상: {len(ids)}권\n", flush=True)
+except Exception as e:
+    error_msg = str(e)
+    if "429" in error_msg:
+        print(f"  ✗ Rate limit! Response: {error_msg[:200]}", flush=True)
+    elif "401" in error_msg or "403" in error_msg:
+        print(f"  ✗ 인증 실패! API 키 확인 필요: {error_msg[:200]}", flush=True)
+    else:
+        print(f"  ✗ 사전 테스트 실패: {error_msg[:200]}", flush=True)
+    print("  배치를 시작하지 않습니다.", flush=True)
+    sys.exit(1)
+
 # 3) 처리 시작
 start = time.time()
-done, errors, consecutive_errors = 0, 0, 0
+done, errors, consecutive_errors = 1, 0, 0  # 사전 테스트 1건 포함
 
 for i in range(0, len(ids), CHUNK):
     chunk_ids = ids[i:i + CHUNK]
@@ -114,15 +140,27 @@ for i in range(0, len(ids), CHUNK):
         done += len(books)
         consecutive_errors = 0
     except Exception as e:
-        print(f"  ✗ 배치 실패 (연속 {consecutive_errors + 1}회): {e}", flush=True)
-        errors += len(books)
+        error_msg = str(e)
         consecutive_errors += 1
+        errors += len(books)
+
+        # rate limit vs quota vs 기타 구분
+        if "429" in error_msg:
+            print(f"  ✗ Rate limit (연속 {consecutive_errors}회): {error_msg[:150]}", flush=True)
+            print(f"    → 60초 대기 후 재시도", flush=True)
+            time.sleep(60)
+        elif "401" in error_msg or "403" in error_msg:
+            print(f"  ✗ 인증 에러 → 즉시 중단: {error_msg[:150]}", flush=True)
+            break
+        else:
+            print(f"  ✗ 배치 실패 (연속 {consecutive_errors}회): {error_msg[:150]}", flush=True)
+            time.sleep(5)
+            sb = make_client()
+
         if consecutive_errors >= 3:
             print(f"\n연속 에러 3회 → 자동 중단", flush=True)
             print(f"  처리: {done}건, 에러: {errors}건", flush=True)
             break
-        time.sleep(5)
-        sb = make_client()
 
     # 진행률
     elapsed = time.time() - start
