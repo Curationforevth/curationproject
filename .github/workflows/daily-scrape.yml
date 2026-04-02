@@ -9,6 +9,9 @@ on:
         description: '처리할 최대 권수'
         default: '80'
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   scrape:
     runs-on: ubuntu-latest

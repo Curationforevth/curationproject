@@ -5,6 +5,9 @@ on:
     - cron: '30 21 * * *'  # UTC 21:30 = KST 06:30
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   embed-tier2:
     runs-on: ubuntu-latest

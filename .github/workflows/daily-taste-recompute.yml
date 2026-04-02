@@ -5,6 +5,9 @@ on:
     - cron: '0 22 * * *'  # UTC 22:00 = KST 07:00 (daily-embed-t2 이후)
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   recompute-taste:
     runs-on: ubuntu-latest

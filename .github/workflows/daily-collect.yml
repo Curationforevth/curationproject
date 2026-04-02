@@ -5,10 +5,13 @@ on:
     - cron: '0 18 * * *'  # UTC 18:00 = KST 03:00
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   collect-enrich-embed:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     steps:
       - uses: actions/checkout@v4
@@ -21,13 +24,14 @@ jobs:
       - name: Install dependencies
         run: pip install -r scripts/requirements.txt
 
-      - name: Run batch collector (target 1000 new books)
+      - name: Run batch collector (Phase 1 only — tail-end)
         continue-on-error: true
+        timeout-minutes: 40
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           ALADIN_TTB_KEY: ${{ secrets.ALADIN_TTB_KEY }}
-        run: python scripts/smart_batch_collector.py --daily-target 1000
+        run: python scripts/smart_batch_collector.py --phase item_list --daily-target 200
 
       - name: Run batch enricher (color + font for new books)
         continue-on-error: true
