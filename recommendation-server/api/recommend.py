@@ -1,0 +1,78 @@
+import numpy as np
+from fastapi import APIRouter, Depends, HTTPException, Query
+from supabase import create_client
+from auth import verify_jwt
+from models import RecommendResponse, BookScore
+from engine.scorer import recommend_scores
+from config import DEFAULT_RECOMMEND_LIMIT, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+
+router = APIRouter()
+
+
+def _to_np(vec) -> np.ndarray:
+    if isinstance(vec, str):
+        vec = [float(x) for x in vec.strip("[]").split(",")]
+    a = np.array(vec, dtype=np.float32)
+    norm = np.linalg.norm(a)
+    return a / norm if norm > 0 else a
+
+
+@router.get("/recommend/{user_id}", response_model=RecommendResponse)
+async def get_recommendations(
+    user_id: str,
+    limit: int = Query(DEFAULT_RECOMMEND_LIMIT, ge=1, le=50),
+    current_user: str = Depends(verify_jwt),
+):
+    if current_user != user_id:
+        raise HTTPException(403, "Cannot access other user's recommendations")
+
+    from main import app_state
+    index = app_state["index"]
+    books_meta = app_state["books_meta"]
+
+    sb = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    ub_res = sb.table("user_books").select(
+        "book_id,rating,feedback_embedding"
+    ).eq("user_id", user_id).execute()
+
+    if not ub_res.data:
+        return RecommendResponse(
+            user_id=user_id, recommendations=[],
+            meta={"total_liked": 0, "total_disliked": 0, "has_feedback": False},
+        )
+
+    liked_books = {}
+    fb_data = {}
+    total_liked = total_disliked = 0
+    has_feedback = False
+
+    for ub in ub_res.data:
+        bid = ub["book_id"]
+        rating = ub.get("rating", "neutral")
+        liked_books[bid] = {"rating": rating}
+        if rating == "good":
+            total_liked += 1
+        elif rating == "bad":
+            total_disliked += 1
+        fb_emb = ub.get("feedback_embedding")
+        if fb_emb:
+            has_feedback = True
+            fb_data[bid] = {"emb": _to_np(fb_emb), "is_dislike": rating == "bad"}
+
+    scores = recommend_scores(index, liked_books, fb_data)
+    sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:limit]
+
+    recs = []
+    for bid, score in sorted_scores:
+        meta = books_meta.get(bid, {})
+        recs.append(BookScore(
+            book_id=bid, score=round(score, 4),
+            title=meta.get("title", ""), author=meta.get("author", ""),
+            cover_url=meta.get("cover_url"),
+        ))
+
+    return RecommendResponse(
+        user_id=user_id, recommendations=recs,
+        meta={"total_liked": total_liked, "total_disliked": total_disliked,
+              "has_feedback": has_feedback},
+    )
