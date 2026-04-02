@@ -47,7 +47,7 @@
   - 배치 경로: 전체 유저 취향 벡터 재계산 + 클러스터링 (GitHub Actions)
   - 추천 신뢰도 스코어: 피드백 깊이/장르 다양성/호오 분산 종합 평가
   - 취향 벡터 단계적 진화: 가중 평균 → K-means 클러스터링 (데이터 충분 시 자동 전환)
-- **스펙:** `docs/superpowers/specs/2026-03-26-recommendation-engine-design.md`
+- **스펙:** `docs/superpowers/specs/2026-04-01-recommendation-engine-v3-design.md`
 
 ### Phase 2 — 취향 프로필 + 추천 고도화
 
@@ -150,7 +150,7 @@
 | [무드 라벨] | 같은 무드 태그 책이 5권 이상 | 책 등록 시 카카오 API `contents`(줄거리)를 LLM으로 분석 → 무드 태그 2~3개 자동 부여 (예: "잔잔한", "몰입감 있는", "따뜻한", "묵직한", "유쾌한") |
 
 > 무드 태그는 Phase 1에서 메타데이터 기반으로 자동 부여하고, Phase 2에서 피드백 데이터가 쌓이면 정확도를 높인다.
-> 추천 엔진 상세: `docs/superpowers/specs/2026-03-26-recommendation-engine-design.md`
+> 추천 엔진 상세: `docs/superpowers/specs/2026-04-01-recommendation-engine-v3-design.md`
 
 **Phase 2 (취향 프로필 + 추천 고도화) — LLM 분석 기반**
 
@@ -223,7 +223,7 @@
 
 | 권수 | 테마 | 분위기 |
 |------|------|--------|
-| 0~9권 | 크림/따뜻한 베이지 | 아늑한 시작 |
+| 0~9권 | 순백 #FFFFFF (기본 배경) | 깨끗한 시작 |
 | 10~29권 | 우드톤 + 은은한 조명 | 나만의 공간 |
 | 30~49권 | 짙은 라이브러리 톤 + 벽면 텍스처 | 본격 독서가 |
 | 50~99권 | 다크 우드 + 골드 액센트 | 자부심 |
@@ -235,12 +235,16 @@
 
 | 참고 앱 | 가져올 것 |
 |---------|-----------|
+| **Literal Club** | 여백 기반 구분, 표지 중심 레이아웃 |
+| **Letterboxd** | "콘텐츠가 유일한 컬러" 철학, 타이트 그리드 |
+| **Things 3** | 타이포 계층, 드래그 인터랙션, 단일 액센트 절제 |
+| **Stripe** | weight 300 제목, 정교한 타이포 |
+| **Glass** | 콘텐츠 주인공 극대화, 갤러리 간격 |
+| **Gentler Streak** | Gentle gamification (마일스톤), 데이터 시각화 |
 | **Netflix** | 카테고리별 가로 스크롤 행 구조 |
-| **Letterboxd** | 다크 테마에서 커버가 돋보이는 레이아웃, 콘텐츠 중심 미니멀 UI |
-| **Literal Club** | 깔끔한 미니멀 디자인, 여백 활용 |
 | **StoryGraph** | 무드 기반 시각화 (피드백 클러스터 라벨의 참고) |
 
-- 무드보드: `docs/MOODBOARD.md` 참조
+- 디자인 시스템: `docs/superpowers/specs/2026-04-02-design-system-design.md` 참조
 
 ---
 
@@ -284,7 +288,7 @@
 - 책 1권만 있어도 "비슷한 책" 추천 가능 (book-to-book pgvector 유사도)
 - 추천 신뢰도 스코어가 임계값 넘으면 서재 메인에 취향 기반 추천 섹션 활성화
 - 신뢰도 미달 시 프로그레스 안내 ("감성태그를 남기면 추천이 더 정확해져요")
-- 상세: `docs/superpowers/specs/2026-03-26-recommendation-engine-design.md`
+- 상세: `docs/superpowers/specs/2026-04-01-recommendation-engine-v3-design.md`
 
 ---
 

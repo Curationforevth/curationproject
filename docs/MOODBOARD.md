@@ -14,13 +14,13 @@
 | 서가 뷰 | 수동 정리, 감상 | 컬러 블록 책등, 드래그 정렬, 플랫 디자인 |
 
 ### 키워드
-`warm cream surface` · `color block spines` · `cover-art-centric feed` · `Netflix-style rows` · `mood-based curation` · `drag-to-arrange`
+`clean white surface` · `color block spines` · `cover-art-centric feed` · `Netflix-style rows` · `mood-based curation` · `drag-to-arrange`
 
 ### 비주얼 원칙
 
 | 원칙 | 설명 |
 |------|------|
-| **따뜻한 톤** | 크림 배경 (#F6F1EA), 카드 UI. 스큐어모피즘 없이 따뜻함 표현 |
+| **깨끗한 톤** | 순백 배경 (#FFFFFF). 따뜻함은 타이포와 여백으로 표현 |
 | **커버가 주인공 (피드)** | 커버 피드에서는 실제 표지 이미지가 핵심 비주얼 |
 | **컬러 블록 책등 (서가)** | 표지 dominant color 2~3개를 영역 분할로 배치 (그라데이션 X). 책마다 고유 폰트 |
 | **성장이 보이는 구조** | 마일스톤마다 배경/분위기 변화 (서재 크기가 아닌 테마 전환) |
@@ -87,7 +87,7 @@
 
 | 권수 | 테마 | 분위기 |
 |------|------|--------|
-| 0~9권 | 크림/따뜻한 베이지 | 아늑한 시작 |
+| 0~9권 | 순백 #FFFFFF (기본 배경) | 깨끗한 시작 |
 | 10~29권 | 우드톤 + 은은한 조명 | 나만의 공간 |
 | 30~49권 | 짙은 라이브러리 톤 + 벽면 텍스처 | 본격 독서가 |
 | 50~99권 | 다크 우드 + 골드 액센트 | 자부심 |

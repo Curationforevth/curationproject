@@ -1,20 +1,12 @@
-import numpy as np
 from fastapi import APIRouter, Depends, HTTPException, Query
 from supabase import create_client
 from auth import verify_jwt
 from models import RecommendResponse, BookScore
 from engine.scorer import recommend_scores
+from engine.loader import _to_np
 from config import DEFAULT_RECOMMEND_LIMIT, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 
 router = APIRouter()
-
-
-def _to_np(vec) -> np.ndarray:
-    if isinstance(vec, str):
-        vec = [float(x) for x in vec.strip("[]").split(",")]
-    a = np.array(vec, dtype=np.float32)
-    norm = np.linalg.norm(a)
-    return a / norm if norm > 0 else a
 
 
 @router.get("/recommend/{user_id}", response_model=RecommendResponse)
