@@ -12,7 +12,7 @@ v3 추천 엔진이 작동하려면 모든 대상 책(rich_description 보유, 2
 
 | 데이터 | 현재 | 필요 | 갭 |
 |--------|------|------|-----|
-| reason (book_love_reasons, llm_extracted) | 1,750권 / 19,450건 | 2,505권 | 755권 |
+| reason (book_love_reasons, llm_extracted) | 1,748권 / 19,450건 | 2,505권 | 757권 |
 | desc 임베딩 (2000D) | 0 | 2,505권 | 2,505권 (신규) |
 | L1 장르 임베딩 (2000D) | 0 | 고유 ~20개 → 2,505권 매핑 | 전체 (신규) |
 | L2 장르 임베딩 (2000D) | 0 | 고유 ~300개 → 2,505권 매핑 | 전체 (신규) |
@@ -49,7 +49,8 @@ CREATE TABLE book_v3_vectors (
   l2_text TEXT,                  -- 파싱된 L2 장르 텍스트 (디버깅용)
   l1_genre_id UUID REFERENCES genre_embeddings(id),
   l2_genre_id UUID REFERENCES genre_embeddings(id),
-  created_at TIMESTAMPTZ DEFAULT now()
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
 );
 
 CREATE INDEX idx_book_v3_l1 ON book_v3_vectors(l1_genre_id);
@@ -58,7 +59,7 @@ CREATE INDEX idx_book_v3_l2 ON book_v3_vectors(l2_genre_id);
 
 ### 2.3 기존 테이블 (변경 없음)
 
-- `book_love_reasons`: reason 임베딩 저장. 기존 safe_rerun.py로 미처리 755권 추가.
+- `book_love_reasons`: reason 임베딩 저장 (vector(2000), llm_extracted). 미처리 757권 추가. 참고: ARCHITECTURE.md에 3072D로 기재되어 있으나 실측 2000D — 구현 시 ARCHITECTURE.md 업데이트 필요.
 - `book_embeddings`: tier1/tier2 (1536D). book-to-book 유사도용. 이 작업과 무관.
 
 ---
@@ -84,23 +85,33 @@ CREATE INDEX idx_book_v3_l2 ON book_v3_vectors(l2_genre_id);
 ### 3.2 desc 임베딩 소스 텍스트
 
 ```
-소스 = clean_html(rich_description)
-if len(소스) >= 200:
-    소스 = 소스[:2000]
-else:
+소스 = clean_html(rich_description).strip()
+if not 소스 or len(소스) < 200:
     소스 = f"{title} ({genre}) — {description}"
+소스 = 소스[:2000]
 ```
 
-- 1순위: rich_description에서 HTML 태그 제거 후 최대 2000자
-- 폴백: rich_description이 200자 미만이면 메타데이터 조합
+- `clean_html`: HTML 태그 제거 (`re.sub(r'<[^>]+>', '', text)`)
+- 1순위: rich_description에서 HTML 제거 후 최대 2000자
+- 폴백: clean 결과가 빈 문자열이거나 200자 미만이면 메타데이터 조합
 - v3 검증 기준: "2000자가 정답1위 6/7, 200자는 5/7"
 
-### 3.3 reason 추출 (기존 파이프라인)
+### 3.3 reason 추출 (기존 파이프라인, 일부 수정)
 
-미처리 755권에 대해 기존 safe_rerun.py 실행. 변경 없음.
+미처리 757권에 대해 safe_rerun.py 실행.
 - 2-stage LLM 추출 (gpt-4o-mini, temperature=0)
 - text-embedding-3-large 2000D 임베딩
 - source='llm_extracted'로 book_love_reasons에 저장
+
+**safe_rerun.py 수정 필요 사항:**
+현재 safe_rerun.py에는 배치 운영 규칙(4.2) 중 "연속 에러 3회 → 자동 중단" 로직이 없음.
+실행 전에 아래를 추가해야 함:
+- 연속 에러 카운터 + 3회 시 즉시 중단 + 상태 보고
+- 429 응답 시 response body 확인 (rate limit vs quota 구분)
+
+**기존 reason 품질 이슈:**
+76권이 reason 5개 미만 (1개: 6권, 2개: 19권, 3개: 25권, 4개: 26권).
+v3 avg_maxsim은 reason이 적으면 불안정하므로, 검증 시 5개 미만인 책을 플래그해야 함 (섹션 7 참조).
 
 ### 3.4 임베딩 모델
 
@@ -139,8 +150,10 @@ else:
 scripts/
 ├── generate_genre_embeddings.py    # genre_embeddings 테이블 생성
 ├── generate_book_v3_vectors.py     # book_v3_vectors 테이블 생성
-└── safe_rerun.py                   # reason 추출 (기존, 변경 없음)
+└── safe_rerun.py                   # reason 추출 (연속 에러 중단 로직 추가 필요)
 ```
+
+모든 신규 스크립트는 `scripts/lib/openai_helpers.py`를 임포트하여 모델/차원 설정을 공유한다.
 
 **generate_genre_embeddings.py:**
 1. books 테이블에서 고유 genre 텍스트 수집
@@ -162,8 +175,9 @@ scripts/
 
 ## 5. FastAPI 서버 로딩
 
-서버 시작 시 1회 쿼리로 전체 로드:
+서버 시작 시 벡터 로드 (2개 쿼리):
 
+**desc/L1/L2 로드:**
 ```sql
 SELECT v.book_id, v.desc_embedding,
        g1.embedding AS l1_embedding,
@@ -173,8 +187,16 @@ LEFT JOIN genre_embeddings g1 ON v.l1_genre_id = g1.id
 LEFT JOIN genre_embeddings g2 ON v.l2_genre_id = g2.id;
 ```
 
+**reason 로드 (별도):**
+```sql
+SELECT book_id, reason, reason_embedding
+FROM book_love_reasons
+WHERE source = 'llm_extracted';
+```
+
 - LEFT JOIN: L1/L2 없는 책도 desc만으로 추천 가능
 - NULL L1/L2 → 해당 스코어 = 0 (v3 공식에서 자연스럽게 처리)
+- 벡터 인덱스(HNSW/IVFFlat) 불필요: v3 엔진은 numpy 메모리 연산, pgvector 검색 안 함
 
 ---
 
@@ -186,10 +208,12 @@ LEFT JOIN genre_embeddings g2 ON v.l2_genre_id = g2.id;
 03:00  daily-collect         (새 책 수집)
        daily-scrape          (2시간마다, rich_description 수집)
 05:00  daily-extract-reasons (reason 추출 — safe_rerun.py)
-06:00  daily-v3-vectors      (신규: desc/L1/L2 생성)
+05:00  daily-v3-vectors      (신규: desc/L1/L2 생성, reason과 독립이므로 병렬 가능)
 06:30  daily-embed-t2        (tier2 임베딩)
 07:00  daily-taste-recompute (취향 재계산)
 ```
+
+참고: daily-v3-vectors는 reason 추출과 의존성이 없다 (desc/L1/L2만 생성). 따라서 동시 실행 가능.
 
 daily-v3-vectors:
 1. books에서 rich_description NOT NULL이면서 book_v3_vectors에 행 없는 책 조회
@@ -207,8 +231,9 @@ daily-v3-vectors:
 3. **FK 정합성**: l1_genre_id/l2_genre_id가 genre_embeddings에 존재
 4. **L1/L2 분포**: 고유 L1 ~20개, L2 ~300개 범위 내
 5. **reason 커버리지**: book_love_reasons의 distinct book_id ≥ 2,400
-6. **임베딩 차원**: 모든 벡터가 2000차원
-7. **서버 로딩 테스트**: JOIN 쿼리 실행 → 결과 행 수 = book_v3_vectors 행 수
+6. **reason 품질**: reason 5개 미만인 책 목록 추출 (현재 76권). 4개 이하인 책은 재추출 후보로 플래그
+7. **임베딩 차원**: 모든 벡터가 2000차원
+8. **서버 로딩 테스트**: JOIN 쿼리 실행 → 결과 행 수 = book_v3_vectors 행 수
 
 ---
 
@@ -218,8 +243,8 @@ daily-v3-vectors:
 |------|---------|------|----------|
 | genre 임베딩 (~320개) | ~16 배치 (20개씩) | text-embedding-3-large | ~$0.01 |
 | desc 임베딩 (~2,505개) | ~126 배치 | text-embedding-3-large | ~$0.10 |
-| reason LLM (~755권) | ~755 호출 | gpt-4o-mini | ~$0.50 |
-| reason 임베딩 (~5,000건) | ~250 배치 | text-embedding-3-large | ~$0.05 |
+| reason LLM (~757권) | ~757 호출 | gpt-4o-mini | ~$0.50 |
+| reason 임베딩 (~5,000건, 757권 × ~6.6개) | ~250 배치 | text-embedding-3-large | ~$0.05 |
 | **합계** | | | **~$0.66** |
 
 ---
