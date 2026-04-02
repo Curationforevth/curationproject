@@ -83,7 +83,7 @@ if not ids:
 
 # 3) 처리 시작
 start = time.time()
-done, errors = 0, 0
+done, errors, consecutive_errors = 0, 0, 0
 
 for i in range(0, len(ids), CHUNK):
     chunk_ids = ids[i:i + CHUNK]
@@ -112,9 +112,15 @@ for i in range(0, len(ids), CHUNK):
     try:
         extractor._process_batch(books)
         done += len(books)
+        consecutive_errors = 0
     except Exception as e:
-        print(f"  ✗ 배치 실패: {e}", flush=True)
+        print(f"  ✗ 배치 실패 (연속 {consecutive_errors + 1}회): {e}", flush=True)
         errors += len(books)
+        consecutive_errors += 1
+        if consecutive_errors >= 3:
+            print(f"\n연속 에러 3회 → 자동 중단", flush=True)
+            print(f"  처리: {done}건, 에러: {errors}건", flush=True)
+            break
         time.sleep(5)
         sb = make_client()
 
