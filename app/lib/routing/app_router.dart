@@ -9,6 +9,7 @@ import '../features/home/screens/home_screen.dart';
 import '../features/library/screens/library_screen.dart';
 import '../features/register/screens/register_flow_screen.dart';
 import '../features/search/screens/book_search_screen.dart';
+import '../features/profile/screens/taste_screen.dart';
 import '../features/shell/screens/app_shell.dart';
 
 GoRouter createRouter(AuthNotifier authNotifier) {
@@ -81,6 +82,10 @@ GoRouter createRouter(AuthNotifier authNotifier) {
         builder: (context, state) => FeedbackFlowScreen(
           userBookId: state.pathParameters['userBookId']!,
         ),
+      ),
+      GoRoute(
+        path: '/taste',
+        builder: (context, state) => const TasteScreen(),
       ),
     ],
   );

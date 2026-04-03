@@ -112,9 +112,7 @@ class _HomeContent extends ConsumerWidget {
             children: [
               // 아바타
               GestureDetector(
-                onTap: () {
-                  // TODO: 프로필 액션 (미구현)
-                },
+                onTap: () => context.push('/taste'),
                 child: Container(
                   width: 30,
                   height: 30,
