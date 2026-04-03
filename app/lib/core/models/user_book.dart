@@ -2,7 +2,8 @@ import 'book.dart';
 
 enum BookStatus {
   read,
-  reading;
+  reading,
+  wantToRead;
 
   String toJson() {
     switch (this) {
@@ -10,6 +11,8 @@ enum BookStatus {
         return 'read';
       case BookStatus.reading:
         return 'reading';
+      case BookStatus.wantToRead:
+        return 'want_to_read';
     }
   }
 
@@ -19,6 +22,8 @@ enum BookStatus {
         return BookStatus.read;
       case 'reading':
         return BookStatus.reading;
+      case 'want_to_read':
+        return BookStatus.wantToRead;
       default:
         throw ArgumentError('Unknown BookStatus: $value');
     }
@@ -82,6 +87,34 @@ class UserBook {
       book: json['books'] != null
           ? Book.fromJson(json['books'] as Map<String, dynamic>)
           : null,
+    );
+  }
+
+  UserBook copyWith({
+    String? id,
+    String? userId,
+    String? bookId,
+    BookStatus? status,
+    int? shelfOrder,
+    String? rating,
+    List<String>? emotionTags,
+    String? reviewText,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+    Book? book,
+  }) {
+    return UserBook(
+      id: id ?? this.id,
+      userId: userId ?? this.userId,
+      bookId: bookId ?? this.bookId,
+      status: status ?? this.status,
+      shelfOrder: shelfOrder ?? this.shelfOrder,
+      rating: rating ?? this.rating,
+      emotionTags: emotionTags ?? this.emotionTags,
+      reviewText: reviewText ?? this.reviewText,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      book: book ?? this.book,
     );
   }
 
