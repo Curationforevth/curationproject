@@ -161,6 +161,8 @@ v1~v2에서 Supabase pgvector로 추천을 시도했으나:
 | 오 + 피드백 있음 | reason: -0.5 | 피드백 임베딩이 -3.0으로 역방향, fb_desc_score도 역방향 |
 | 오 + 피드백 없음 | reason: -1.0 | reason만 역방향으로 밀어냄 |
 
+**neutral(보통) 처리:** 추천 계산에서 제외. "보통"은 긍정도 부정도 아니므로 취향 벡터에 기여하지 않는다. 서재에는 기록되지만 추천 입력으로 사용하지 않음.
+
 desc/L1/L2는 reason과 별도로 계산된다 (섹션 4.1 참조). 싫어요 책의 desc/L1/L2는 계산에서 제외된다.
 
 **피드백 임베딩 생성:** 유저가 피드백 텍스트를 작성할 때 OpenAI embedding API 1회 호출 (~100ms) → DB에 저장. 추천 시에는 저장된 벡터만 사용하므로 추가 API 호출 없음.
@@ -280,35 +282,96 @@ JSON: {"reasons": [...]}
 
 ```
 recommendation-server/
-├── main.py              # FastAPI 앱
+├── main.py              # FastAPI 앱, lifespan 벡터 로드
 ├── models.py            # 요청/응답 스키마
+├── auth.py              # Supabase JWT 검증
 ├── engine/
-│   ├── loader.py        # 서버 시작 시 벡터 로드
-│   ├── index.py         # 벡터 매트릭스 관리 (numpy BLAS)
-│   └── recommender.py   # 포인트 클라우드 추천 로직
+│   ├── loader.py        # 서버 시작 시 벡터 로드 (RPC 방식)
+│   ├── index.py         # VectorIndex 클래스 (벡터 저장/검색/book-to-book 유사도)
+│   └── scorer.py        # v3 스코어링 알고리즘 (분리 계산 + 가중합)
 ├── api/
 │   ├── recommend.py     # GET /recommend/{user_id}
+│   ├── similar.py       # GET /similar/{book_id}
 │   └── feedback.py      # POST /feedback
 └── requirements.txt
 ```
 
 **엔드포인트:**
 
-| 엔드포인트 | 메서드 | 설명 |
-|-----------|--------|------|
-| `/recommend/{user_id}` | GET | 추천 목록 반환 (top N) |
-| `/feedback` | POST | 피드백 수신 → 임베딩 → Supabase 저장 |
-| `/health` | GET | 서버 상태 확인 |
+| 엔드포인트 | 메서드 | 인증 | 설명 |
+|-----------|--------|------|------|
+| `GET /recommend/{user_id}` | GET | JWT (본인만) | 취향 기반 추천 목록 반환 (top N, 기본 10) |
+| `GET /similar/{book_id}` | GET | JWT | book-to-book 유사도 (top N, 기본 10). desc 코사인 유사도 단일. 책 상세 "비슷한 책" 섹션용. |
+| `POST /feedback` | POST | JWT | 피드백 수신 → 임베딩 → Supabase 저장 → 메모리 업데이트 |
+| `GET /health` | GET | 없음 | 서버 상태 + 로드된 벡터 수 |
+
+**요청/응답 스키마:**
+
+```python
+# GET /recommend/{user_id}?limit=10
+# Response:
+{
+  "user_id": "uuid",
+  "recommendations": [
+    {"book_id": "uuid-string", "score": 7.42, "title": "...", "author": "...", "cover_url": "..."},
+    ...
+  ],
+  "meta": {"total_liked": 5, "total_disliked": 1, "has_feedback": true}
+}
+
+# GET /similar/{book_id}?limit=10
+# Response:
+{
+  "book_id": "uuid-string",
+  "similar": [
+    {"book_id": "uuid-string", "score": 0.87, "title": "...", "author": "...", "cover_url": "..."},
+    ...
+  ]
+}
+
+# POST /feedback
+# Request (user_id는 JWT에서 추출, body에 넣지 않음):
+{
+  "book_id": "uuid-string",
+  "rating": "good",         # "good" | "neutral" | "bad"
+  "review_text": "...",      # optional
+  "emotion_tags": ["여운", "따뜻한"]  # optional
+}
+# Response:
+{"status": "ok", "feedback_id": "uuid"}
+```
+
+**인증:**
+
+Flutter 앱이 Supabase에서 받은 JWT 토큰을 `Authorization: Bearer <token>` 헤더로 전달. FastAPI에서 Supabase의 JWT secret으로 검증. `/recommend/{user_id}`는 토큰의 user_id와 경로 user_id 일치 확인.
 
 **서버 시작 시:**
-1. Supabase에서 전체 book_love_reasons + books 테이블 로드
-2. reason/desc/L1/L2 벡터를 메모리에 적재
-3. numpy 행렬로 메모리 내 인덱스 구축
+1. Supabase에서 전체 book_love_reasons + book_v3_vectors + books 테이블 로드
+2. reason/desc/L1/L2 벡터를 numpy 행렬로 메모리에 적재
+3. book-to-book 유사도용 desc 행렬 별도 구축
 
 **피드백 수신 시:**
 1. 피드백 텍스트 → OpenAI embedding API (1회, ~100ms)
-2. Supabase에 피드백 저장
-3. 메모리 내 유저 취향 벡터 업데이트
+2. Supabase에 피드백 저장 (user_books 테이블)
+3. 메모리 내 유저 취향 벡터 업데이트 (다음 추천에 즉시 반영)
+
+**에러 처리:**
+
+| 상황 | 응답 |
+|------|------|
+| 유저의 좋아요 책이 0권 | 200 + 빈 배열 + meta.total_liked=0 |
+| 존재하지 않는 book_id | 404 |
+| JWT 검증 실패 | 401 |
+| user_id 불일치 | 403 |
+| OpenAI API 실패 (피드백) | 200 + 피드백 텍스트는 저장, 임베딩만 누락 (배치에서 재시도) |
+
+**벡터 갱신 전략:**
+
+| 트리거 | 방식 |
+|--------|------|
+| 피드백 수신 | 즉시 메모리 업데이트 (유저 취향 벡터만) |
+| 배치에서 새 책 추가 | 서버 재시작 또는 `POST /admin/reload` (API key 인증) |
+| MVP 규모 (2,500권) | 서버 재시작으로 충분 (~5초). 핫 리로드는 나중에. |
 
 ### 6.2 성능 목표
 
