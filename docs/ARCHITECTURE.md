@@ -279,7 +279,7 @@ Supabase Auth와 연동. 추가 프로필 정보 저장.
 | id | uuid (PK) | |
 | user_id | uuid (FK → users) | |
 | book_id | uuid (FK → books) | |
-| status | text | 'read', 'reading' (MVP에서 'want_to_read' 제외) |
+| status | text | 'read', 'reading', 'want_to_read' |
 | shelf_order | int | 서가 뷰 드래그 정렬 순서 (유저가 직접 배치한 위치) |
 | rating | text | 'good', 'neutral', 'bad' (호오 평가) |
 | emotion_tags | jsonb | 감성 태그 다중 선택 (emotion_tag_options 참조) |
@@ -472,7 +472,7 @@ MVP에서는 Supabase 클라이언트 SDK로 직접 DB 호출. 별도 API 서버
 |------|--------------|------|
 | 서재 조회 | `user_books.select('*, books(*)')` | 내 서재의 모든 책 + 책 정보 |
 | 책 추가 | `books.upsert()` → `user_books.insert()` | 책 캐싱 후 서재에 추가 |
-| 상태 변경 | `user_books.update({ status })` | 읽음/읽는중 |
+| 상태 변경 | `user_books.update({ status })` | 읽음/읽는중/읽고싶은 |
 | 책 제거 | `user_books.delete()` | 서재에서 제거 |
 
 #### 피드백 (MVP — user_books에 인라인 저장)
