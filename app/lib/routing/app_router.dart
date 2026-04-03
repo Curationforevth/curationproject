@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../features/auth/providers/auth_provider.dart';
 import '../features/auth/screens/login_screen.dart';
 import '../features/book_detail/screens/book_detail_screen.dart';
+import '../features/feedback/screens/feedback_flow_screen.dart';
 import '../features/home/screens/home_screen.dart';
 import '../features/library/screens/library_screen.dart';
 import '../features/search/screens/book_search_screen.dart';
@@ -80,6 +81,12 @@ GoRouter createRouter(AuthNotifier authNotifier) {
       GoRoute(
         path: '/book/:userBookId',
         builder: (context, state) => BookDetailScreen(
+          userBookId: state.pathParameters['userBookId']!,
+        ),
+      ),
+      GoRoute(
+        path: '/feedback/:userBookId',
+        builder: (context, state) => FeedbackFlowScreen(
           userBookId: state.pathParameters['userBookId']!,
         ),
       ),
