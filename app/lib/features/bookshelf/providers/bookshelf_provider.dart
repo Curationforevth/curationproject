@@ -40,17 +40,6 @@ final bookCountProvider = Provider<int>((ref) {
   return booksAsync.valueOrNull?.length ?? 0;
 });
 
-/// 뷰 모드 (true=커버 피드, false=서가)
-final viewModeProvider = StateProvider<bool>((ref) => true);
-
-/// 읽는 중 첫 번째 책 (피처드 카드용)
-final featuredReadingProvider = Provider<UserBook?>((ref) {
-  final byStatus = ref.watch(booksByStatusProvider);
-  final reading = byStatus[BookStatus.reading] ?? [];
-  final withBook = reading.where((ub) => ub.book != null).toList();
-  return withBook.isNotEmpty ? withBook.first : null;
-});
-
 /// 피드백 미작성 책 (CTA용) — read 상태이고 rating이 없는 책
 final unreviewedBooksProvider = Provider<List<UserBook>>((ref) {
   final byStatus = ref.watch(booksByStatusProvider);

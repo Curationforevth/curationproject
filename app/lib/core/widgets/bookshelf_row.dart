@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import '../../features/bookshelf/providers/bookshelf_provider.dart';
-import '../models/book.dart';
 import '../models/user_book.dart';
 import '../theme/app_colors.dart';
 import 'book_spine.dart';
