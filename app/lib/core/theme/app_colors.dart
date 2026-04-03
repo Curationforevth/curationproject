@@ -1,25 +1,42 @@
 import 'package:flutter/material.dart';
 
-/// Curation "Warm Ink" 컬러 팔레트
-/// 딥 블루 + 코랄 악센트 + 크림 서피스
+/// Curation "Minimal Slate" 컬러 팔레트
+/// Slate 900 프라이머리 + 순백 서피스 + 모노크롬 구성
 class AppColors {
   // Primary — 버튼, 선택 상태, 네비게이션
-  static const primary = Color(0xFF3D5A80);
-  static const primaryLight = Color(0xFF5B7BA5);
-  static const primaryDark = Color(0xFF2B4060);
+  static const primary = Color(0xFF0F172A);       // Slate 900
+  static const primaryLight = Color(0xFF334155);  // Slate 700
+  static const primaryDark = Color(0xFF020617);   // Slate 950
 
-  // Accent — CTA, 마일스톤 배지, 강조
-  static const accent = Color(0xFFEE6C4D);
-  static const accentLight = Color(0xFFF4997F);
-  static const accentDark = Color(0xFFD4533A);
+  // Accent — CTA, 강조 (모노크롬)
+  static const accent = Color(0xFF0F172A);        // Slate 900 (primary와 동일)
+  static const accentLight = Color(0xFF334155);   // Slate 700
+  static const accentDark = Color(0xFF020617);    // Slate 950
 
-  // Surface — 배경 (warm cream)
-  static const surface = Color(0xFFF6F1EA);
-  static const surfaceVariant = Color(0xFFF0EAE0);
+  // Surface — 배경 (순백)
+  static const surface = Color(0xFFFFFFFF);
+  static const surfaceVariant = Color(0xFFF8FAFC);
 
-  // Shelf — 서재 선반 (심플 라인)
-  static const shelf = Color(0xFFE0D8CC);
-  static const shelfDark = Color(0xFFD0C8BC);
+  // Shelf — 서재 선반
+  static const shelf = Color(0xFFE8E4DE);
+  static const shelfDark = Color(0xFFDDD8D0);
+
+  // Border
+  static const border = Color(0xFFF1F5F9);
+
+  // Shadow
+  static const cardShadow = [
+    BoxShadow(
+      color: Color(0x14000000),
+      blurRadius: 8,
+      offset: Offset(0, 2),
+    ),
+    BoxShadow(
+      color: Color(0x0A000000),
+      blurRadius: 2,
+      offset: Offset(0, 1),
+    ),
+  ];
 
   // 마일스톤 배경 테마
   static const milestone0 = Color(0xFFF6F1EA);   // 0~9권: 크림/따뜻한 베이지
@@ -29,8 +46,8 @@ class AppColors {
   static const milestone100 = Color(0xFF1A1818);  // 100권+: 풀 다크 라이브러리
 
   // Text
-  static const textPrimary = Color(0xFF2B2D42);
-  static const textSecondary = Color(0xFF8D99AE);
+  static const textPrimary = Color(0xFF0F172A);
+  static const textSecondary = Color(0xFF94A3B8);
   static const textOnPrimary = Color(0xFFFFFFFF);
   static const textOnAccent = Color(0xFFFFFFFF);
 
