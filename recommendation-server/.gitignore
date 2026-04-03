@@ -1,4 +1,3 @@
-data/*.pkl
 data/*.sha256
 .venv/
 __pycache__/
