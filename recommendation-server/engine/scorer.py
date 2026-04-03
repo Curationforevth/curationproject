@@ -1,6 +1,8 @@
 """v3 스코어링 알고리즘.
 공식: 1.0×reason_score + 0.5×desc_score + 3.0×L1_score + 1.0×L2_score + 2.0×fb_desc_score
 """
+from __future__ import annotations
+
 import numpy as np
 from engine.index import VectorIndex
 from config import (W_REASON, W_DESC, W_L1, W_L2, W_FB_DESC,

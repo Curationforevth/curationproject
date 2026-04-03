@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 from dotenv import load_dotenv
 
@@ -25,3 +27,13 @@ FB_REASON_WEIGHT = 3.0
 
 DEFAULT_RECOMMEND_LIMIT = 10
 DEFAULT_SIMILAR_LIMIT = 10
+
+_sb_client = None
+
+
+def get_supabase():
+    global _sb_client
+    if _sb_client is None:
+        from supabase import create_client
+        _sb_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    return _sb_client

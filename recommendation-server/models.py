@@ -1,4 +1,6 @@
-from typing import Optional, List
+from __future__ import annotations
+
+from typing import Literal, Optional, List
 from pydantic import BaseModel
 
 
@@ -31,7 +33,7 @@ class SimilarResponse(BaseModel):
 
 class FeedbackRequest(BaseModel):
     book_id: str
-    rating: str  # "good" | "neutral" | "bad"
+    rating: Literal["good", "neutral", "bad"]
     review_text: Optional[str] = None
     emotion_tags: Optional[List[str]] = None
 

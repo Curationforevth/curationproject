@@ -1,10 +1,10 @@
-import uuid
+from __future__ import annotations
+
 import requests
 from fastapi import APIRouter, Depends, HTTPException
-from supabase import create_client
 from auth import verify_jwt
 from models import FeedbackRequest, FeedbackResponse
-from config import (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
+from config import (get_supabase,
                     OPENAI_API_KEY, EMBEDDING_MODEL, EMBEDDING_DIMENSIONS)
 
 router = APIRouter()
@@ -28,8 +28,7 @@ async def submit_feedback(
     req: FeedbackRequest,
     current_user: str = Depends(verify_jwt),
 ):
-    sb = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-    feedback_id = str(uuid.uuid4())
+    sb = get_supabase()
     fb_embedding = None
 
     if req.review_text and req.review_text.strip():
@@ -53,4 +52,4 @@ async def submit_feedback(
     except Exception as e:
         raise HTTPException(500, f"Failed to save feedback: {e}")
 
-    return FeedbackResponse(status="ok", feedback_id=feedback_id)
+    return FeedbackResponse(status="ok")

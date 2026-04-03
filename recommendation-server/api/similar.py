@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from auth import verify_jwt
 from models import SimilarResponse, SimilarBook
 from config import DEFAULT_SIMILAR_LIMIT
@@ -9,12 +11,12 @@ router = APIRouter()
 @router.get("/similar/{book_id}", response_model=SimilarResponse)
 async def get_similar(
     book_id: str,
+    request: Request,
     limit: int = Query(DEFAULT_SIMILAR_LIMIT, ge=1, le=50),
     _: str = Depends(verify_jwt),
 ):
-    from main import app_state
-    index = app_state["index"]
-    books_meta = app_state["books_meta"]
+    index = request.app.state.index
+    books_meta = request.app.state.books_meta
 
     if index.get_book(book_id) is None:
         raise HTTPException(404, f"Book {book_id} not found in index")

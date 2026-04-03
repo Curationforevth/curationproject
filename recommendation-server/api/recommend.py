@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
-from supabase import create_client
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from auth import verify_jwt
 from models import RecommendResponse, BookScore
 from engine.scorer import recommend_scores
-from engine.loader import _to_np
-from config import DEFAULT_RECOMMEND_LIMIT, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+from engine.utils import to_np
+from config import DEFAULT_RECOMMEND_LIMIT, get_supabase
 
 router = APIRouter()
 
@@ -12,17 +13,17 @@ router = APIRouter()
 @router.get("/recommend/{user_id}", response_model=RecommendResponse)
 async def get_recommendations(
     user_id: str,
+    request: Request,
     limit: int = Query(DEFAULT_RECOMMEND_LIMIT, ge=1, le=50),
     current_user: str = Depends(verify_jwt),
 ):
     if current_user != user_id:
         raise HTTPException(403, "Cannot access other user's recommendations")
 
-    from main import app_state
-    index = app_state["index"]
-    books_meta = app_state["books_meta"]
+    index = request.app.state.index
+    books_meta = request.app.state.books_meta
 
-    sb = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    sb = get_supabase()
     ub_res = sb.table("user_books").select(
         "book_id,rating,feedback_embedding"
     ).eq("user_id", user_id).execute()
@@ -49,7 +50,7 @@ async def get_recommendations(
         fb_emb = ub.get("feedback_embedding")
         if fb_emb:
             has_feedback = True
-            fb_data[bid] = {"emb": _to_np(fb_emb), "is_dislike": rating == "bad"}
+            fb_data[bid] = {"emb": to_np(fb_emb), "is_dislike": rating == "bad"}
 
     scores = recommend_scores(index, liked_books, fb_data)
     sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:limit]

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from fastapi import Header, HTTPException
 from jose import jwt, JWTError
 from config import SUPABASE_JWT_SECRET

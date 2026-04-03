@@ -4,10 +4,13 @@
 사용법: cd recommendation-server && python scripts/build_index.py
 결과물: data/index.pkl (~170MB, float16)
 """
+from __future__ import annotations
+
 import os
 import sys
 import time
 import pickle
+import hashlib
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -164,6 +167,14 @@ def build():
     with open(OUTPUT_PATH, "wb") as f:
         pickle.dump(bundle, f)
 
+    sha = hashlib.sha256()
+    with open(OUTPUT_PATH, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            sha.update(chunk)
+    hash_path = OUTPUT_PATH + ".sha256"
+    with open(hash_path, "w") as f:
+        f.write(sha.hexdigest())
+
     size_mb = os.path.getsize(OUTPUT_PATH) / (1024 * 1024)
     print(f"\n[build] Done! {OUTPUT_PATH}")
     print(f"  size: {size_mb:.1f} MB")
@@ -171,6 +182,7 @@ def build():
     print(f"  reasons: {total_reasons}")
     print(f"  built_at: {built_at}")
     print(f"  version: v3-float16")
+    print(f"  sha256: {sha.hexdigest()}")
 
 
 if __name__ == "__main__":
