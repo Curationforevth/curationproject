@@ -57,3 +57,37 @@ class TestVectorIndex:
         idx.add_book("b2", reasons=[], desc=_norm([0, 1, 0, 0]),
                      l1=_norm([0, 1, 0, 0]), l2=_norm([1, 0, 0, 0]))
         assert set(idx.book_ids) == {"b1", "b2"}
+
+    def test_float16_storage_and_similarity(self):
+        """float16으로 저장해도 cosine sim 결과가 float32와 거의 동일."""
+        idx32 = VectorIndex(dim=4)
+        idx16 = VectorIndex(dim=4, dtype=np.float16)
+        desc = _norm([1, 0.5, 0.2, 0])
+        l1 = _norm([1, 0, 0, 0])
+        l2 = _norm([0, 1, 0, 0])
+        reasons = [_norm([1, 0.3, 0, 0]), _norm([0, 1, 0.5, 0])]
+
+        idx32.add_book("b1", reasons=reasons, desc=desc, l1=l1, l2=l2)
+        idx16.add_book("b1", reasons=reasons, desc=desc, l1=l1, l2=l2)
+
+        bv32 = idx32.get_book("b1")
+        bv16 = idx16.get_book("b1")
+        assert bv32.desc.dtype == np.float32
+        assert bv16.desc.dtype == np.float16
+        # 유사도 차이 < 0.01
+        sim32 = float(np.dot(bv32.desc.astype(np.float32), bv32.l1.astype(np.float32)))
+        sim16 = float(np.dot(bv16.desc.astype(np.float32), bv16.l1.astype(np.float32)))
+        assert abs(sim32 - sim16) < 0.01
+
+    def test_float16_similar_by_desc(self):
+        """float16 인덱스에서 similar_by_desc가 동일한 순위를 반환."""
+        idx = VectorIndex(dim=4, dtype=np.float16)
+        idx.add_book("b1", reasons=[], desc=_norm([1, 0, 0, 0]),
+                     l1=_norm([1, 0, 0, 0]), l2=_norm([0, 1, 0, 0]))
+        idx.add_book("b2", reasons=[], desc=_norm([0.9, 0.1, 0, 0]),
+                     l1=_norm([1, 0, 0, 0]), l2=_norm([0, 1, 0, 0]))
+        idx.add_book("b3", reasons=[], desc=_norm([0, 0, 1, 0]),
+                     l1=_norm([0, 0, 1, 0]), l2=_norm([0, 0, 0, 1]))
+        idx.build_desc_matrix()
+        sims = idx.similar_by_desc("b1", limit=2)
+        assert sims[0][0] == "b2"

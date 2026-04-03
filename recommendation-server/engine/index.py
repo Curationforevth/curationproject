@@ -14,8 +14,9 @@ class BookVectors:
 class VectorIndex:
     """벡터 저장 + 검색 인덱스. 모든 벡터는 L2-정규화 가정."""
 
-    def __init__(self, dim: int = 2000):
+    def __init__(self, dim: int = 2000, dtype=np.float32):
         self.dim = dim
+        self.dtype = dtype
         self._books: dict[str, BookVectors] = {}
         self._desc_matrix: Optional[np.ndarray] = None
         self._desc_bid_order: list[str] = []
@@ -27,10 +28,10 @@ class VectorIndex:
     def add_book(self, book_id: str, reasons: list[np.ndarray],
                  desc: np.ndarray, l1: np.ndarray, l2: np.ndarray):
         self._books[book_id] = BookVectors(
-            reasons=reasons,
-            desc=desc.astype(np.float32),
-            l1=l1.astype(np.float32),
-            l2=l2.astype(np.float32),
+            reasons=[r.astype(self.dtype) for r in reasons],
+            desc=desc.astype(self.dtype),
+            l1=l1.astype(self.dtype),
+            l2=l2.astype(self.dtype),
         )
         self._desc_matrix = None
 
