@@ -10,10 +10,11 @@ app_state: dict = {}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from engine.loader import load_index
-    index, books_meta = load_index()
+    index, books_meta, built_at = load_index()
     app_state["index"] = index
     app_state["books_meta"] = books_meta
-    print(f"[main] Server ready. {len(index.book_ids)} books in index.")
+    app_state["built_at"] = built_at
+    print(f"[main] Server ready. {len(index.book_ids)} books in index. Built at {built_at}")
     yield
     app_state.clear()
 
@@ -27,4 +28,14 @@ app.include_router(feedback_router)
 @app.get("/health")
 async def health():
     index = app_state.get("index")
-    return {"status": "ok", "books_loaded": len(index.book_ids) if index else 0}
+    total_reasons = 0
+    if index:
+        for bv in index._books.values():
+            total_reasons += len(bv.reasons)
+    return {
+        "status": "ok",
+        "books_loaded": len(index.book_ids) if index else 0,
+        "total_reasons": total_reasons,
+        "index_built_at": app_state.get("built_at", ""),
+        "version": "v3-float16",
+    }
