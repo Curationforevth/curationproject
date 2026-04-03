@@ -18,12 +18,14 @@
 
 | 데이터 | 건수 | 차원 | float32 크기 |
 |--------|------|------|-------------|
-| reason 임베딩 | 33,824 | 1536 | ~201MB (72%) |
-| desc 임베딩 | 2,510 | 2000 | ~20MB |
-| l1/l2 genre | 5,020 | 1536 | ~30MB |
-| desc_matrix | 2,510 | 2000 | ~20MB |
-| genre_embs | 825 | 1536 | ~5MB |
-| **합계** | | | **~276MB** + Python ~100MB |
+| reason 임베딩 | 33,824 | 2000 | ~261MB (76%) |
+| desc 임베딩 | 2,510 | 2000 | ~19MB |
+| l1/l2 genre | 5,020 | 2000 | ~38MB |
+| desc_matrix | 2,510 | 2000 | ~19MB |
+| genre_embs | 825 | 2000 | ~6MB |
+| **합계** | | | **~343MB** + Python ~100MB |
+
+> 모든 벡터는 text-embedding-3-large (2000차원) 공간에 존재한다. (v3 설계 원칙)
 
 ### 변경하지 않는 것
 
@@ -69,22 +71,25 @@ def load_index() -> tuple[VectorIndex, dict]:
 
 모든 벡터를 float32 → float16으로 변환한다.
 
-- **메모리 50% 절감**: ~276MB → ~138MB
+- **메모리 50% 절감**: ~343MB → ~172MB
 - **정확도 영향 무시 가능**: L2-정규화 벡터 간 내적(cosine sim)에서 float16 오차는 ±0.001 수준
 - 적용 지점: `build_index.py`에서 pkl 저장 시 float16으로 변환
 - `VectorIndex`와 `scorer.py`는 numpy가 자동 캐스팅하므로 코드 변경 최소
+- **float32↔float16 호환**: 요청 시 Supabase에서 가져오는 `feedback_embedding`(float32)과 인덱스(float16)는 numpy 내적 시 자동 업캐스팅으로 호환
 
 ### 3. 단일 워커
 
 Dockerfile CMD를 `--workers 4` → `--workers 1`로 변경한다.
 
-- **메모리**: 138MB + Python 100MB = **~238MB** (Render 512MB 내 여유 ~274MB)
+- **메모리**: 172MB + Python 100MB = **~272MB** (Render 512MB 내 여유 ~240MB)
 - **동시성**: uvicorn async로 I/O 동시 처리. CPU-bound 스코어링은 2,510권 기준 ~10ms로 병목 아님
 - MVP 트래픽(소수 사용자)에서 단일 워커로 충분
 
 ### 4. 데이터 갱신 플로우
 
 인덱스 데이터는 배치 작업(새 책 추가, reason 재생성)으로만 변경된다. 유저 피드백은 인덱스에 포함되지 않으므로 갱신 불필요.
+
+> **`/admin/reload` 폐기**: ARCHITECTURE.md에 있던 hot-reload 엔드포인트는 이 설계에서 제거한다. 인덱스 갱신은 rebuild+redeploy로 대체된다.
 
 **MVP (수동):**
 ```
@@ -102,8 +107,9 @@ GitHub Actions daily cron (KST 07:00)
 ```
 
 **인덱스 신선도 모니터링:**
-- `/health` 응답에 `index_built_at` 타임스탬프 포함
-- pkl 생성 시 빌드 시각 메타데이터 함께 저장
+- `/health` 응답에 `index_built_at`, `total_books`, `total_reasons`, `version` 포함
+- pkl bundle: `{"index": VectorIndex, "meta": books_meta, "built_at": ISO timestamp, "version": "v3-float16"}`
+- `build_index.py`는 저장 전 벡터 차원 검증 (모든 벡터 dim=2000 assert)
 
 ## 파일 변경 목록
 
@@ -123,7 +129,7 @@ GitHub Actions daily cron (KST 07:00)
 [빌드 타임 — 로컬]
   Supabase DB
     → scripts/build_index.py (retry + sleep, ~5-10분)
-    → data/index.pkl (~100MB, float16 + pickle 압축)
+    → data/index.pkl (~170MB, float16)
 
 [배포]
   docker build (pkl 포함)
@@ -139,18 +145,19 @@ GitHub Actions daily cron (KST 07:00)
 
 ## 스케일 전망
 
-| 규모 | reason 건수 | float16 메모리 | 대응 |
-|------|-------------|----------------|------|
-| 현재 2,510권 | 33,824 | ~138MB | 이 설계로 충분 |
-| 5,000권 | ~67,000 | ~260MB | 1워커 Render 512MB 내 가능 |
-| 10,000권 | ~134,000 | ~520MB | Render 유료 or reason sampling 필요 |
-| 50,000권 | - | - | pgvector 서버사이드 검색으로 아키텍처 전환 |
+| 규모 | reason 건수 | float16 메모리 | 1워커 총 | 대응 |
+|------|-------------|----------------|----------|------|
+| 현재 2,510권 | 33,824 | ~172MB | ~272MB | 이 설계로 충분 (Render 512MB) |
+| 5,000권 | ~67,000 | ~335MB | ~435MB | Render 512MB 내 가능하나 빠듯 |
+| 7,000권 | ~94,000 | ~470MB | ~570MB | Render 512MB 초과 → 유료 전환 |
+| 10,000권+ | - | - | - | pgvector 서버사이드 검색으로 아키텍처 전환 |
 
 ## 리스크
 
 | 리스크 | 심각도 | 대응 |
 |--------|--------|------|
 | build_index.py 실행 중 Supabase 다운 | 낮음 | retry 3회 + 수동 재실행. 서비스는 기존 pkl로 운영 중 |
-| pkl 포함으로 Docker 이미지 커짐 (~100MB+) | 낮음 | Render/Fly.io 이미지 크기 제한 없음. 빌드 시간 약간 증가 |
+| pkl 포함으로 Docker 이미지 커짐 (~170MB+) | 낮음 | Render/Fly.io 이미지 크기 제한 없음. 빌드 시간 약간 증가 |
 | float16 정밀도 손실 | 무시 | 정규화 벡터 내적 오차 ±0.001, 랭킹 변동 없음 |
 | data/index.pkl이 git에 없어 CI/CD 빌드 불가 | 중간 | Phase 2에서 GitHub Actions로 빌드 자동화, 또는 Supabase Storage에서 다운로드 |
+| Phase 2 pkl 원격 다운로드 시 pickle 보안 | 중간 | pickle.load()는 임의 코드 실행 가능. Phase 2에서는 numpy .npz + JSON 포맷으로 전환하거나, pkl 파일 해시 서명 검증 추가 |
