@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:curation_app/core/models/book.dart';
-import 'package:curation_app/core/services/book_search_service.dart';
+import 'package:curation_app/core/services/book_search_service.dart' show BookSearchService, BookSearchResult;
 import 'package:curation_app/core/services/book_registration_service.dart';
 import 'package:curation_app/features/search/providers/book_search_provider.dart';
 import 'package:curation_app/features/search/screens/book_search_screen.dart';
@@ -11,8 +11,8 @@ import 'package:curation_app/features/bookshelf/providers/bookshelf_provider.dar
 
 class FakeBookSearchService implements BookSearchService {
   @override
-  Future<List<Book>> search(String query, {int page = 1, int size = 20}) async {
-    return [];
+  Future<BookSearchResult> search(String query, {int page = 1, int size = 20}) async {
+    return const BookSearchResult(books: [], isEnd: true);
   }
 
   @override
