@@ -1,3 +1,4 @@
+from typing import Optional, List
 from pydantic import BaseModel
 
 
@@ -6,12 +7,12 @@ class BookScore(BaseModel):
     score: float
     title: str
     author: str
-    cover_url: str | None
+    cover_url: Optional[str]
 
 
 class RecommendResponse(BaseModel):
     user_id: str
-    recommendations: list[BookScore]
+    recommendations: List[BookScore]
     meta: dict
 
 
@@ -20,21 +21,21 @@ class SimilarBook(BaseModel):
     score: float
     title: str
     author: str
-    cover_url: str | None
+    cover_url: Optional[str]
 
 
 class SimilarResponse(BaseModel):
     book_id: str
-    similar: list[SimilarBook]
+    similar: List[SimilarBook]
 
 
 class FeedbackRequest(BaseModel):
     book_id: str
     rating: str  # "good" | "neutral" | "bad"
-    review_text: str | None = None
-    emotion_tags: list[str] | None = None
+    review_text: Optional[str] = None
+    emotion_tags: Optional[List[str]] = None
 
 
 class FeedbackResponse(BaseModel):
     status: str
-    feedback_id: str | None = None
+    feedback_id: Optional[str] = None
