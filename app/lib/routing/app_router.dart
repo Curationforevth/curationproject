@@ -7,6 +7,7 @@ import '../features/book_detail/screens/book_detail_screen.dart';
 import '../features/feedback/screens/feedback_flow_screen.dart';
 import '../features/home/screens/home_screen.dart';
 import '../features/library/screens/library_screen.dart';
+import '../features/register/screens/register_flow_screen.dart';
 import '../features/search/screens/book_search_screen.dart';
 import '../features/shell/screens/app_shell.dart';
 
@@ -59,16 +60,7 @@ GoRouter createRouter(AuthNotifier authNotifier) {
       // Routes outside the shell (pushed over it)
       GoRoute(
         path: '/register',
-        builder: (context, state) => Scaffold(
-          appBar: AppBar(
-            leading: IconButton(
-              icon: const Icon(Icons.close),
-              onPressed: () => context.pop(),
-            ),
-            title: const Text('등록'),
-          ),
-          body: const Center(child: Text('등록 화면 (구현 예정)')),
-        ),
+        builder: (context, state) => const RegisterFlowScreen(),
       ),
       GoRoute(
         path: '/login',
