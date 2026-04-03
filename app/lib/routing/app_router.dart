@@ -1,10 +1,13 @@
+import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../features/auth/providers/auth_provider.dart';
 import '../features/auth/screens/login_screen.dart';
 import '../features/book_detail/screens/book_detail_screen.dart';
-import '../features/bookshelf/screens/bookshelf_screen.dart';
+import '../features/home/screens/home_screen.dart';
+import '../features/library/screens/library_screen.dart';
 import '../features/search/screens/book_search_screen.dart';
+import '../features/shell/screens/app_shell.dart';
 
 GoRouter createRouter(AuthNotifier authNotifier) {
   return GoRouter(
@@ -19,9 +22,52 @@ GoRouter createRouter(AuthNotifier authNotifier) {
       return null;
     },
     routes: [
+      StatefulShellRoute.indexedStack(
+        builder: (context, state, navigationShell) =>
+            AppShell(navigationShell: navigationShell),
+        branches: [
+          // Branch 0: Home
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/',
+                builder: (context, state) => const HomeScreen(),
+              ),
+            ],
+          ),
+          // Branch 1: Register placeholder (never navigated to directly)
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/register-placeholder',
+                builder: (context, state) => const SizedBox.shrink(),
+              ),
+            ],
+          ),
+          // Branch 2: Library
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/library',
+                builder: (context, state) => const LibraryScreen(),
+              ),
+            ],
+          ),
+        ],
+      ),
+      // Routes outside the shell (pushed over it)
       GoRoute(
-        path: '/',
-        builder: (context, state) => const BookshelfScreen(),
+        path: '/register',
+        builder: (context, state) => Scaffold(
+          appBar: AppBar(
+            leading: IconButton(
+              icon: const Icon(Icons.close),
+              onPressed: () => context.pop(),
+            ),
+            title: const Text('등록'),
+          ),
+          body: const Center(child: Text('등록 화면 (구현 예정)')),
+        ),
       ),
       GoRoute(
         path: '/login',
