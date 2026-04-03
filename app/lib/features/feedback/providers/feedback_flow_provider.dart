@@ -26,11 +26,13 @@ class FeedbackFlowState {
     this.error,
   });
 
+  static const _sentinel = Object();
+
   FeedbackFlowState copyWith({
     UserBook? userBook,
     bool? isLoading,
     bool? isSaving,
-    String? rating,
+    Object? rating = _sentinel,
     List<String>? selectedTags,
     String? reviewText,
     String? error,
@@ -39,7 +41,7 @@ class FeedbackFlowState {
       userBook: userBook ?? this.userBook,
       isLoading: isLoading ?? this.isLoading,
       isSaving: isSaving ?? this.isSaving,
-      rating: rating ?? this.rating,
+      rating: rating == _sentinel ? this.rating : rating as String?,
       selectedTags: selectedTags ?? this.selectedTags,
       reviewText: reviewText ?? this.reviewText,
       error: error ?? this.error,
@@ -86,19 +88,7 @@ class FeedbackFlowNotifier extends StateNotifier<FeedbackFlowState> {
   void setRating(String rating) {
     // 같은 값 탭하면 해제 (토글)
     final newRating = state.rating == rating ? null : rating;
-    state = state.copyWith(rating: newRating ?? '');
-    // null 처리: rating을 null로 만들려면 별도 처리 필요
-    if (newRating == null) {
-      state = FeedbackFlowState(
-        userBook: state.userBook,
-        isLoading: state.isLoading,
-        isSaving: state.isSaving,
-        rating: null,
-        selectedTags: state.selectedTags,
-        reviewText: state.reviewText,
-        error: state.error,
-      );
-    }
+    state = state.copyWith(rating: newRating);
   }
 
   void toggleTag(String tag) {

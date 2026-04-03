@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/models/book.dart';
 import '../../../core/theme/app_colors.dart';
 import '../providers/feedback_flow_provider.dart';
 
@@ -267,27 +268,28 @@ class _TopBar extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _BookInfo extends StatelessWidget {
-  final dynamic book; // Book model
+  final Book? book;
 
   const _BookInfo({required this.book});
 
   @override
   Widget build(BuildContext context) {
+    if (book == null) return const SizedBox.shrink();
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // 커버 이미지
         ClipRRect(
           borderRadius: BorderRadius.circular(8),
-          child: book.coverImageUrl != null && book.coverImageUrl.isNotEmpty
+          child: book!.coverUrl != null && book!.coverUrl!.isNotEmpty
               ? Image.network(
-                  book.coverImageUrl,
+                  book!.coverUrl!,
                   width: 72,
                   height: 104,
                   fit: BoxFit.cover,
-                  errorBuilder: (context2, error, stackTrace) => _CoverPlaceholder(title: book.title),
+                  errorBuilder: (context2, error, stackTrace) => _CoverPlaceholder(title: book!.title),
                 )
-              : _CoverPlaceholder(title: book.title),
+              : _CoverPlaceholder(title: book!.title),
         ),
         const SizedBox(width: 16),
         Expanded(
@@ -295,7 +297,7 @@ class _BookInfo extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                book.title,
+                book!.title,
                 style: const TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w500,
@@ -306,7 +308,7 @@ class _BookInfo extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               Text(
-                book.author ?? '',
+                book!.author ?? '',
                 style: const TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w300,

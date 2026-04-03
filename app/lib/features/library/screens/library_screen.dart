@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/user_book.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/bookshelf_row.dart';
@@ -243,13 +244,13 @@ class _ReadingCardRow extends StatelessWidget {
   }
 }
 
-class _ReadingCard extends StatelessWidget {
+class _ReadingCard extends ConsumerWidget {
   final UserBook userBook;
 
   const _ReadingCard({required this.userBook});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final book = userBook.book!;
 
     return Container(
@@ -304,7 +305,7 @@ class _ReadingCard extends StatelessWidget {
                   ),
                 ],
                 const SizedBox(height: 8),
-                _DoneReadingButton(userBookId: userBook.id),
+                _DoneReadingButton(userBookId: userBook.id, ref: ref),
               ],
             ),
           ),
@@ -332,16 +333,34 @@ class _ReadingCard extends StatelessWidget {
 
 class _DoneReadingButton extends StatelessWidget {
   final String userBookId;
+  final WidgetRef ref;
 
-  const _DoneReadingButton({required this.userBookId});
+  const _DoneReadingButton({required this.userBookId, required this.ref});
+
+  Future<void> _onTap(BuildContext context) async {
+    try {
+      final supabase = Supabase.instance.client;
+      await supabase
+          .from('user_books')
+          .update({'status': BookStatus.read.toJson()})
+          .eq('id', userBookId);
+      ref.invalidate(bookshelfProvider);
+      if (context.mounted) {
+        context.push('/feedback/$userBookId');
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('오류가 발생했어요: $e')),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: () {
-        // TODO: navigate to /feedback/$userBookId when implemented
-        debugPrint('다 읽었어요 tapped: $userBookId');
-      },
+      onTap: () => _onTap(context),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         decoration: BoxDecoration(

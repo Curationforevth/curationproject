@@ -25,7 +25,7 @@ enum BookStatus {
       case 'want_to_read':
         return BookStatus.wantToRead;
       default:
-        throw ArgumentError('Unknown BookStatus: $value');
+        return BookStatus.read;
     }
   }
 }
