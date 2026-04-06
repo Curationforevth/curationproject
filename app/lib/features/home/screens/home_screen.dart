@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/models/book.dart';
 import '../../../core/models/user_book.dart';
+import '../../../core/services/recommendation_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../bookshelf/providers/bookshelf_provider.dart';
 import '../providers/home_provider.dart';
+import '../providers/recommendation_provider.dart';
 import '../widgets/book_detail_bottom_sheet.dart';
 import '../widgets/my_books_section.dart';
 
@@ -164,46 +167,187 @@ class _HomeContent extends ConsumerWidget {
           _WishlistSection(books: wishlistWithBook),
         ],
 
-        // ── Section 3: 이 책은 어때요? (추천 플레이스홀더) ─────────
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                '이 책은 어때요?',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textPrimary,
-                  letterSpacing: 0.01,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFAFAFA),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Center(
-                  child: Text(
-                    '피드백을 더 남기면 맞춤 추천이 시작돼요',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: Color(0xFF94A3B8),
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
+        // ── Section 3: 이 책은 어때요? (추천) ──────────────────────
+        const _RecommendationSection(),
 
         const SizedBox(height: 32),
       ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Section 3: 이 책은 어때요? (추천)
+// ---------------------------------------------------------------------------
+
+class _RecommendationSection extends ConsumerWidget {
+  const _RecommendationSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final recommendationsAsync = ref.watch(recommendationsProvider);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '이 책은 어때요?',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textPrimary,
+              letterSpacing: 0.01,
+            ),
+          ),
+          const SizedBox(height: 10),
+          recommendationsAsync.when(
+            loading: () => const SizedBox(
+              height: 212,
+              child: Center(
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ),
+            error: (_, __) => _RecommendationPlaceholder(),
+            data: (result) {
+              if (!result.hasFeedback || result.recommendations.isEmpty) {
+                return _RecommendationPlaceholder(
+                  message: result.hasFeedback
+                      ? '아직 추천할 책이 없어요'
+                      : '피드백을 더 남기면 맞춤 추천이 시작돼요',
+                );
+              }
+              return SizedBox(
+                height: 212,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: result.recommendations.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 12),
+                  itemBuilder: (context, index) {
+                    final book = result.recommendations[index];
+                    return _RecommendationCard(
+                      book: book,
+                      onTap: () => BookDetailBottomSheet.show(
+                        context,
+                        Book(
+                          id: book.bookId,
+                          title: book.title,
+                          author: book.author,
+                          coverUrl: book.coverUrl,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RecommendationPlaceholder extends StatelessWidget {
+  final String message;
+
+  const _RecommendationPlaceholder({
+    this.message = '피드백을 더 남기면 맞춤 추천이 시작돼요',
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFAFAFA),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Center(
+        child: Text(
+          message,
+          style: const TextStyle(
+            fontSize: 13,
+            color: Color(0xFF94A3B8),
+          ),
+          textAlign: TextAlign.center,
+        ),
+      ),
+    );
+  }
+}
+
+class _RecommendationCard extends StatelessWidget {
+  final RecommendedBook book;
+  final VoidCallback onTap;
+
+  const _RecommendationCard({required this.book, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: SizedBox(
+        width: 120,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: SizedBox(
+                width: 120,
+                height: 172,
+                child: book.coverUrl != null
+                    ? Image.network(
+                        book.coverUrl!,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => _CoverFallback(),
+                      )
+                    : _CoverFallback(),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              book.title,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: AppColors.textPrimary,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            Text(
+              book.author,
+              style: const TextStyle(
+                fontSize: 11,
+                color: AppColors.textSecondary,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CoverFallback extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: AppColors.shelf,
+      child: const Icon(
+        Icons.menu_book,
+        color: AppColors.textSecondary,
+        size: 28,
+      ),
     );
   }
 }

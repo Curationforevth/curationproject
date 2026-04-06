@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/models/book.dart';
 import '../../../core/models/user_book.dart';
+import '../../../core/services/recommendation_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../bookshelf/providers/bookshelf_provider.dart';
+import '../providers/recommendation_provider.dart';
 
 /// 책 상세 바텀시트 — 커버 피드에서 탭했을 때 표시
 class BookDetailBottomSheet extends ConsumerStatefulWidget {
@@ -236,6 +238,9 @@ class _BookDetailBottomSheetState
             ),
           ),
 
+          // 비슷한 책 섹션
+          _SimilarBooksSection(bookId: book.id),
+
           // 하단 안전 여백
           SizedBox(height: MediaQuery.of(context).padding.bottom + 24),
         ],
@@ -294,6 +299,133 @@ class _ActionButton extends StatelessWidget {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// 비슷한 책 섹션
+// ---------------------------------------------------------------------------
+
+class _SimilarBooksSection extends ConsumerWidget {
+  final String bookId;
+
+  const _SimilarBooksSection({required this.bookId});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    // book_id가 비어있으면 (예: 추천 서버에서 온 임시 ID가 아직 없으면) 숨김
+    if (bookId.isEmpty) return const SizedBox.shrink();
+
+    final similarAsync = ref.watch(similarBooksProvider(bookId));
+
+    return similarAsync.when(
+      loading: () => const Padding(
+        padding: EdgeInsets.symmetric(vertical: 16),
+        child: Center(
+          child: SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ),
+      ),
+      error: (_, __) => const SizedBox.shrink(),
+      data: (books) {
+        if (books.isEmpty) return const SizedBox.shrink();
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(24, 24, 24, 10),
+              child: Text(
+                '비슷한 책',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textPrimary,
+                  letterSpacing: 0.01,
+                ),
+              ),
+            ),
+            SizedBox(
+              height: 124,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                itemCount: books.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 10),
+                itemBuilder: (context, index) {
+                  final similar = books[index];
+                  return _SimilarBookCard(book: similar);
+                },
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _SimilarBookCard extends StatelessWidget {
+  final RecommendedBook book;
+
+  const _SimilarBookCard({required this.book});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 72,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: SizedBox(
+              width: 72,
+              height: 104,
+              child: book.coverUrl != null
+                  ? Image.network(
+                      book.coverUrl!,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => _SimilarCoverFallback(),
+                    )
+                  : _SimilarCoverFallback(),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            book.title,
+            style: const TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w500,
+              color: AppColors.textPrimary,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SimilarCoverFallback extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: AppColors.shelf,
+      child: const Icon(
+        Icons.menu_book,
+        color: AppColors.textSecondary,
+        size: 20,
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 class _BookmarkButton extends StatelessWidget {
   final bool bookmarked;
