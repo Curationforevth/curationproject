@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import '../../../core/models/book.dart';
 import '../../../core/models/user_book.dart';
 import '../../../core/services/recommendation_service.dart';
 import '../../../core/theme/app_colors.dart';
@@ -233,12 +232,7 @@ class _RecommendationSection extends ConsumerWidget {
                       book: book,
                       onTap: () => BookDetailBottomSheet.show(
                         context,
-                        Book(
-                          id: book.bookId,
-                          title: book.title,
-                          author: book.author,
-                          coverUrl: book.coverUrl,
-                        ),
+                        book.toBook(),
                       ),
                     );
                   },

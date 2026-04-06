@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../models/book.dart';
 
 class RecommendedBook {
   final String bookId;
@@ -25,6 +27,13 @@ class RecommendedBook {
         author: json['author'] as String,
         coverUrl: json['cover_url'] as String?,
       );
+
+  Book toBook() => Book(
+        id: bookId,
+        title: title,
+        author: author,
+        coverUrl: coverUrl,
+      );
 }
 
 class RecommendationResult {
@@ -40,7 +49,9 @@ class RecommendationResult {
 }
 
 class RecommendationService {
-  static const _baseUrl = 'https://curation-recommendation.onrender.com';
+  static String get _baseUrl =>
+      dotenv.env['RECOMMENDATION_SERVER_URL'] ??
+      'https://curation-recommendation.onrender.com';
 
   // Render free tier cold-start 대응: 30초 타임아웃
   static const _timeout = Duration(seconds: 30);

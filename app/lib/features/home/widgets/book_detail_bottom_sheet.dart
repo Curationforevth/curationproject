@@ -357,7 +357,13 @@ class _SimilarBooksSection extends ConsumerWidget {
                 separatorBuilder: (_, __) => const SizedBox(width: 10),
                 itemBuilder: (context, index) {
                   final similar = books[index];
-                  return _SimilarBookCard(book: similar);
+                  return _SimilarBookCard(
+                    book: similar,
+                    onTap: () {
+                      Navigator.pop(context);
+                      BookDetailBottomSheet.show(context, similar.toBook());
+                    },
+                  );
                 },
               ),
             ),
@@ -370,12 +376,15 @@ class _SimilarBooksSection extends ConsumerWidget {
 
 class _SimilarBookCard extends StatelessWidget {
   final RecommendedBook book;
+  final VoidCallback onTap;
 
-  const _SimilarBookCard({required this.book});
+  const _SimilarBookCard({required this.book, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
+    return GestureDetector(
+      onTap: onTap,
+      child: SizedBox(
       width: 72,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -406,6 +415,7 @@ class _SimilarBookCard extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
           ),
         ],
+      ),
       ),
     );
   }
