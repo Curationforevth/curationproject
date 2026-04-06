@@ -9,13 +9,16 @@
   python3 scripts/generate_book_v3_vectors.py --dry-run  # API 호출 없이 파싱만
 """
 import os, sys, time, re, argparse
+import json as _json
+
+CHECKPOINT_FILE = os.path.join(os.path.dirname(__file__), ".checkpoint_book_v3.json")
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 from supabase import create_client
-from scripts.lib.openai_helpers import call_embedding
+from scripts.lib.openai_helpers import call_embedding, EMBEDDING_DIMENSIONS
 from scripts.lib.genre_parser import parse_genre, clean_html
 
 EMBED_BATCH = 20
@@ -80,14 +83,30 @@ def fetch_target_books(sb, limit):
         res = sb.table("books") \
             .select("id, title, genre, description, rich_description") \
             .not_.is_("rich_description", "null") \
-            .range(offset, offset + 499).execute()
+            .range(offset, offset + 999).execute()
         if not res.data:
             break
         books.extend(res.data)
-        if len(res.data) < 500:
+        if len(res.data) < 1000:
             break
-        offset += 500
+        offset += 1000
     return books[:limit]
+
+
+def load_checkpoint():
+    """체크포인트 파일에서 완료된 book_id 목록 로드."""
+    if os.path.exists(CHECKPOINT_FILE):
+        with open(CHECKPOINT_FILE) as f:
+            data = _json.load(f)
+            print(f"  체크포인트 로드: {len(data.get('done_ids', []))}건", flush=True)
+            return set(data.get("done_ids", []))
+    return set()
+
+
+def save_checkpoint(done_ids):
+    """처리 완료된 book_id를 체크포인트 파일에 저장."""
+    with open(CHECKPOINT_FILE, "w") as f:
+        _json.dump({"done_ids": list(done_ids), "last_updated": time.strftime("%Y-%m-%dT%H:%M:%S")}, f)
 
 
 def main():
@@ -110,6 +129,8 @@ def main():
     print("대상 도서 수집 중...", flush=True)
     all_books = fetch_target_books(sb, args.limit)
     existing = get_existing_book_ids(sb)
+    checkpoint_ids = load_checkpoint()
+    existing = existing | checkpoint_ids
     books = [b for b in all_books if b["id"] not in existing]
     print(f"  전체: {len(all_books)}권, 이미 처리: {len(existing)}권, 남은 대상: {len(books)}권", flush=True)
 
@@ -151,7 +172,7 @@ def main():
     print(f"\n사전 테스트: {test['book_id'][:8]}...", flush=True)
     try:
         test_emb = call_embedding([test["source_text"]])
-        assert len(test_emb) == 1 and len(test_emb[0]) == 2000
+        assert len(test_emb) == 1 and len(test_emb[0]) == EMBEDDING_DIMENSIONS
         print(f"  ✓ 임베딩 성공 (dim={len(test_emb[0])})", flush=True)
     except Exception as e:
         print(f"  ✗ 사전 테스트 실패: {e}", flush=True)
@@ -169,17 +190,23 @@ def main():
             embeddings = call_embedding(texts)
             consecutive_errors = 0
         except Exception as e:
-            errors += len(batch)
-            consecutive_errors += 1
-            print(f"  ✗ 임베딩 실패 (연속 {consecutive_errors}회): {e}", flush=True)
-            if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
-                print(f"\n연속 에러 {MAX_CONSECUTIVE_ERRORS}회 → 자동 중단", flush=True)
-                break
-            time.sleep(SLEEP_BETWEEN)
-            continue
+            print(f"  배치 임베딩 실패, 1건씩 재시도: {e}", flush=True)
+            embeddings = []
+            for t in texts:
+                try:
+                    emb = call_embedding([t])
+                    embeddings.append(emb[0])
+                except Exception as e2:
+                    embeddings.append(None)
+                    errors += 1
+                    print(f"    ✗ 개별 임베딩 실패: {e2}", flush=True)
+                time.sleep(SLEEP_BETWEEN)
+            consecutive_errors = 0
 
         rows = []
         for p, emb in zip(batch, embeddings):
+            if emb is None:
+                continue
             rows.append({
                 "book_id": p["book_id"],
                 "desc_embedding": emb,
@@ -189,6 +216,10 @@ def main():
                 "l1_genre_id": p["l1_genre_id"],
                 "l2_genre_id": p["l2_genre_id"],
             })
+
+        if not rows:
+            time.sleep(SLEEP_BETWEEN)
+            continue
 
         try:
             sb.table("book_v3_vectors").insert(rows).execute()
@@ -212,7 +243,9 @@ def main():
               f"{elapsed/60:.1f}분경과 ~{eta:.0f}초남음", flush=True)
 
         if done > 0 and done % CHECKPOINT_INTERVAL == 0:
-            print(f"  ── 체크포인트: {done}건 완료 ──", flush=True)
+            all_done = existing | {p["book_id"] for p in prepared[:i + len(batch)] if p["book_id"] not in existing}
+            save_checkpoint(all_done)
+            print(f"  ── 체크포인트: {done}건 완료, 상태 저장 ──", flush=True)
 
         time.sleep(SLEEP_BETWEEN)
 
@@ -220,6 +253,9 @@ def main():
     print(f"\n{'='*50}", flush=True)
     print(f"book_v3_vectors 완료: {done}건 저장, {errors}건 에러, {elapsed/60:.1f}분", flush=True)
     print(f"{'='*50}", flush=True)
+    if errors == 0 and os.path.exists(CHECKPOINT_FILE):
+        os.remove(CHECKPOINT_FILE)
+        print("  체크포인트 파일 삭제 (정상 완료)", flush=True)
 
 
 if __name__ == "__main__":
