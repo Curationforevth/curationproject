@@ -1,4 +1,11 @@
-# 추천 엔진 Cold/Warm 두 축 통합 설계
+# 추천 엔진 Cold/Warm 두 축 통합 설계 (DEPRECATED)
+
+> ⚠️ **이 spec은 3개로 분할되었습니다.** 통합 spec이 너무 크고 검증 안 된 가정이 많아 실행 가능한 단위로 분리:
+> - `2026-04-07-recommendation-algorithm-design.md` (추천 알고리즘)
+> - `2026-04-07-data-collection-design.md` (데이터 수집 인프라)
+> - `2026-04-07-curation-system-design.md` (큐레이션 시스템)
+>
+> 이 spec은 참고용으로 보관.
 
 > 2026-04-07 | Eden
 
