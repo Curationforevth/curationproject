@@ -15,7 +15,6 @@ class RatingSelector extends StatelessWidget {
 
   static const _options = [
     ('good', '좋았다', Icons.thumb_up_outlined, Icons.thumb_up),
-    ('neutral', '보통', Icons.horizontal_rule, Icons.horizontal_rule),
     ('bad', '별로', Icons.thumb_down_outlined, Icons.thumb_down),
   ];
 

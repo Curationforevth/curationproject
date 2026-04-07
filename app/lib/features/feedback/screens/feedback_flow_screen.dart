@@ -391,7 +391,6 @@ class _RatingRow extends StatelessWidget {
 
   static const _options = [
     ('good', '좋았어요', '👍'),
-    ('neutral', '보통이에요', '🤔'),
     ('bad', '별로였어요', '👎'),
   ];
 
