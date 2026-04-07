@@ -13,7 +13,7 @@ class FeedbackFlowState {
   final UserBook? userBook;
   final bool isLoading;
   final bool isSaving;
-  final String? rating; // 'good', 'neutral', 'bad'
+  final String? rating; // 'good' | 'bad' | null
   final List<String> selectedTags;
   final String reviewText;
   final String? error;
