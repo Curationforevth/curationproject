@@ -1,0 +1,1122 @@
+{
+  "personas": [
+    {
+      "id": "seoyeon",
+      "name": "서연",
+      "profile": "32세 UX 디자이너, 담담한 에세이·예술·문학적 소설 선호",
+      "books": [
+        {
+          "book_id": "e37c876e-7710-4331-9662-0bfc8d8dba7e",
+          "title": "불안 (개정판)",
+          "rating": "good",
+          "review_text": "속도보다 깊이를 택하는 문장들. 타인의 시선에 흔들릴 때마다 다시 돌아와 밑줄을 긋게 되는 책. 내가 느끼는 불안에 이름을 붙여주는 느낌이었다.",
+          "emotion_tags": [
+            "사유적",
+            "담담함",
+            "치유"
+          ]
+        },
+        {
+          "book_id": "d5c6414e-c556-4ae6-b909-db7f27f98880",
+          "title": "자기만의 방",
+          "rating": "good",
+          "review_text": "100년 전에 쓴 글인데 지금 내 자리를 돌아보게 한다. 여성의 공간과 목소리에 대한 울프의 문장이 너무 정제되어 있어서 여러 번 멈춰 읽었다.",
+          "emotion_tags": [
+            "고전",
+            "페미니즘",
+            "정제됨"
+          ]
+        },
+        {
+          "book_id": "40f608da-c945-4e85-9a0c-b28729bd3a65",
+          "title": "제철 행복",
+          "rating": "good",
+          "review_text": "계절마다 생활을 다시 들여다보게 되는 느낌. 요란하지 않게, 그냥 그 시기를 살아가는 이야기. 책장을 넘길 때마다 마음이 고요해진다.",
+          "emotion_tags": [
+            "일상",
+            "계절감",
+            "고요"
+          ]
+        },
+        {
+          "book_id": "2265692e-75de-4723-a84f-7d96a908901b",
+          "title": "오래된 세계의 농담",
+          "rating": "good"
+        },
+        {
+          "book_id": "7eb4437e-8a93-47e4-b1a6-6c2175c176f6",
+          "title": "완벽보다 완결",
+          "rating": "good"
+        },
+        {
+          "book_id": "e006b019-f216-48b6-b65d-1947c66156a3",
+          "title": "달리기를 말할 때 내가 하고 싶은 이야기",
+          "rating": "good",
+          "review_text": "달리기라는 소재로 글쓰기와 삶 전체를 말한다. 하루키 특유의 건조하면서도 리듬 있는 문장이 좋다. 혼자 앉아 커피 마시면서 읽기 좋은 책.",
+          "emotion_tags": [
+            "작가론",
+            "담백함",
+            "리듬감"
+          ]
+        },
+        {
+          "book_id": "5c28be75-3c20-49fa-aba4-4c745589c01a",
+          "title": "예술이란 무엇인가",
+          "rating": "good"
+        },
+        {
+          "book_id": "3ede88a7-fcf6-4da7-8725-4d38c686f390",
+          "title": "아트 스피릿",
+          "rating": "good",
+          "review_text": "두려움 없이 그리라는 말이 계속 맴돌았다. 디자인 일을 하면서 자주 잃어버리는 감각을 다시 붙잡게 해준다.",
+          "emotion_tags": [
+            "창작",
+            "용기",
+            "실천"
+          ]
+        },
+        {
+          "book_id": "d20d675a-1b76-4946-bee0-b2aa1e9baca8",
+          "title": "우연히, 웨스 앤더슨",
+          "rating": "good"
+        },
+        {
+          "book_id": "0e2529bf-b915-4723-b7d4-baef520b6034",
+          "title": "내 이름은 빨강 1",
+          "rating": "good"
+        },
+        {
+          "book_id": "23d2a4b3-5b65-4cc9-8106-ea4368abdccb",
+          "title": "이방인",
+          "rating": "good",
+          "review_text": "부조리라는 단어가 이렇게 서늘할 수 있다니. 뫼르소의 무감정이 오히려 세상을 가장 정직하게 바라보는 시선처럼 느껴졌다.",
+          "emotion_tags": [
+            "실존주의",
+            "부조리",
+            "고전"
+          ]
+        },
+        {
+          "book_id": "77f640dd-681c-401e-a623-e734cf3aee23",
+          "title": "눈과 돌멩이",
+          "rating": "good"
+        }
+      ]
+    },
+    {
+      "id": "minho",
+      "name": "민호",
+      "profile": "28세 스타트업 주니어 개발자, 성장·효율·AI·경영 사례 중심",
+      "books": [
+        {
+          "book_id": "664638c1-8649-48e2-87e3-fff8f610b1d1",
+          "title": "집중력 죽이기",
+          "rating": "good"
+        },
+        {
+          "book_id": "d2e6cd8f-e3d1-424a-8946-f2179e007be2",
+          "title": "일하면서 바로 써먹는 아웃풋×성과 도감",
+          "rating": "good"
+        },
+        {
+          "book_id": "7fbad7d1-c427-4295-8a95-a748ed0409be",
+          "title": "행동은 불안을 이긴다",
+          "rating": "good"
+        },
+        {
+          "book_id": "ecd87884-12c1-4d82-8974-a51b08971c7a",
+          "title": "두 번째 지능 — AI 시대",
+          "rating": "good",
+          "review_text": "AI 시대에 개발자로서 어떻게 일해야 하는지 실질적 통찰. 질문·경험·실행으로 뇌를 재설계한다는 프레임이 바로 써먹을 수 있다. 다음 스프린트에 적용해볼 아이디어 3개 뽑았다.",
+          "emotion_tags": [
+            "실용",
+            "AI",
+            "커리어"
+          ]
+        },
+        {
+          "book_id": "c5476c78-64e6-48c8-ad37-e8b606d22f56",
+          "title": "일론 머스크",
+          "rating": "good"
+        },
+        {
+          "book_id": "f2e46e80-2130-4f49-9601-b78c1aed0a47",
+          "title": "진짜 매출을 부르는 회계 감각",
+          "rating": "good",
+          "review_text": "스타트업에서 재무 감각이 없으면 결정이 다 흐려진다는 걸 느꼈다. PL·BS 개념을 개발자 관점으로도 바로 이해되게 써줘서 좋았음. 팀장이 왜 그 수치를 물어보는지 알게 됐다.",
+          "emotion_tags": [
+            "실무",
+            "재무",
+            "스타트업"
+          ]
+        },
+        {
+          "book_id": "e46c2e4c-a821-473b-bf2f-ee5bb93247b8",
+          "title": "생각에 관한 생각",
+          "rating": "good",
+          "review_text": "제품 의사결정할 때 우리가 얼마나 시스템1에 휘둘리는지 계속 떠올리게 된다. A/B 테스트 설계나 유저 리서치 해석할 때 반드시 참고해야 하는 책. 두껍지만 그만한 가치 있음.",
+          "emotion_tags": [
+            "의사결정",
+            "인지편향",
+            "리서치"
+          ]
+        },
+        {
+          "book_id": "e9e8ca21-97f6-425a-a2b4-e21399900d43",
+          "title": "돈의 심리학",
+          "rating": "good"
+        }
+      ]
+    },
+    {
+      "id": "jieun",
+      "name": "지은",
+      "profile": "40세 두 아이 엄마, 육아·교양·가벼운 인문. 피드백 없음 (rating만)",
+      "books": [
+        {
+          "book_id": "f8b2b2a9-c8b2-4e86-9788-bd51703a1911",
+          "title": "최민준의 아들코칭 백과",
+          "rating": "good"
+        },
+        {
+          "book_id": "09f832c3-4b7a-4c60-bd55-d0ad0517d958",
+          "title": "영유아 몬테소리 육아대백과",
+          "rating": "good"
+        },
+        {
+          "book_id": "b62f2ea2-e0dd-4b72-babc-50f3fc106577",
+          "title": "아이의 손을 놓지 마라",
+          "rating": "good"
+        },
+        {
+          "book_id": "a11ae040-b969-4b40-a6a7-b8ce9732573d",
+          "title": "부모 역할 훈련",
+          "rating": "good"
+        },
+        {
+          "book_id": "a34449b4-6244-49b6-94a5-21fe484ed504",
+          "title": "국영수보다 감정문해력이 먼저다",
+          "rating": "good"
+        },
+        {
+          "book_id": "ffde5590-de68-43eb-9371-46525cec1559",
+          "title": "나민애의 동시 읽기 좋은 날",
+          "rating": "good"
+        },
+        {
+          "book_id": "6c356cd9-f67f-4001-869f-a6a91cd17edc",
+          "title": "나도 상처 받지 않고 친구도 상처 받지 않는 감정 표현 연습",
+          "rating": "good"
+        },
+        {
+          "book_id": "84b258a5-4b52-4704-bec6-b515befc805c",
+          "title": "친구를 만드는 커다란 귀",
+          "rating": "good"
+        },
+        {
+          "book_id": "23292906-98e9-4924-a47e-c9b73b366338",
+          "title": "감정을 안아 주는 말 따라 쓰기",
+          "rating": "good"
+        },
+        {
+          "book_id": "ba1dddcf-667f-4f82-8e17-b159db24f99b",
+          "title": "유럽 도시 기행 1",
+          "rating": "good"
+        },
+        {
+          "book_id": "96d89b01-16dd-4656-bd06-1fd8829768fb",
+          "title": "비폭력 대화",
+          "rating": "good"
+        },
+        {
+          "book_id": "5d7cc9fb-fc82-4e0f-90c9-50925766c42b",
+          "title": "아무것도 하고 싶지 않은 날을 위한 철학",
+          "rating": "good"
+        },
+        {
+          "book_id": "c0185a6f-c667-42f1-ba30-b4ce32531e39",
+          "title": "우리가 사랑한 도시",
+          "rating": "good"
+        },
+        {
+          "book_id": "9cbc3577-443b-4261-a3e3-89e88b4ae104",
+          "title": "마음을 읽는 감각",
+          "rating": "good"
+        },
+        {
+          "book_id": "0025a045-a5b4-46ac-8562-78b929adf315",
+          "title": "심리학이 분노에 답하다",
+          "rating": "good"
+        }
+      ]
+    },
+    {
+      "id": "junhyuk",
+      "name": "준혁",
+      "profile": "45세 변호사, 깊이 있는 역사·사회·철학. 모든 책에 상세 피드백",
+      "books": [
+        {
+          "book_id": "a08b2bdb-9c60-4f64-bced-d810e807c3ca",
+          "title": "빅 아틀라스",
+          "rating": "good",
+          "review_text": "지도와 텍스트가 유기적으로 엮여 있어 세계사를 공간적으로 이해하게 된다. 일반 통사와 달리 왜 그 사건이 그 장소에서 일어났는지를 설명한다는 점에서 분석 도구로서도 가치 있다.",
+          "emotion_tags": [
+            "지정학",
+            "분석적",
+            "시각자료"
+          ]
+        },
+        {
+          "book_id": "2c55a391-db54-45e8-9e6e-8e4d13160efd",
+          "title": "문학과 예술의 사회사 세트",
+          "rating": "good",
+          "review_text": "하우저의 고전이지만 지금 읽어도 유효한 통찰. 예술을 사회경제적 조건에서 떼어놓지 않는 관점이 법·제도 분석과도 공명한다. 완독에는 인내가 필요하지만 보상이 크다.",
+          "emotion_tags": [
+            "고전",
+            "사회사",
+            "통찰"
+          ]
+        },
+        {
+          "book_id": "b181e436-ff93-46dd-aa36-fbc6b1843508",
+          "title": "위험한 그림들",
+          "rating": "good",
+          "review_text": "세계사 결정적 순간을 시각예술로 재구성하는 시도. 학술서는 아니지만 하우저 같은 책을 보조할 컨텍스트로 유용하다.",
+          "emotion_tags": [
+            "세계사",
+            "예술",
+            "컨텍스트"
+          ]
+        },
+        {
+          "book_id": "86489182-5f55-4ae2-8dfd-7ad1a9b5c30e",
+          "title": "제국의 어린이들",
+          "rating": "good",
+          "review_text": "식민지 아동의 삶이라는 주제가 기존 한국근현대사 서술에서 비어 있던 부분이다. 법사적 관점에서도 미성년 보호 개념의 공백을 보여준다는 점에서 중요한 자료.",
+          "emotion_tags": [
+            "한국근현대사",
+            "아동",
+            "자료"
+          ]
+        },
+        {
+          "book_id": "10da91d6-ab60-40da-a1cf-4f494c86c395",
+          "title": "21세기 자본",
+          "rating": "good",
+          "review_text": "불평등의 장기 데이터를 이렇게 집약한 연구는 드물다. 결론보다는 데이터 해석 과정 자체가 배울 점이 많았다. 비판점도 있지만 논쟁의 출발점으로 필수.",
+          "emotion_tags": [
+            "경제사",
+            "데이터",
+            "논쟁"
+          ]
+        },
+        {
+          "book_id": "9b67c9bb-7a81-41fc-854b-c08d3f163e9a",
+          "title": "인류세와 마르크스",
+          "rating": "good",
+          "review_text": "탈성장이라는 개념을 마르크스 후기 노트에서 재구성하는 접근이 신선하다. 기존 생태주의와 좌파 경제학의 간극을 메우려는 시도로서 의미 있음.",
+          "emotion_tags": [
+            "생태",
+            "마르크스",
+            "이론"
+          ]
+        },
+        {
+          "book_id": "1d85a5f6-8cc3-445d-bad1-c7b07054388c",
+          "title": "눈에 보이지 않는 돈의 지도책",
+          "rating": "good",
+          "review_text": "지리학이 경제 분석의 도구가 될 수 있다는 걸 보여준다. 조세피난처와 글로벌 자본 흐름을 공간적으로 시각화한 부분이 특히 유용했다.",
+          "emotion_tags": [
+            "지정학",
+            "자본주의",
+            "시각화"
+          ]
+        },
+        {
+          "book_id": "83a54ebe-e352-4dbf-ba6d-1e47d9557109",
+          "title": "인류학자처럼 생각하는 법",
+          "rating": "good",
+          "review_text": "타자를 이해하는 방법론으로서 인류학적 사고의 가치를 잘 정리한 입문서. 법 해석에서 문화적 맥락을 고려할 때 참고할 관점을 제공한다.",
+          "emotion_tags": [
+            "인류학",
+            "방법론",
+            "타문화"
+          ]
+        },
+        {
+          "book_id": "b79e07cb-33ed-40c5-87ad-aa1b11e89b5e",
+          "title": "명상록",
+          "rating": "good",
+          "review_text": "2천 년 전 황제의 사적 기록인데 지금 읽어도 현대적이다. 통치자의 자기 규율과 스토아적 태도는 공적 역할을 수행하는 사람에게 여전히 유효한 지침.",
+          "emotion_tags": [
+            "스토아",
+            "고전",
+            "자기규율"
+          ]
+        },
+        {
+          "book_id": "5abe2ccb-4b94-462a-87e2-93c1c54ca813",
+          "title": "해석에 반하여",
+          "rating": "good",
+          "review_text": "작품을 해석으로 환원하지 말라는 손택의 주장은 지금도 도발적이다. 감각적 경험으로서의 예술을 옹호하는 논지가 법해석학적 논의와도 맞닿는 부분이 있어 흥미로웠다.",
+          "emotion_tags": [
+            "비평",
+            "도발적",
+            "감각"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "haneul",
+      "name": "하늘",
+      "profile": "24세 대학생, SF·과학·트렌드. 좋아요 5권 + 싫어요 2권",
+      "books": [
+        {
+          "book_id": "49b8ac29-012f-4739-929b-f0c89c0e64aa",
+          "title": "우리가 빛의 속도로 갈 수 없다면",
+          "rating": "good",
+          "review_text": "SF인데 차가운 이야기가 아니라 사람 이야기다. 김초엽 특유의 섬세함. 단편집인데 각 편마다 세계관이 달라서 지루할 틈이 없음.",
+          "emotion_tags": [
+            "김초엽",
+            "단편",
+            "따뜻함"
+          ]
+        },
+        {
+          "book_id": "bc89e240-fa1c-43fd-a77c-b659a068f387",
+          "title": "은하수를 여행하는 히치하이커를 위한 안내서 1",
+          "rating": "good",
+          "review_text": "진지하게 웃긴 책이 이런 거구나. 말도 안 되는 설정인데 묘하게 철학적이야. SF 입문으로도 최고.",
+          "emotion_tags": [
+            "유머",
+            "고전SF",
+            "입문"
+          ]
+        },
+        {
+          "book_id": "d079e00e-b1cb-4549-ba90-c2756dc15300",
+          "title": "이끼숲",
+          "rating": "good"
+        },
+        {
+          "book_id": "718565b6-c81c-4120-a539-abfb6b08f391",
+          "title": "나는 어쩌다 명왕성을 죽였나",
+          "rating": "good"
+        },
+        {
+          "book_id": "01ef9205-84f1-43c2-84cb-20a19df110a0",
+          "title": "범준에 물리다",
+          "rating": "good"
+        },
+        {
+          "book_id": "fe163b11-5059-4890-9292-6bdff7ace764",
+          "title": "부처님 말씀대로 살아보니",
+          "rating": "bad",
+          "review_text": "자기계발에 종교적 포장만 입힌 느낌. 실제 불교 철학을 기대했는데 '이렇게 살면 성공한다' 류의 단순한 메시지 반복이라 중간에 덮었다.",
+          "emotion_tags": [
+            "실망",
+            "피상적",
+            "설교조"
+          ]
+        },
+        {
+          "book_id": "187d7877-c843-4708-8555-b9229d27a4f0",
+          "title": "생각하라 그리고 부자가 되어라",
+          "rating": "bad",
+          "review_text": "20세기 초 미국 성공학 원조. 지금 읽으니 시대착오적이고 아메리칸 드림 미화가 너무 노골적이다. 구체적 방법론도 추상적이어서 실천할 거리가 없음.",
+          "emotion_tags": [
+            "시대착오",
+            "추상적",
+            "성공학"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "minseo",
+      "name": "민서",
+      "profile": "신규 유저, 온보딩 직후 5권만 좋아요. 피드백 없음 (가장 흔한 케이스)",
+      "books": [
+        {
+          "book_id": "f4aab3f8-d92c-446c-b74f-3ddf888a288e",
+          "title": "일일시호일 : 매일매일 좋은 날",
+          "rating": "good"
+        },
+        {
+          "book_id": "954f71cc-ea12-4e59-9331-94f98966d60a",
+          "title": "기분이 태도가 되지 않게 - 기분 따라 행동하다 손해 보는 당신을 위한 심리 수업",
+          "rating": "good"
+        },
+        {
+          "book_id": "8cff8302-3f1b-4d9f-a1bf-83047d815904",
+          "title": "변신",
+          "rating": "good"
+        },
+        {
+          "book_id": "2a3bd7ea-e61f-428a-bdaf-4dcdf1720d8a",
+          "title": "2025 제16회 젊은작가상 수상작품집",
+          "rating": "good"
+        },
+        {
+          "book_id": "f9ab5c83-3cbf-489c-b43b-b2b82c57e0c0",
+          "title": "이상능력자 - 제12회 교보문고 스토리대상 우수상 수상작",
+          "rating": "good"
+        }
+      ]
+    },
+    {
+      "id": "taewon",
+      "name": "태원",
+      "profile": "SF/판타지 마니아, 같은 장르만 깊게 파는 유저. 10권 모두 SF/판타지",
+      "books": [
+        {
+          "book_id": "190e87c4-2226-4b5f-947b-96fae2366d3f",
+          "title": "새벽",
+          "rating": "good"
+        },
+        {
+          "book_id": "d079e00e-b1cb-4549-ba90-c2756dc15300",
+          "title": "이끼숲",
+          "rating": "good"
+        },
+        {
+          "book_id": "e8588836-af3b-4335-b9b8-c1c19eb7c97c",
+          "title": "마이너리티 리포트 - 필립 K. 딕 단편집",
+          "rating": "good"
+        },
+        {
+          "book_id": "2ce38382-cd34-437b-976c-58fb9f273eb8",
+          "title": "붉은 칼",
+          "rating": "good"
+        },
+        {
+          "book_id": "bc89e240-fa1c-43fd-a77c-b659a068f387",
+          "title": "은하수를 여행하는 히치하이커를 위한 안내서 1",
+          "rating": "good"
+        },
+        {
+          "book_id": "70577e0e-175a-4ca3-99bf-08df136ff443",
+          "title": "아무도 오지 않는 곳에서",
+          "rating": "good"
+        },
+        {
+          "book_id": "42e19d6f-d58e-4340-a987-d1ed0ba9dac5",
+          "title": "눈물을 마시는 새 세트",
+          "rating": "good"
+        },
+        {
+          "book_id": "49b8ac29-012f-4739-929b-f0c89c0e64aa",
+          "title": "우리가 빛의 속도로 갈 수 없다면 - 2019 제43회 오늘의 작가상 수상작",
+          "rating": "good"
+        },
+        {
+          "book_id": "2eda1e82-4b67-4d2e-8445-9b17a77bfb19",
+          "title": "나의 완벽한 장례식",
+          "rating": "good"
+        },
+        {
+          "book_id": "8baf5baa-41fc-47ed-8560-58cf653d22a0",
+          "title": "도매가로 기억을 팝니다 - 필립 K. 딕 단편집",
+          "rating": "good"
+        }
+      ]
+    },
+    {
+      "id": "sua",
+      "name": "수아",
+      "profile": "잡식형 독서가, 7개 장르 광범위. 14권 rating만",
+      "books": [
+        {
+          "book_id": "9b9a9d0a-ef5b-4268-9b34-f1c0d8f83c5c",
+          "title": "이렇게 작지만 확실한 행복 - 개정판",
+          "rating": "good"
+        },
+        {
+          "book_id": "40f608da-c945-4e85-9a0c-b28729bd3a65",
+          "title": "제철 행복 - 가장 알맞은 시절에 건네는 스물네 번의 다정한 안부",
+          "rating": "good"
+        },
+        {
+          "book_id": "9aa3e19a-72e1-4562-a6f9-2b21a0c49797",
+          "title": "모든 것은 별에서 시작되었다 - 천문학자가 바라본 우주와 인류의 발자취",
+          "rating": "good"
+        },
+        {
+          "book_id": "5d7cc9fb-fc82-4e0f-90c9-50925766c42b",
+          "title": "아무것도 하고 싶지 않은 날을 위한 철학 - 나를 짓누르는 삶의 중력을 거슬러 은총으로 나아가는 길",
+          "rating": "good"
+        },
+        {
+          "book_id": "e0f9d4b4-b3e5-4ef1-9274-0df44e2ee7ff",
+          "title": "떠난 것은 돌아오지 않는다",
+          "rating": "good"
+        },
+        {
+          "book_id": "d5513624-2c1c-461c-8ad0-beb93d8f8fb3",
+          "title": "나는 소망한다 내게 금지된 것을",
+          "rating": "good"
+        },
+        {
+          "book_id": "929a0f3e-dd23-44d3-9316-6a9c9554e416",
+          "title": "머니하이의 예금 탈출 플랜 - 자산 점검에서 포트폴리오 완성까지, 0원부터 시작하는 투자 로드맵",
+          "rating": "good"
+        },
+        {
+          "book_id": "a4c74aa3-3ea7-403d-8b67-77c62ad86c66",
+          "title": "누구나 투자로 부자가 될 수 있다 - AI 시대, ETF 투자 전략",
+          "rating": "good"
+        },
+        {
+          "book_id": "e83fe1ac-c3dd-445a-8af7-30e1cf375ef0",
+          "title": "쇳돌 - 사라지는 세계, 사라지는 노동, 사라지는 목소리를 채굴하기",
+          "rating": "good"
+        },
+        {
+          "book_id": "91313db8-3a86-4809-bbf8-a8dfb045451a",
+          "title": "확장된 표현형 - 출간 40주년 기념 리커버판",
+          "rating": "good"
+        },
+        {
+          "book_id": "d20d675a-1b76-4946-bee0-b2aa1e9baca8",
+          "title": "우연히, 웨스 앤더슨 : 어드벤처 - 일상의 모든 순간이 모험이 된다",
+          "rating": "good"
+        },
+        {
+          "book_id": "074ae232-2bc4-4f60-ac87-eb05bf381002",
+          "title": "잘 그리기 습관 - 그림이 잘 되는 5가지 습관",
+          "rating": "good"
+        },
+        {
+          "book_id": "0406978f-21f0-4b11-a80d-96104fa7520f",
+          "title": "리얼 오사카 - 교토·고베·나라, 2026~2027년 최신판",
+          "rating": "good"
+        },
+        {
+          "book_id": "f6bfc46e-ab43-497c-8c39-cd7aed3aaa8a",
+          "title": "메뉴판 해석학 : 일본 편 - 낭만닥터SJ의 美친 味식 여행기",
+          "rating": "good"
+        }
+      ]
+    },
+    {
+      "id": "jaehoon",
+      "name": "재훈",
+      "profile": "까다로운 유저, 좋아요 3권 + 싫어요 5권. dislike가 더 많음",
+      "books": [
+        {
+          "book_id": "7b951c2b-55f1-4ee0-a029-8120a2b45813",
+          "title": "출판인을 위한 저작권법",
+          "rating": "good"
+        },
+        {
+          "book_id": "5f3f3a4d-4f42-43f2-8749-319ffb480d85",
+          "title": "나의 일본미술 순례 2 + 이 한 장의 그림엽서",
+          "rating": "good"
+        },
+        {
+          "book_id": "c0185a6f-c667-42f1-ba30-b4ce32531e39",
+          "title": "우리가 사랑한 도시 - 역사, 예술, 문화, 미식을 넘나드는 인문 기행",
+          "rating": "good"
+        },
+        {
+          "book_id": "420a6a7b-7683-4677-805a-dbee589982c7",
+          "title": "더블 클릭 - 진짜 ‘나’를 선택하고 실행하는 법",
+          "rating": "bad"
+        },
+        {
+          "book_id": "a841ca92-9f12-4147-b42f-644aa93856f7",
+          "title": "심플하게 산다",
+          "rating": "bad"
+        },
+        {
+          "book_id": "0dd5640e-4b02-4a76-aba5-d219079eee0f",
+          "title": "돈이 쌓이는 집, 돈이 새는 집 - 잘되는 집들은 공간을 대하는 태도가 다르다",
+          "rating": "bad"
+        },
+        {
+          "book_id": "200e66be-22d1-4401-bc5a-e2844773c567",
+          "title": "최소한의 경영학 - 사업의 성공 확률을 높이는 단계별 경영 설계",
+          "rating": "bad"
+        },
+        {
+          "book_id": "c5476c78-64e6-48c8-ad37-e8b606d22f56",
+          "title": "일론 머스크",
+          "rating": "bad"
+        }
+      ]
+    },
+    {
+      "id": "yujin",
+      "name": "유진",
+      "profile": "소수 장르 (요리/건강/여행). 추천 풀 부족한 마이너 카테고리",
+      "books": [
+        {
+          "book_id": "9f870b5d-1f35-4e8c-be80-11708ffd18be",
+          "title": "당신은 무엇을 먹고 사십니까 - 선재 스님의 삶에서 배우는 사찰음식 이야기",
+          "rating": "good"
+        },
+        {
+          "book_id": "d245be5f-5e05-4e80-bcda-e7a9e4ddf032",
+          "title": "3000만 원 아끼는 혼자 하는 집수리 - 작은 부품 교체부터 굵직한 부분 수리까지",
+          "rating": "good"
+        },
+        {
+          "book_id": "75d36601-2b67-4ec2-8264-2b053a3040f5",
+          "title": "쉽게 배우는 리본 자수의 기초 - 개정판",
+          "rating": "good"
+        },
+        {
+          "book_id": "6ed7a3a3-ba5e-45c0-bd0b-f073f6120b3d",
+          "title": "부케북 : Thinking of You",
+          "rating": "good"
+        },
+        {
+          "book_id": "f6bfc46e-ab43-497c-8c39-cd7aed3aaa8a",
+          "title": "메뉴판 해석학 : 일본 편 - 낭만닥터SJ의 美친 味식 여행기",
+          "rating": "good"
+        },
+        {
+          "book_id": "8f82b38d-ffce-427f-8190-3a58ecab25b7",
+          "title": "일본 현지 간식 대백과",
+          "rating": "good"
+        }
+      ]
+    },
+    {
+      "id": "hyunwoo",
+      "name": "현우",
+      "profile": "극단 최소: 좋아요 2권만. 데이터 바닥",
+      "books": [
+        {
+          "book_id": "5081d2fd-b963-4082-907f-bfb3373cdecd",
+          "title": "정전 - 제31회 문학동네소설상 수상작",
+          "rating": "good"
+        },
+        {
+          "book_id": "23d2a4b3-5b65-4cc9-8106-ea4368abdccb",
+          "title": "이방인",
+          "rating": "good"
+        }
+      ]
+    },
+    {
+      "id": "yerin",
+      "name": "예린",
+      "profile": "부정 위주: good 1 + bad 3. 까다로운 신규",
+      "books": [
+        {
+          "book_id": "5d7cc9fb-fc82-4e0f-90c9-50925766c42b",
+          "title": "아무것도 하고 싶지 않은 날을 위한 철학 - 나를 짓누르는 삶의 중력을 거슬러 은총으로 나아가는 길",
+          "rating": "good"
+        },
+        {
+          "book_id": "25dfb212-c21d-4d72-a968-1417c1c46bde",
+          "title": "관점을 디자인하라 (표지 3종 중 1종 랜덤) - 없는 것인가, 못 본 것인가? (50만 부 개정증보판: ABC Edition)",
+          "rating": "bad"
+        },
+        {
+          "book_id": "036b028c-9bc8-49e7-8a09-389dbd552c08",
+          "title": "그때 장자를 만났다 - 내 인생의 전환점",
+          "rating": "bad"
+        },
+        {
+          "book_id": "5c590b13-93a5-445f-a4ff-7f15b8abdb1b",
+          "title": "황금의 샘 세트",
+          "rating": "bad"
+        }
+      ]
+    },
+    {
+      "id": "dohyun",
+      "name": "도현",
+      "profile": "다독가 35권. 장기 유저, 광범위",
+      "books": [
+        {
+          "book_id": "2265692e-75de-4723-a84f-7d96a908901b",
+          "title": "오래된 세계의 농담 - 삶의 모퉁이를 돌 때 내게 다가와주는 고전들",
+          "rating": "good"
+        },
+        {
+          "book_id": "3fb07ad6-c4ad-4357-99ab-554f9c0789bd",
+          "title": "그저 하루치의 낙담",
+          "rating": "good"
+        },
+        {
+          "book_id": "5abe2ccb-4b94-462a-87e2-93c1c54ca813",
+          "title": "해석에 반하여",
+          "rating": "good"
+        },
+        {
+          "book_id": "3d8fb7e2-eda9-4ce5-b599-01f2742bd6d8",
+          "title": "인생에 가장 가까운 것",
+          "rating": "good"
+        },
+        {
+          "book_id": "5aff9a3e-6db1-4247-bf86-1f8263add159",
+          "title": "사랑이 있으니 살아집디다 - 강순희 말하고 유시민 듣다",
+          "rating": "good"
+        },
+        {
+          "book_id": "5d7cc9fb-fc82-4e0f-90c9-50925766c42b",
+          "title": "아무것도 하고 싶지 않은 날을 위한 철학 - 나를 짓누르는 삶의 중력을 거슬러 은총으로 나아가는 길",
+          "rating": "good"
+        },
+        {
+          "book_id": "40f608da-c945-4e85-9a0c-b28729bd3a65",
+          "title": "제철 행복 - 가장 알맞은 시절에 건네는 스물네 번의 다정한 안부",
+          "rating": "good"
+        },
+        {
+          "book_id": "16026a06-0709-4db4-a07b-e3b45db6bfc3",
+          "title": "나는 메트로폴리탄 미술관의 경비원입니다 - 가장 경이로운 세계 속으로 숨어버린 한 남자의 이야기",
+          "rating": "good"
+        },
+        {
+          "book_id": "059c4f20-643f-403b-8cd6-a800005044c3",
+          "title": "할매",
+          "rating": "good"
+        },
+        {
+          "book_id": "5081d2fd-b963-4082-907f-bfb3373cdecd",
+          "title": "정전 - 제31회 문학동네소설상 수상작",
+          "rating": "good"
+        },
+        {
+          "book_id": "5565e579-d941-4855-84f7-a93a8c5bb628",
+          "title": "혼모노",
+          "rating": "good"
+        },
+        {
+          "book_id": "0e2529bf-b915-4723-b7d4-baef520b6034",
+          "title": "내 이름은 빨강 1",
+          "rating": "good"
+        },
+        {
+          "book_id": "23d2a4b3-5b65-4cc9-8106-ea4368abdccb",
+          "title": "이방인",
+          "rating": "good"
+        },
+        {
+          "book_id": "03b54202-6876-4cab-987e-b333e604a468",
+          "title": "내 심장을 쏴라 - 2009년 제5회 세계문학상 수상작, 2026 개정판",
+          "rating": "good"
+        },
+        {
+          "book_id": "0e7bb3b1-f947-4a68-91d4-5a6d4cfe2dfd",
+          "title": "세종의 나라 2 (양장)",
+          "rating": "good"
+        },
+        {
+          "book_id": "2708b04c-6031-46b4-ae83-5a839358a740",
+          "title": "누가 제인 오스틴을 두려워하랴 - 새로 읽는 버지니아 울프 에세이와 두 편의 시",
+          "rating": "good"
+        },
+        {
+          "book_id": "5d7cc9fb-fc82-4e0f-90c9-50925766c42b",
+          "title": "아무것도 하고 싶지 않은 날을 위한 철학 - 나를 짓누르는 삶의 중력을 거슬러 은총으로 나아가는 길",
+          "rating": "good"
+        },
+        {
+          "book_id": "48c3c1ec-f240-4c75-9b0e-d0f46f7f9d85",
+          "title": "내가 지금 잘하고 있다고, 심리학이 말했다 - 내가 누구인지, 무엇을 좋아하는지 탐색하는 자존감 수업",
+          "rating": "good"
+        },
+        {
+          "book_id": "3d8fb7e2-eda9-4ce5-b599-01f2742bd6d8",
+          "title": "인생에 가장 가까운 것",
+          "rating": "good"
+        },
+        {
+          "book_id": "0b181e9b-82d3-4655-b513-059ac5c6e04c",
+          "title": "달리기 인류 - 인류학의 퓰리처상 ‘마거릿 미드상’ 수상작",
+          "rating": "good"
+        },
+        {
+          "book_id": "3e8737cd-037d-4806-8cf5-82e49ea0a105",
+          "title": "완벽한 원시인 - 10만 년을 되돌려 되찾는 뇌 설계도",
+          "rating": "good"
+        },
+        {
+          "book_id": "42244e2a-a6fa-48a6-9252-c1de8eb31592",
+          "title": "코스피 1만 넥스트 레벨 - 전 국민 주주 시대, 박시동의 실전 투자 비법",
+          "rating": "good"
+        },
+        {
+          "book_id": "1173d86e-47f4-462e-825b-f87c6c95dbf2",
+          "title": "돈, 뜨겁게 사랑하고 차갑게 다루어라",
+          "rating": "good"
+        },
+        {
+          "book_id": "16bf12ef-c06d-40cb-b27a-61ed2e60e546",
+          "title": "돈의 방정식 - 돈을 지위와 성공의 기준, 그 이상으로 다루기 위한 21가지 이야기",
+          "rating": "good"
+        },
+        {
+          "book_id": "4846ab73-2977-41a3-b33f-1370cb8f30a1",
+          "title": "50세 김부장의 늦지 않은 연금 공부 - 은퇴 후 500만 원을 만드는 연금 포트폴리오",
+          "rating": "good"
+        },
+        {
+          "book_id": "5c590b13-93a5-445f-a4ff-7f15b8abdb1b",
+          "title": "황금의 샘 세트",
+          "rating": "good"
+        },
+        {
+          "book_id": "513eb859-2f5a-49dc-b0b8-d27a8d1cbbd8",
+          "title": "떠오르는 숨 - 해양 포유류의 흑인 페미니즘 수업",
+          "rating": "good"
+        },
+        {
+          "book_id": "25336f7c-a418-40ee-b4c5-e79736ce40d8",
+          "title": "이일하 교수의 생물학 산책 - 21세기에 다시 쓰는 생명이란 무엇인가?",
+          "rating": "good"
+        },
+        {
+          "book_id": "3400717b-edfa-4b84-a30a-21325e37353e",
+          "title": "미국 공산주의라는 로맨스 - 사로잡힌 영혼들의 이야기",
+          "rating": "good"
+        },
+        {
+          "book_id": "37021eff-ec9e-4087-8735-5a9df0cf4c2b",
+          "title": "모든 새를 보았다고 믿은 남자",
+          "rating": "good"
+        },
+        {
+          "book_id": "5c28be75-3c20-49fa-aba4-4c745589c01a",
+          "title": "예술이란 무엇인가",
+          "rating": "good"
+        },
+        {
+          "book_id": "0ae1eeb1-4fee-45f8-90f1-47f4a3789c5e",
+          "title": "시노자키 바이올린 교본 1 - 개정판",
+          "rating": "good"
+        },
+        {
+          "book_id": "20dec551-d79f-445d-8ae4-7601ea22f792",
+          "title": "단둘이 도쿄 동거방 도감 - LIFE FOR TWO IN TOKYO",
+          "rating": "good"
+        },
+        {
+          "book_id": "3400717b-edfa-4b84-a30a-21325e37353e",
+          "title": "미국 공산주의라는 로맨스 - 사로잡힌 영혼들의 이야기",
+          "rating": "good"
+        },
+        {
+          "book_id": "10da91d6-ab60-40da-a1cf-4f494c86c395",
+          "title": "21세기 자본",
+          "rating": "good"
+        }
+      ]
+    },
+    {
+      "id": "soyul",
+      "name": "소율",
+      "profile": "특정 저자 팬: ? 다수 + 기타",
+      "books": [
+        {
+          "book_id": "059c4f20-643f-403b-8cd6-a800005044c3",
+          "title": "할매",
+          "rating": "good"
+        },
+        {
+          "book_id": "0e2529bf-b915-4723-b7d4-baef520b6034",
+          "title": "내 이름은 빨강 1",
+          "rating": "good"
+        },
+        {
+          "book_id": "23d2a4b3-5b65-4cc9-8106-ea4368abdccb",
+          "title": "이방인",
+          "rating": "good"
+        },
+        {
+          "book_id": "5081d2fd-b963-4082-907f-bfb3373cdecd",
+          "title": "정전 - 제31회 문학동네소설상 수상작",
+          "rating": "good"
+        },
+        {
+          "book_id": "5565e579-d941-4855-84f7-a93a8c5bb628",
+          "title": "혼모노",
+          "rating": "good"
+        },
+        {
+          "book_id": "0e7bb3b1-f947-4a68-91d4-5a6d4cfe2dfd",
+          "title": "세종의 나라 2 (양장)",
+          "rating": "good"
+        },
+        {
+          "book_id": "03b54202-6876-4cab-987e-b333e604a468",
+          "title": "내 심장을 쏴라 - 2009년 제5회 세계문학상 수상작, 2026 개정판",
+          "rating": "good"
+        }
+      ]
+    },
+    {
+      "id": "jihoon",
+      "name": "지훈",
+      "profile": "emotion_tags만, review_text 없음",
+      "books": [
+        {
+          "book_id": "42244e2a-a6fa-48a6-9252-c1de8eb31592",
+          "title": "코스피 1만 넥스트 레벨 - 전 국민 주주 시대, 박시동의 실전 투자 비법",
+          "rating": "good",
+          "emotion_tags": [
+            "실용",
+            "성장"
+          ]
+        },
+        {
+          "book_id": "4846ab73-2977-41a3-b33f-1370cb8f30a1",
+          "title": "50세 김부장의 늦지 않은 연금 공부 - 은퇴 후 500만 원을 만드는 연금 포트폴리오",
+          "rating": "good",
+          "emotion_tags": [
+            "실용",
+            "성장"
+          ]
+        },
+        {
+          "book_id": "5c590b13-93a5-445f-a4ff-7f15b8abdb1b",
+          "title": "황금의 샘 세트",
+          "rating": "good",
+          "emotion_tags": [
+            "실용",
+            "성장"
+          ]
+        },
+        {
+          "book_id": "1173d86e-47f4-462e-825b-f87c6c95dbf2",
+          "title": "돈, 뜨겁게 사랑하고 차갑게 다루어라",
+          "rating": "good",
+          "emotion_tags": [
+            "실용",
+            "성장"
+          ]
+        },
+        {
+          "book_id": "3e7a1343-2239-44fc-b7d1-88b0bbd0230f",
+          "title": "캔들차트 하나로 끝내는 추세추종 투자 - 주식 매수 매도 타이밍을 읽는 눈",
+          "rating": "good",
+          "emotion_tags": [
+            "실용",
+            "성장"
+          ]
+        },
+        {
+          "book_id": "16bf12ef-c06d-40cb-b27a-61ed2e60e546",
+          "title": "돈의 방정식 - 돈을 지위와 성공의 기준, 그 이상으로 다루기 위한 21가지 이야기",
+          "rating": "good",
+          "emotion_tags": [
+            "실용",
+            "성장"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "areum",
+      "name": "아름",
+      "profile": "장르 전환: 자기계발 6 + 소설 2(새 시도)",
+      "books": [
+        {
+          "book_id": "4e37775a-1a28-47a1-8dbf-2fbbc61be2f7",
+          "title": "딱 1년만 미쳐라",
+          "rating": "good"
+        },
+        {
+          "book_id": "25dfb212-c21d-4d72-a968-1417c1c46bde",
+          "title": "관점을 디자인하라 (표지 3종 중 1종 랜덤) - 없는 것인가, 못 본 것인가? (50만 부 개정증보판: ABC Edition)",
+          "rating": "good"
+        },
+        {
+          "book_id": "036b028c-9bc8-49e7-8a09-389dbd552c08",
+          "title": "그때 장자를 만났다 - 내 인생의 전환점",
+          "rating": "good"
+        },
+        {
+          "book_id": "0025a045-a5b4-46ac-8562-78b929adf315",
+          "title": "심리학이 분노에 답하다 - 분노라는 가면을 쓴 진짜 감정 6가지",
+          "rating": "good"
+        },
+        {
+          "book_id": "187d7877-c843-4708-8555-b9229d27a4f0",
+          "title": "생각하라 그리고 부자가 되어라 - 나폴레온 힐, 부와 성공의 원칙",
+          "rating": "good"
+        },
+        {
+          "book_id": "5565e579-d941-4855-84f7-a93a8c5bb628",
+          "title": "혼모노",
+          "rating": "good"
+        },
+        {
+          "book_id": "0e2529bf-b915-4723-b7d4-baef520b6034",
+          "title": "내 이름은 빨강 1",
+          "rating": "good"
+        }
+      ]
+    },
+    {
+      "id": "geonwoo",
+      "name": "건우",
+      "profile": "좁은 L2 취향: 철학/심리 8권",
+      "books": [
+        {
+          "book_id": "2ab8baa8-d274-465d-95f8-c20bb54da33c",
+          "title": "쇼펜하우어 인생수업 : 한 번뿐인 삶 이렇게 살아라",
+          "rating": "good"
+        },
+        {
+          "book_id": "0b181e9b-82d3-4655-b513-059ac5c6e04c",
+          "title": "달리기 인류 - 인류학의 퓰리처상 ‘마거릿 미드상’ 수상작",
+          "rating": "good"
+        },
+        {
+          "book_id": "2b002c4b-9b40-40a0-939e-c265d34b8f71",
+          "title": "고요하고 단단하게, 법정의 말 - 내려놓음의 마음 공부",
+          "rating": "good"
+        },
+        {
+          "book_id": "5d7cc9fb-fc82-4e0f-90c9-50925766c42b",
+          "title": "아무것도 하고 싶지 않은 날을 위한 철학 - 나를 짓누르는 삶의 중력을 거슬러 은총으로 나아가는 길",
+          "rating": "good"
+        },
+        {
+          "book_id": "3d8fb7e2-eda9-4ce5-b599-01f2742bd6d8",
+          "title": "인생에 가장 가까운 것",
+          "rating": "good"
+        },
+        {
+          "book_id": "3e8737cd-037d-4806-8cf5-82e49ea0a105",
+          "title": "완벽한 원시인 - 10만 년을 되돌려 되찾는 뇌 설계도",
+          "rating": "good"
+        },
+        {
+          "book_id": "5abe2ccb-4b94-462a-87e2-93c1c54ca813",
+          "title": "해석에 반하여",
+          "rating": "good"
+        },
+        {
+          "book_id": "48c3c1ec-f240-4c75-9b0e-d0f46f7f9d85",
+          "title": "내가 지금 잘하고 있다고, 심리학이 말했다 - 내가 누구인지, 무엇을 좋아하는지 탐색하는 자존감 수업",
+          "rating": "good"
+        }
+      ]
+    },
+    {
+      "id": "miso",
+      "name": "미소",
+      "profile": "진짜 최소: g1 + b1",
+      "books": [
+        {
+          "book_id": "3fb07ad6-c4ad-4357-99ab-554f9c0789bd",
+          "title": "그저 하루치의 낙담",
+          "rating": "good"
+        },
+        {
+          "book_id": "036b028c-9bc8-49e7-8a09-389dbd552c08",
+          "title": "그때 장자를 만났다 - 내 인생의 전환점",
+          "rating": "bad"
+        }
+      ]
+    }
+  ]
+}
