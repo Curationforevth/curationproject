@@ -124,7 +124,7 @@ def filter_single_token_keywords(keywords: list[tuple[str, float]]) -> list[tupl
     return out
 
 
-def trigger_enrich_pipeline(dry_run: bool = False) -> int:
+def trigger_enrich_pipeline(dry_run: bool = False, limit: Optional[int] = None) -> int:
     """Discovery 수집 직후 pipeline_orchestrator 를 subprocess 로 호출.
 
     Returns the orchestrator's exit code (0 = success).
@@ -132,6 +132,8 @@ def trigger_enrich_pipeline(dry_run: bool = False) -> int:
     cmd = ["python3", "scripts/pipeline_orchestrator.py"]
     if dry_run:
         cmd.append("--dry-run")
+    if limit is not None:
+        cmd.extend(["--limit", str(limit)])
     print(f"\n▶ enrich pipeline 트리거: {' '.join(cmd)}")
     proc = subprocess.run(cmd, cwd=REPO, check=False)
     return proc.returncode
@@ -338,6 +340,9 @@ def main():
     p.add_argument("--status", action="store_true")
     p.add_argument("--with-enrich", action="store_true",
                    help="수집 완료 후 pipeline_orchestrator 자동 트리거")
+    p.add_argument("--enrich-limit", type=int, default=None,
+                   help="--with-enrich 시 각 enrich step 에 전달할 limit "
+                        "(생략 = 전체 backlog 처리)")
     args = p.parse_args()
 
     c = DiscoveryCollector(dry_run=args.dry_run)
@@ -371,7 +376,7 @@ def main():
     c.report()
 
     if args.with_enrich:
-        code = trigger_enrich_pipeline(dry_run=args.dry_run)
+        code = trigger_enrich_pipeline(dry_run=args.dry_run, limit=args.enrich_limit)
         if code != 0:
             print(f"⚠ enrich pipeline 실패 (exit {code})", file=sys.stderr)
             sys.exit(code)

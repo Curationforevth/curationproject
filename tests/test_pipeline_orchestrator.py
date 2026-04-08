@@ -127,7 +127,7 @@ def test_collect_status_aggregates_counts(monkeypatch):
     monkeypatch.setattr(pipeline_orchestrator, "_count_total", fake_count_total)
 
     status = collect_status(sb=None)
-    assert status["collected_this_session"] == 1019
+    assert status["with_loan_count"] == 1019
     assert status["missing_rich_description"] == 745
     assert status["with_rich_description"] == 2678
     assert status["with_v3_vectors"] == 2651
@@ -137,7 +137,7 @@ def test_collect_status_aggregates_counts(monkeypatch):
 def test_print_status_does_not_crash(capsys):
     """Smoke test the printer."""
     status = {
-        "collected_this_session": 1,
+        "with_loan_count": 1,
         "missing_rich_description": 2,
         "with_rich_description": 3,
         "with_v3_vectors": 4,

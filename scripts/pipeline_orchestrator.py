@@ -144,7 +144,7 @@ def _count_total(sb, table: str) -> int:
 def collect_status(sb) -> dict:
     """Query DB for counts at each pipeline stage."""
     return {
-        "collected_this_session": _count_not_null(sb, "books", "loan_count"),
+        "with_loan_count": _count_not_null(sb, "books", "loan_count"),
         "missing_rich_description": _count_missing(sb, "books", "loan_count", "rich_description"),
         "with_rich_description": _count_not_null(sb, "books", "rich_description"),
         "with_v3_vectors": _count_total(sb, "book_v3_vectors"),
@@ -154,11 +154,11 @@ def collect_status(sb) -> dict:
 
 def print_status(status: dict):
     print("\n=== Pipeline Status ===")
-    print(f"  loan_count 있음 (수집 완료):           {status['collected_this_session']:>6}")
-    print(f"  그중 rich_description 없음 (pending):  {status['missing_rich_description']:>6}")
-    print(f"  rich_description 있음:                  {status['with_rich_description']:>6}")
-    print(f"  book_v3_vectors:                         {status['with_v3_vectors']:>6}")
-    print(f"  book_embeddings:                         {status['with_embeddings']:>6}")
+    print(f"  loan_count 있는 책 (정보나루 수집분):    {status['with_loan_count']:>6}")
+    print(f"  그중 rich_description 없음 (pending):    {status['missing_rich_description']:>6}")
+    print(f"  rich_description 있음:                    {status['with_rich_description']:>6}")
+    print(f"  book_v3_vectors:                           {status['with_v3_vectors']:>6}")
+    print(f"  book_embeddings:                           {status['with_embeddings']:>6}")
 
 
 def main():

@@ -179,3 +179,12 @@ def test_trigger_enrich_pipeline_returns_nonzero_on_failure():
         mock_run.return_value = MagicMock(returncode=1)
         code = trigger_enrich_pipeline(dry_run=False)
     assert code == 1
+
+
+def test_trigger_enrich_pipeline_passes_limit():
+    with patch("scripts.data4library_discovery_collector.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
+        trigger_enrich_pipeline(dry_run=False, limit=20)
+    cmd = mock_run.call_args[0][0]
+    assert "--limit" in cmd
+    assert "20" in cmd
