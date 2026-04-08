@@ -82,6 +82,25 @@ def extract_first_author(author_raw: Optional[str]) -> str:
     return s
 
 
+def select_seed_isbns_for_tier2(rows: list[dict], top_n: int = 50) -> list[str]:
+    """Select top-N ISBN seeds for Tier 2 recommandList expansion.
+
+    Sort by loan_count desc, take ISBN13s, drop blanks, dedupe in order.
+    """
+    sorted_rows = sorted(rows, key=lambda r: r.get("loan_count") or 0, reverse=True)
+    seen: set[str] = set()
+    out: list[str] = []
+    for r in sorted_rows:
+        isbn = (r.get("isbn13") or "").strip()
+        if not isbn or isbn in seen:
+            continue
+        seen.add(isbn)
+        out.append(isbn)
+        if len(out) >= top_n:
+            break
+    return out
+
+
 def sanitize_for_upsert(parsed: dict) -> dict:
     """Convert a parsed loanItem dict to a books-table row."""
     # sales_point bootstraps from loan_count; later Aladin enrichment
@@ -167,6 +186,24 @@ class DiscoveryCollector:
                 time.sleep(REQUEST_DELAY)
         return all_rows
 
+    def fetch_tier2(self, seed_isbns: list[str]) -> list[dict]:
+        """Tier 2: recommandList for each seed ISBN."""
+        from scripts.lib.data4library_api import fetch_recommand
+        all_rows: list[dict] = []
+        for i, isbn in enumerate(seed_isbns):
+            try:
+                raw = fetch_recommand(api_key=self.api_key, isbn13=isbn, page_size=10)
+                parsed = parse_book_docs(raw)
+                all_rows.extend(parsed)
+                self.stats["fetched_raw"] += len(parsed)
+                if (i + 1) % 10 == 0:
+                    print(f"  recommandList progress: {i+1}/{len(seed_isbns)}")
+            except Exception as e:
+                print(f"  ✗ recommandList isbn={isbn}: {e}")
+                self.stats["errors"] += 1
+            time.sleep(REQUEST_DELAY)
+        return all_rows
+
     def filter_and_upsert(self, parsed_rows: list[dict]) -> int:
         """Apply children filter, batch ISBN dedup, edition dedup, then upsert."""
         adult_rows = [r for r in parsed_rows if is_adult_general(r)]
@@ -231,6 +268,8 @@ def main():
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--period-days", type=int, default=30)
     p.add_argument("--pages", type=int, default=1)
+    p.add_argument("--tier2-seeds", type=int, default=50,
+                   help="Tier 2: how many top seed ISBNs to expand via recommandList")
     p.add_argument("--status", action="store_true")
     args = p.parse_args()
 
@@ -243,6 +282,13 @@ def main():
         print(f"Tier 1: loanItemSrch × {len(KDC_BUCKETS)} KDC × {args.pages} pages × {PAGE_SIZE}/page")
         rows = c.fetch_tier1(args.period_days, args.pages)
         c.filter_and_upsert(rows)
+    elif args.tier == 2:
+        print(f"Tier 2: recommandList for top-{args.tier2_seeds} books from Tier 1 result")
+        tier1_rows = c.fetch_tier1(args.period_days, args.pages)
+        seeds = select_seed_isbns_for_tier2(tier1_rows, top_n=args.tier2_seeds)
+        print(f"  selected {len(seeds)} seed ISBNs")
+        tier2_rows = c.fetch_tier2(seeds)
+        c.filter_and_upsert(tier1_rows + tier2_rows)
     else:
         print(f"Tier {args.tier} 는 다음 task 에서 구현됩니다.")
 

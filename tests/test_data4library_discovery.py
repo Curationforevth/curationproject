@@ -83,3 +83,32 @@ def test_sanitize_for_upsert_handles_missing_optional():
     assert row["isbn"] == "9999999999999"
     assert row["author"] == ""
     assert row["loan_count"] == 0
+
+
+from scripts.data4library_discovery_collector import (
+    select_seed_isbns_for_tier2,
+)
+
+
+def test_select_seed_isbns_for_tier2_picks_top_n_by_loan_count():
+    rows = [
+        {"isbn13": "isbn1", "loan_count": 500},
+        {"isbn13": "isbn2", "loan_count": 1500},
+        {"isbn13": "isbn3", "loan_count": 100},
+        {"isbn13": "isbn4", "loan_count": 800},
+    ]
+    seeds = select_seed_isbns_for_tier2(rows, top_n=2)
+    assert seeds == ["isbn2", "isbn4"]
+
+
+def test_select_seed_isbns_for_tier2_skips_blank_isbn():
+    rows = [
+        {"isbn13": "", "loan_count": 9999},
+        {"isbn13": "isbn2", "loan_count": 100},
+    ]
+    seeds = select_seed_isbns_for_tier2(rows, top_n=5)
+    assert seeds == ["isbn2"]
+
+
+def test_select_seed_isbns_for_tier2_empty():
+    assert select_seed_isbns_for_tier2([], top_n=10) == []
