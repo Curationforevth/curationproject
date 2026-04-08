@@ -84,6 +84,8 @@ def extract_first_author(author_raw: Optional[str]) -> str:
 
 def sanitize_for_upsert(parsed: dict) -> dict:
     """Convert a parsed loanItem dict to a books-table row."""
+    # sales_point bootstraps from loan_count; later Aladin enrichment
+    # may overwrite with retailer sales rank.
     return {
         "isbn": parsed["isbn13"],
         "title": parsed.get("title") or "",
@@ -168,11 +170,11 @@ class DiscoveryCollector:
     def filter_and_upsert(self, parsed_rows: list[dict]) -> int:
         """Apply children filter, batch ISBN dedup, edition dedup, then upsert."""
         adult_rows = [r for r in parsed_rows if is_adult_general(r)]
-        self.stats["filtered_children"] = len(parsed_rows) - len(adult_rows)
+        self.stats["filtered_children"] += len(parsed_rows) - len(adult_rows)
         print(f"  성인 단행본 필터: {len(adult_rows)}/{len(parsed_rows)}")
 
         by_isbn = dedup_in_batch_by_isbn(adult_rows)
-        self.stats["filtered_isbn_dup"] = len(adult_rows) - len(by_isbn)
+        self.stats["filtered_isbn_dup"] += len(adult_rows) - len(by_isbn)
         print(f"  배치 ISBN dedup: {len(by_isbn)}/{len(adult_rows)}")
 
         if not by_isbn:
@@ -204,7 +206,7 @@ class DiscoveryCollector:
             chunk = rows[i:i + 200]
             self.sb.table("books").upsert(chunk, on_conflict="isbn").execute()
             upserted += len(chunk)
-        self.stats["upserted"] = upserted
+        self.stats["upserted"] += upserted
         return upserted
 
     def show_status(self):
