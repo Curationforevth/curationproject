@@ -111,6 +111,56 @@ def print_summary(results: List[StepResult]):
         print("\n❌ 파이프라인 실패.")
 
 
+def _count_not_null(sb, table: str, col: str) -> int:
+    """Count rows where col IS NOT NULL."""
+    return (
+        sb.table(table)
+        .select("id", count="exact")
+        .not_.is_(col, "null")
+        .limit(1)
+        .execute()
+        .count
+    )
+
+
+def _count_missing(sb, table: str, have_col: str, missing_col: str) -> int:
+    """Count rows where have_col IS NOT NULL AND missing_col IS NULL."""
+    return (
+        sb.table(table)
+        .select("id", count="exact")
+        .not_.is_(have_col, "null")
+        .is_(missing_col, "null")
+        .limit(1)
+        .execute()
+        .count
+    )
+
+
+def _count_total(sb, table: str) -> int:
+    """Count all rows in a table."""
+    return sb.table(table).select("id", count="exact").limit(1).execute().count
+
+
+def collect_status(sb) -> dict:
+    """Query DB for counts at each pipeline stage."""
+    return {
+        "collected_this_session": _count_not_null(sb, "books", "loan_count"),
+        "missing_rich_description": _count_missing(sb, "books", "loan_count", "rich_description"),
+        "with_rich_description": _count_not_null(sb, "books", "rich_description"),
+        "with_v3_vectors": _count_total(sb, "book_v3_vectors"),
+        "with_embeddings": _count_total(sb, "book_embeddings"),
+    }
+
+
+def print_status(status: dict):
+    print("\n=== Pipeline Status ===")
+    print(f"  loan_count 있음 (수집 완료):           {status['collected_this_session']:>6}")
+    print(f"  그중 rich_description 없음 (pending):  {status['missing_rich_description']:>6}")
+    print(f"  rich_description 있음:                  {status['with_rich_description']:>6}")
+    print(f"  book_v3_vectors:                         {status['with_v3_vectors']:>6}")
+    print(f"  book_embeddings:                         {status['with_embeddings']:>6}")
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--limit", type=int, default=None,
@@ -121,7 +171,20 @@ def main():
                    help="단일 step 만 실행")
     p.add_argument("--from", dest="from_step", type=str, default=None,
                    help="이 step 부터 체인 재개")
+    p.add_argument("--status", action="store_true",
+                   help="파이프라인 각 stage 의 현황만 출력")
     args = p.parse_args()
+
+    if args.status:
+        from dotenv import load_dotenv
+        from supabase import create_client
+        load_dotenv(os.path.join(REPO, ".env"))
+        sb = create_client(
+            os.getenv("SUPABASE_URL"),
+            os.getenv("SUPABASE_SERVICE_ROLE_KEY"),
+        )
+        print_status(collect_status(sb))
+        return
 
     if args.step and args.from_step:
         print("ERROR: --step 과 --from 은 동시에 사용 불가", file=sys.stderr)

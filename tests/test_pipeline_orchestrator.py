@@ -97,3 +97,54 @@ def test_run_pipeline_unknown_from_step_raises():
 def test_run_pipeline_unknown_only_step_raises():
     with pytest.raises(ValueError, match="unknown step"):
         run_pipeline(limit=None, dry_run=False, only_step="nonexistent")
+
+
+from scripts import pipeline_orchestrator
+from scripts.pipeline_orchestrator import collect_status, print_status
+
+
+def test_collect_status_aggregates_counts(monkeypatch):
+    """collect_status delegates to internal _count_* helpers; we stub them."""
+    canned = {
+        ("not_null", "books", "loan_count"): 1019,
+        ("missing", "books", "loan_count", "rich_description"): 745,
+        ("not_null", "books", "rich_description"): 2678,
+        ("total", "book_v3_vectors"): 2651,
+        ("total", "book_embeddings"): 8564,
+    }
+
+    def fake_count_not_null(sb, table, col):
+        return canned[("not_null", table, col)]
+
+    def fake_count_missing(sb, table, have_col, missing_col):
+        return canned[("missing", table, have_col, missing_col)]
+
+    def fake_count_total(sb, table):
+        return canned[("total", table)]
+
+    monkeypatch.setattr(pipeline_orchestrator, "_count_not_null", fake_count_not_null)
+    monkeypatch.setattr(pipeline_orchestrator, "_count_missing", fake_count_missing)
+    monkeypatch.setattr(pipeline_orchestrator, "_count_total", fake_count_total)
+
+    status = collect_status(sb=None)
+    assert status["collected_this_session"] == 1019
+    assert status["missing_rich_description"] == 745
+    assert status["with_rich_description"] == 2678
+    assert status["with_v3_vectors"] == 2651
+    assert status["with_embeddings"] == 8564
+
+
+def test_print_status_does_not_crash(capsys):
+    """Smoke test the printer."""
+    status = {
+        "collected_this_session": 1,
+        "missing_rich_description": 2,
+        "with_rich_description": 3,
+        "with_v3_vectors": 4,
+        "with_embeddings": 5,
+    }
+    print_status(status)
+    out = capsys.readouterr().out
+    assert "Pipeline Status" in out
+    assert "1019" not in out  # sanity: just to confirm distinct keys printed
+    assert "1" in out and "2" in out and "3" in out
