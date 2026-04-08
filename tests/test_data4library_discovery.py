@@ -112,3 +112,37 @@ def test_select_seed_isbns_for_tier2_skips_blank_isbn():
 
 def test_select_seed_isbns_for_tier2_empty():
     assert select_seed_isbns_for_tier2([], top_n=10) == []
+
+
+from scripts.data4library_discovery_collector import (
+    filter_single_token_keywords,
+)
+
+
+def test_filter_single_token_keywords_keeps_single_words():
+    keywords = [
+        ("사랑", 48.354),
+        ("나태주 시집", 25.328),
+        ("인생", 25.328),
+        ("풀꽃", 20.723),
+    ]
+    out = filter_single_token_keywords(keywords)
+    assert ("사랑", 48.354) in out
+    assert ("인생", 25.328) in out
+    assert ("풀꽃", 20.723) in out
+    assert all(" " not in w for w, _ in out)
+    assert len(out) == 3
+
+
+def test_filter_single_token_keywords_drops_too_short_words():
+    keywords = [("사", 99.0), ("사랑", 50.0)]
+    out = filter_single_token_keywords(keywords)
+    assert ("사", 99.0) not in out
+    assert ("사랑", 50.0) in out
+
+
+def test_filter_single_token_keywords_dedupes():
+    keywords = [("사랑", 50.0), ("사랑", 30.0)]
+    out = filter_single_token_keywords(keywords)
+    assert len(out) == 1
+    assert out[0][0] == "사랑"

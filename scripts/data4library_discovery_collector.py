@@ -101,6 +101,24 @@ def select_seed_isbns_for_tier2(rows: list[dict], top_n: int = 50) -> list[str]:
     return out
 
 
+def filter_single_token_keywords(keywords: list[tuple[str, float]]) -> list[tuple[str, float]]:
+    """Keep only single-word keywords with len >= 2 (srchBooks limitation).
+
+    Verified: srchBooks fails on multi-token keywords like '소년이 온다'.
+    Dedupes by word (keeps first occurrence).
+    """
+    seen: set[str] = set()
+    out: list[tuple[str, float]] = []
+    for word, weight in keywords:
+        if not word or len(word) < 2 or " " in word:
+            continue
+        if word in seen:
+            continue
+        seen.add(word)
+        out.append((word, weight))
+    return out
+
+
 def sanitize_for_upsert(parsed: dict) -> dict:
     """Convert a parsed loanItem dict to a books-table row."""
     # sales_point bootstraps from loan_count; later Aladin enrichment
@@ -204,6 +222,36 @@ class DiscoveryCollector:
             time.sleep(REQUEST_DELAY)
         return all_rows
 
+    def fetch_tier3(self, month: str) -> list[dict]:
+        """Tier 3: monthlyKeywords -> filter single tokens -> srchBooks."""
+        from scripts.lib.data4library_api import (
+            fetch_monthly_keywords, parse_monthly_keywords, fetch_search,
+        )
+        try:
+            kw_raw = fetch_monthly_keywords(api_key=self.api_key, month=month)
+        except Exception as e:
+            print(f"  ✗ monthlyKeywords {month}: {e}")
+            self.stats["errors"] += 1
+            return []
+        keywords = parse_monthly_keywords(kw_raw)
+        single = filter_single_token_keywords(keywords)
+        print(f"  monthlyKeywords {month}: {len(keywords)} 키워드 → 단일 토큰 {len(single)}")
+
+        all_rows: list[dict] = []
+        for i, (word, _weight) in enumerate(single):
+            try:
+                raw = fetch_search(api_key=self.api_key, keyword=word, page_size=10)
+                parsed = parse_book_docs(raw)
+                all_rows.extend(parsed)
+                self.stats["fetched_raw"] += len(parsed)
+                if (i + 1) % 20 == 0:
+                    print(f"  srchBooks progress: {i+1}/{len(single)}")
+            except Exception as e:
+                print(f"  ✗ srchBooks '{word}': {e}")
+                self.stats["errors"] += 1
+            time.sleep(REQUEST_DELAY)
+        return all_rows
+
     def filter_and_upsert(self, parsed_rows: list[dict]) -> int:
         """Apply children filter, batch ISBN dedup, edition dedup, then upsert."""
         adult_rows = [r for r in parsed_rows if is_adult_general(r)]
@@ -270,6 +318,8 @@ def main():
     p.add_argument("--pages", type=int, default=1)
     p.add_argument("--tier2-seeds", type=int, default=50,
                    help="Tier 2: how many top seed ISBNs to expand via recommandList")
+    p.add_argument("--month", type=str, default=None,
+                   help="Tier 3 month (YYYY-MM). Default = previous month")
     p.add_argument("--status", action="store_true")
     args = p.parse_args()
 
@@ -289,8 +339,17 @@ def main():
         print(f"  selected {len(seeds)} seed ISBNs")
         tier2_rows = c.fetch_tier2(seeds)
         c.filter_and_upsert(tier1_rows + tier2_rows)
-    else:
-        print(f"Tier {args.tier} 는 다음 task 에서 구현됩니다.")
+    elif args.tier == 3:
+        if args.month:
+            month = args.month
+        else:
+            today = datetime.now().date()
+            mm = today.month - 1 if today.month > 1 else 12
+            yyyy = today.year if today.month > 1 else today.year - 1
+            month = f"{yyyy}-{mm:02d}"
+        print(f"Tier 3: monthlyKeywords month={month} → srchBooks")
+        rows = c.fetch_tier3(month)
+        c.filter_and_upsert(rows)
 
     c.report()
 
