@@ -1,8 +1,10 @@
 // app/lib/features/feedback/providers/feedback_flow_provider.dart
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/user_book.dart';
+import '../../../core/services/impression_logger.dart';
 import '../../bookshelf/providers/bookshelf_provider.dart';
 
 // --- 상태 ---
@@ -11,7 +13,7 @@ class FeedbackFlowState {
   final UserBook? userBook;
   final bool isLoading;
   final bool isSaving;
-  final String? rating; // 'good', 'neutral', 'bad'
+  final String? rating; // 'good' | 'bad' | null
   final List<String> selectedTags;
   final String reviewText;
   final String? error;
@@ -121,6 +123,19 @@ class FeedbackFlowNotifier extends StateNotifier<FeedbackFlowState> {
         'emotion_tags': tags,
         'review_text': reviewText,
       }).eq('id', _userBookId);
+
+      final bookId = state.userBook?.bookId;
+      if (bookId != null) {
+        if (state.rating == 'good') {
+          unawaited(
+            ImpressionLogger(_supabase).logAction(bookId: bookId, action: 'liked'),
+          );
+        } else if (state.rating == 'bad') {
+          unawaited(
+            ImpressionLogger(_supabase).logAction(bookId: bookId, action: 'disliked'),
+          );
+        }
+      }
 
       _ref.invalidate(bookshelfProvider);
     } catch (e) {

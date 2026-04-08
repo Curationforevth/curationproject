@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/book.dart';
 import '../../../core/models/user_book.dart';
+import '../../../core/services/impression_logger.dart';
 import '../../../core/services/recommendation_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../bookshelf/providers/bookshelf_provider.dart';
@@ -32,6 +35,15 @@ class _BookDetailBottomSheetState
     extends ConsumerState<BookDetailBottomSheet> {
   bool _bookmarked = false;
   bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(
+      ImpressionLogger(Supabase.instance.client)
+          .logAction(bookId: widget.book.id, action: 'clicked'),
+    );
+  }
 
   Future<void> _handleReading() async {
     if (_isLoading) return;

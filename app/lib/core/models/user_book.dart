@@ -1,5 +1,6 @@
 import 'book.dart';
 
+/// JSON values map to v3 user_books.status: finished/reading/wishlist. Enum names kept for source-stability.
 enum BookStatus {
   read,
   reading,
@@ -8,21 +9,23 @@ enum BookStatus {
   String toJson() {
     switch (this) {
       case BookStatus.read:
-        return 'read';
+        return 'finished';
       case BookStatus.reading:
         return 'reading';
       case BookStatus.wantToRead:
-        return 'want_to_read';
+        return 'wishlist';
     }
   }
 
   static BookStatus fromJson(String value) {
     switch (value) {
-      case 'read':
+      case 'finished':
+      case 'read': // backward compat
         return BookStatus.read;
       case 'reading':
         return BookStatus.reading;
-      case 'want_to_read':
+      case 'wishlist':
+      case 'want_to_read': // backward compat
         return BookStatus.wantToRead;
       default:
         return BookStatus.read;
@@ -39,7 +42,7 @@ class UserBook {
   /// 서가 뷰 드래그 정렬 순서
   final int? shelfOrder;
 
-  /// 호오 평가 ('good', 'neutral', 'bad')
+  /// 호오 평가 ('good' | 'bad' | null)
   final String? rating;
 
   /// 감성태그 ID 배열

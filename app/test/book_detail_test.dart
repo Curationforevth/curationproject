@@ -7,7 +7,7 @@ import 'package:curation_app/core/models/emotion_tag.dart';
 
 void main() {
   group('RatingSelector', () {
-    testWidgets('shows 3 rating options', (tester) async {
+    testWidgets('shows 2 rating options (good/bad)', (tester) async {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
@@ -19,8 +19,8 @@ void main() {
       );
 
       expect(find.text('좋았다'), findsOneWidget);
-      expect(find.text('보통'), findsOneWidget);
       expect(find.text('별로'), findsOneWidget);
+      expect(find.text('보통'), findsNothing);
     });
 
     testWidgets('calls onChanged when tapped', (tester) async {

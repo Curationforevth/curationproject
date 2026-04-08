@@ -14,6 +14,7 @@ v3 설계 기준:
 """
 import argparse
 import json
+import json as _json
 import os
 import re
 import sys
@@ -27,8 +28,8 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 from supabase import create_client
-from lib.openai_helpers import call_chat, call_embedding
-from lib.retry import with_retry
+from scripts.lib.openai_helpers import call_chat, call_embedding
+from scripts.lib.retry import with_retry
 
 # ── 설정 ──
 SOURCE_TAG = "v3_context_rich"
@@ -39,6 +40,7 @@ EMBED_BATCH = 20         # 임베딩 배치 크기
 INSERT_BATCH = 20        # DB insert 배치 크기
 MAX_CONSECUTIVE_ERRORS = 3  # 연속 에러 N회 → 자동 중단
 CHECKPOINT_INTERVAL = 100   # N권마다 품질 체크
+CHECKPOINT_FILE = os.path.join(os.path.dirname(__file__), ".checkpoint_v3_reason.json")
 
 
 def make_client():
@@ -158,9 +160,12 @@ def embed_and_save(sb, book_reasons_map):
                 else:
                     print(f"  ✗ 임베딩 스킵 ({i}~{i+len(chunk)}): {e}", flush=True)
 
-    # 임베딩 성공한 것만
     valid = [(all_reasons[i], all_embeddings[i], reason_map[i])
              for i in range(len(all_reasons)) if all_embeddings[i] is not None]
+
+    skipped = len(all_reasons) - len(valid)
+    if skipped > 0:
+        print(f"  ⚠ 임베딩 실패로 {skipped}/{len(all_reasons)}건 스킵", flush=True)
 
     if not valid:
         return 0, len(all_reasons)
@@ -181,16 +186,15 @@ def embed_and_save(sb, book_reasons_map):
                        max_retries=2, base_delay=1.0)
             saved += len(chunk)
         except Exception:
-            # 배치 실패 → 5행씩 재시도 (1행씩은 너무 느림)
-            for j in range(0, len(chunk), 5):
-                mini = chunk[j:j + 5]
+            # 배치 실패 → 1건씩 재시도
+            for row in chunk:
                 try:
-                    with_retry(lambda m=mini: sb.table("book_love_reasons").insert(m).execute(),
+                    with_retry(lambda r=row: sb.table("book_love_reasons").insert(r).execute(),
                                max_retries=2, base_delay=1.0)
-                    saved += len(mini)
+                    saved += 1
                 except Exception as e:
-                    print(f"  ✗ insert 실패 ({len(mini)}행): {e}", flush=True)
-                    failed += len(mini)
+                    print(f"  ✗ insert 실패: {e}", flush=True)
+                    failed += 1
             time.sleep(1)
 
     return saved, failed
@@ -258,8 +262,7 @@ def run_checkpoint(sb, checkpoint_num, total_done, total_saved, total_errors):
                 issues.append(f"범용 표현 {generic_ratio:.0%} (5% 초과)")
 
             # 중복 체크 (같은 reason이 3번 이상 → 프롬프트 문제)
-            from collections import Counter as _Counter
-            dupes = [r for r, c in _Counter(reasons).items() if c >= 3]
+            dupes = [r for r, c in Counter(reasons).items() if c >= 3]
             if dupes:
                 issues.append(f"중복 reason {len(dupes)}개: {dupes[:3]}")
 
@@ -304,6 +307,22 @@ def run_checkpoint(sb, checkpoint_num, total_done, total_saved, total_errors):
         return True
 
 
+def load_reason_checkpoint():
+    """체크포인트 파일에서 완료된 book_id 목록 로드."""
+    if os.path.exists(CHECKPOINT_FILE):
+        with open(CHECKPOINT_FILE) as f:
+            data = _json.load(f)
+            print(f"  체크포인트 로드: {len(data.get('done_ids', []))}건", flush=True)
+            return set(data.get("done_ids", []))
+    return set()
+
+
+def save_reason_checkpoint(done_ids):
+    """처리 완료된 book_id를 체크포인트 파일에 저장."""
+    with open(CHECKPOINT_FILE, "w") as f:
+        _json.dump({"done_ids": list(done_ids), "last_updated": time.strftime("%Y-%m-%dT%H:%M:%S")}, f)
+
+
 # ── 메인 루프 ──
 
 def main():
@@ -325,7 +344,7 @@ def main():
             try:
                 res = sb.table("books").select("id") \
                     .not_.is_("rich_description", "null") \
-                    .range(offset, offset + 499).execute()
+                    .range(offset, offset + 999).execute()
                 break
             except Exception as e:
                 print(f"  수집 재시도 {attempt+1}/3: {e}", flush=True)
@@ -336,9 +355,9 @@ def main():
         if not res.data:
             break
         all_ids.extend(r["id"] for r in res.data)
-        if len(res.data) < 500:
+        if len(res.data) < 1000:
             break
-        offset += 500
+        offset += 1000
 
     print(f"  전체: {len(all_ids)}권", flush=True)
 
@@ -365,6 +384,9 @@ def main():
         if len(res.data) < 1000:
             break
         offset += 1000
+
+    checkpoint_ids = load_reason_checkpoint()
+    done_ids = done_ids | checkpoint_ids
 
     ids = [i for i in all_ids if i not in done_ids]
     if args.limit:
@@ -414,7 +436,7 @@ def main():
             for future in as_completed(futures):
                 book = futures[future]
                 try:
-                    reasons = future.result()
+                    reasons = future.result(timeout=60)
                     if reasons:
                         extracted[book["id"]] = (book, reasons)
                     else:
@@ -453,8 +475,10 @@ def main():
               f"{total_errors}err {elapsed/60:.1f}분 ~{eta:.0f}분남음", flush=True)
 
         # 체크포인트 (100권마다) — 품질 실패 시 자동 중단
-        if do_checkpoint and total_done > 0 and total_done % CHECKPOINT_INTERVAL < CHUNK_SIZE:
+        if do_checkpoint and total_done > 0 and total_done % CHECKPOINT_INTERVAL == 0:
             checkpoint_num += 1
+            processed_so_far = set(ids[:i + len(chunk_ids)])
+            save_reason_checkpoint(done_ids | processed_so_far)
             passed = run_checkpoint(sb, checkpoint_num, total_done, total_saved, total_errors)
             if not passed:
                 print("⛔ 품질 검증 실패 — 자동 중단. 위 이슈를 확인하세요.", flush=True)
@@ -474,6 +498,10 @@ def main():
     print(f"  에러: {total_errors}건", flush=True)
     print(f"  소요: {elapsed/60:.1f}분", flush=True)
     print(f"{'='*60}", flush=True)
+
+    if total_errors == 0 and os.path.exists(CHECKPOINT_FILE):
+        os.remove(CHECKPOINT_FILE)
+        print("  체크포인트 파일 삭제 (정상 완료)", flush=True)
 
 
 if __name__ == "__main__":

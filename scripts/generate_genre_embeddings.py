@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 from supabase import create_client
-from scripts.lib.openai_helpers import call_embedding
+from scripts.lib.openai_helpers import call_embedding, EMBEDDING_DIMENSIONS
 from scripts.lib.genre_parser import parse_genre
 
 EMBED_BATCH = 20
@@ -95,7 +95,7 @@ def main():
     print(f"\n사전 테스트: [{test_level}] {test_text}", flush=True)
     try:
         test_emb = call_embedding([test_text])
-        assert len(test_emb) == 1 and len(test_emb[0]) == 2000
+        assert len(test_emb) == 1 and len(test_emb[0]) == EMBEDDING_DIMENSIONS
         print(f"  ✓ 임베딩 성공 (dim={len(test_emb[0])})", flush=True)
     except Exception as e:
         print(f"  ✗ 사전 테스트 실패: {e}", flush=True)
@@ -136,12 +136,15 @@ def main():
             done += len(rows)
             consecutive_errors = 0
         except Exception as e:
-            errors += len(rows)
-            consecutive_errors += 1
-            print(f"  ✗ DB 삽입 실패 (연속 {consecutive_errors}회): {e}", flush=True)
-            if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
-                print(f"\n연속 에러 {MAX_CONSECUTIVE_ERRORS}회 → 자동 중단", flush=True)
-                break
+            print(f"  배치 INSERT 실패, 1건씩 재시도: {e}", flush=True)
+            for row in rows:
+                try:
+                    sb.table("genre_embeddings").insert(row).execute()
+                    done += 1
+                except Exception as e2:
+                    errors += 1
+                    print(f"    ✗ [{row['level']}] {row['genre_text'][:30]}: {e2}", flush=True)
+            consecutive_errors = 0
 
         pct = (i + len(batch)) / len(todo) * 100
         print(f"  [{pct:5.1f}%] {done}/{len(todo)} 완료, {errors} 에러", flush=True)
