@@ -119,7 +119,7 @@ def test_collect_status_aggregates_counts(monkeypatch):
     def fake_count_missing(sb, table, have_col, missing_col):
         return canned[("missing", table, have_col, missing_col)]
 
-    def fake_count_total(sb, table):
+    def fake_count_total(sb, table, pk="id"):
         return canned[("total", table)]
 
     monkeypatch.setattr(pipeline_orchestrator, "_count_not_null", fake_count_not_null)

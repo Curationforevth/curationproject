@@ -136,9 +136,9 @@ def _count_missing(sb, table: str, have_col: str, missing_col: str) -> int:
     )
 
 
-def _count_total(sb, table: str) -> int:
-    """Count all rows in a table."""
-    return sb.table(table).select("id", count="exact").limit(1).execute().count
+def _count_total(sb, table: str, pk: str = "id") -> int:
+    """Count all rows in a table. pk = primary-key column to select."""
+    return sb.table(table).select(pk, count="exact").limit(1).execute().count
 
 
 def collect_status(sb) -> dict:
@@ -147,7 +147,7 @@ def collect_status(sb) -> dict:
         "with_loan_count": _count_not_null(sb, "books", "loan_count"),
         "missing_rich_description": _count_missing(sb, "books", "loan_count", "rich_description"),
         "with_rich_description": _count_not_null(sb, "books", "rich_description"),
-        "with_v3_vectors": _count_total(sb, "book_v3_vectors"),
+        "with_v3_vectors": _count_total(sb, "book_v3_vectors", pk="book_id"),
         "with_embeddings": _count_total(sb, "book_embeddings"),
     }
 
