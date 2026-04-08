@@ -146,3 +146,36 @@ def test_filter_single_token_keywords_dedupes():
     out = filter_single_token_keywords(keywords)
     assert len(out) == 1
     assert out[0][0] == "사랑"
+
+
+from unittest.mock import patch, MagicMock
+
+from scripts.data4library_discovery_collector import (
+    trigger_enrich_pipeline,
+)
+
+
+def test_trigger_enrich_pipeline_calls_orchestrator_as_subprocess():
+    with patch("scripts.data4library_discovery_collector.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
+        code = trigger_enrich_pipeline(dry_run=False)
+    assert code == 0
+    args, kwargs = mock_run.call_args
+    cmd = args[0]
+    assert "scripts/pipeline_orchestrator.py" in " ".join(cmd)
+    assert "--dry-run" not in cmd
+
+
+def test_trigger_enrich_pipeline_passes_dry_run():
+    with patch("scripts.data4library_discovery_collector.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
+        trigger_enrich_pipeline(dry_run=True)
+    cmd = mock_run.call_args[0][0]
+    assert "--dry-run" in cmd
+
+
+def test_trigger_enrich_pipeline_returns_nonzero_on_failure():
+    with patch("scripts.data4library_discovery_collector.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=1)
+        code = trigger_enrich_pipeline(dry_run=False)
+    assert code == 1

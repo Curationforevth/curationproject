@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import subprocess
 import sys
 import time
 from datetime import datetime, timedelta
@@ -121,6 +122,19 @@ def filter_single_token_keywords(keywords: list[tuple[str, float]]) -> list[tupl
         seen.add(word)
         out.append((word, weight))
     return out
+
+
+def trigger_enrich_pipeline(dry_run: bool = False) -> int:
+    """Discovery 수집 직후 pipeline_orchestrator 를 subprocess 로 호출.
+
+    Returns the orchestrator's exit code (0 = success).
+    """
+    cmd = ["python3", "scripts/pipeline_orchestrator.py"]
+    if dry_run:
+        cmd.append("--dry-run")
+    print(f"\n▶ enrich pipeline 트리거: {' '.join(cmd)}")
+    proc = subprocess.run(cmd, cwd=REPO, check=False)
+    return proc.returncode
 
 
 def sanitize_for_upsert(parsed: dict) -> dict:
@@ -322,6 +336,8 @@ def main():
     p.add_argument("--month", type=str, default=None,
                    help="Tier 3 month (YYYY-MM). Default = previous month")
     p.add_argument("--status", action="store_true")
+    p.add_argument("--with-enrich", action="store_true",
+                   help="수집 완료 후 pipeline_orchestrator 자동 트리거")
     args = p.parse_args()
 
     c = DiscoveryCollector(dry_run=args.dry_run)
@@ -353,6 +369,12 @@ def main():
         c.filter_and_upsert(rows)
 
     c.report()
+
+    if args.with_enrich:
+        code = trigger_enrich_pipeline(dry_run=args.dry_run)
+        if code != 0:
+            print(f"⚠ enrich pipeline 실패 (exit {code})", file=sys.stderr)
+            sys.exit(code)
 
 
 if __name__ == "__main__":
