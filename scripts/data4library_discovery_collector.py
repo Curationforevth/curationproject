@@ -33,6 +33,10 @@ sys.path.insert(0, REPO)
 
 from scripts.lib.data4library_api import (
     fetch_loan_item_page,
+    fetch_recommand,
+    fetch_monthly_keywords,
+    parse_monthly_keywords,
+    fetch_search,
     parse_book_docs,
     is_adult_general,
 )
@@ -206,7 +210,6 @@ class DiscoveryCollector:
 
     def fetch_tier2(self, seed_isbns: list[str]) -> list[dict]:
         """Tier 2: recommandList for each seed ISBN."""
-        from scripts.lib.data4library_api import fetch_recommand
         all_rows: list[dict] = []
         for i, isbn in enumerate(seed_isbns):
             try:
@@ -224,9 +227,6 @@ class DiscoveryCollector:
 
     def fetch_tier3(self, month: str) -> list[dict]:
         """Tier 3: monthlyKeywords -> filter single tokens -> srchBooks."""
-        from scripts.lib.data4library_api import (
-            fetch_monthly_keywords, parse_monthly_keywords, fetch_search,
-        )
         try:
             kw_raw = fetch_monthly_keywords(api_key=self.api_key, month=month)
         except Exception as e:
@@ -274,7 +274,8 @@ class DiscoveryCollector:
                 self.stats["filtered_edition_dup"] += 1
                 continue
             unique_rows.append(r)
-            self.dedup.register(title, author, isbn)
+            if not self.dry_run:
+                self.dedup.register(title, author, isbn)
         print(f"  에디션 dedup: {len(unique_rows)}/{len(by_isbn)}")
 
         if not unique_rows:
