@@ -42,25 +42,15 @@ from scripts.lib.pipeline_steps import (
 PROGRESS_THRESHOLD = 0.9
 
 
-# Ratio 검증을 신뢰할 수 있는 step 화이트리스트.
-# pending 추정이 책 단위로 정확한 step 만 ratio 검증 활성화.
-# reason_extractor 는 row 수와 책 수가 섞여있어 ratio 가 의미 없음 → 0진전만 감지.
-RATIO_VERIFY_STEPS = frozenset({
-    "yes24_scraper",
-    "v3_vectors",
-    "tier1_embedder",
-})
-
-
 def _pending_for_step(step_name: str, status: dict) -> Optional[int]:
     """각 step 이 실행 전 '처리해야 할' 대략적 row/book 수를 추정.
 
     이 값은 두 가지 용도로 쓰임:
       1. 0진전 감지 (pending > 0 인데 delta == 0 → fail) — 정확도 무관
-      2. Ratio 검증 (delta / expected < 0.9 → fail) — RATIO_VERIFY_STEPS 만
+      2. Ratio 검증 (delta / expected < 0.9 → fail) — `step.ratio_verifiable=True` 만
 
     reason_extractor 는 row(reasons) 와 book(v3_vectors) 단위 혼재라
-    1번에만 사용. ratio 검증은 RATIO_VERIFY_STEPS 가 false 라서 비활성.
+    1번에만 사용. ratio 검증은 PipelineStep.ratio_verifiable=False 로 꺼져있다.
 
     Returns:
         pending 추정값, 또는 계산 불가 시 None.
@@ -179,7 +169,7 @@ def run_step(
             elif (
                 progress_expected is not None
                 and progress_expected > 0
-                and step.name in RATIO_VERIFY_STEPS
+                and step.ratio_verifiable
             ):
                 ratio = progress_delta / progress_expected
                 if ratio < PROGRESS_THRESHOLD:

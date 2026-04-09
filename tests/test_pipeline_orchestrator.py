@@ -136,8 +136,12 @@ def test_collect_status_aggregates_counts(monkeypatch):
     assert status["with_embeddings"] == 8564
 
 
-def _mk_step(name, counter):
-    """테스트용 PipelineStep (build_command 가 호출되지만 subprocess 는 mock)."""
+def _mk_step(name, counter, ratio_verifiable=True):
+    """테스트용 PipelineStep (build_command 는 호출되지만 subprocess 는 mock).
+
+    `ratio_verifiable` 기본값은 True — 대부분의 테스트가 ratio 검증을 가정.
+    reason_extractor 같이 검증 비활성 케이스는 명시적으로 False 전달.
+    """
     return PipelineStep(
         name=name,
         script_path=f"scripts/{name}.py",
@@ -145,6 +149,7 @@ def _mk_step(name, counter):
         supports_dry_run=True,
         limit_flag="--limit",
         progress_counter=counter,
+        ratio_verifiable=ratio_verifiable,
     )
 
 
@@ -265,7 +270,7 @@ def test_run_step_reason_extractor_skips_ratio_verification(monkeypatch):
     """reason_extractor 는 ratio 검증 비활성 — 부정확한 추정으로 false-positive 방지.
     단 0 진전 감지는 여전히 동작해야 함.
     """
-    step = _mk_step("reason_extractor", "with_reasons")
+    step = _mk_step("reason_extractor", "with_reasons", ratio_verifiable=False)
     sb = MagicMock()
 
     # delta = 100, expected_inaccurate = 1000 → ratio 10% (90% 미달)
@@ -305,7 +310,7 @@ def test_run_step_reason_extractor_skips_ratio_verification(monkeypatch):
 
 def test_run_step_reason_extractor_still_catches_zero_delta(monkeypatch):
     """reason_extractor 가 ratio 검증 비활성이지만 0 진전은 잡혀야 함."""
-    step = _mk_step("reason_extractor", "with_reasons")
+    step = _mk_step("reason_extractor", "with_reasons", ratio_verifiable=False)
     sb = MagicMock()
 
     # pending est = 1000 인데 delta = 0
