@@ -28,15 +28,35 @@ def test_build_extraction_prompt_handles_empty_fields():
 
 
 def test_parse_reasons_valid():
-    raw = {"reasons": ["이유 하나", "이유 둘", "이유 셋"]}
+    # parse_reasons는 string list와 dict list 둘 다 수용한다.
+    # string 입력은 evidence=""로 정규화된다.
+    raw = {"reasons": [
+        {"reason": "이유 하나", "evidence": "본문 근거 1"},
+        {"reason": "이유 둘", "evidence": "본문 근거 2"},
+        "이유 셋",  # string도 호환
+    ]}
     result = parse_reasons(raw)
-    assert result == ["이유 하나", "이유 둘", "이유 셋"]
+    assert result == [
+        {"reason": "이유 하나", "evidence": "본문 근거 1"},
+        {"reason": "이유 둘", "evidence": "본문 근거 2"},
+        {"reason": "이유 셋", "evidence": ""},
+    ]
 
 
 def test_parse_reasons_filters_empty():
-    raw = {"reasons": ["이유 하나", "", "  ", "이유 둘"]}
+    # 빈/공백 reason은 (string이든 dict든) 필터링된다.
+    raw = {"reasons": [
+        {"reason": "이유 하나", "evidence": "근거"},
+        "",
+        "  ",
+        {"reason": "", "evidence": "근거만 있음"},
+        {"reason": "  ", "evidence": "공백 reason"},
+        "이유 둘",
+    ]}
     result = parse_reasons(raw)
-    assert result == ["이유 하나", "이유 둘"]
+    assert [r["reason"] for r in result] == ["이유 하나", "이유 둘"]
+    assert result[0]["evidence"] == "근거"
+    assert result[1]["evidence"] == ""
 
 
 def test_parse_reasons_invalid_format():

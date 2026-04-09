@@ -6,18 +6,7 @@
 
 ## 🔴 Critical (보안/데이터 손실 위험)
 
-### KI-001 — `parse_reasons` 시그니처 변경 후 단위 테스트 미업데이트
-- **위치:** `tests/test_reason_extractor.py::test_parse_reasons_valid`, `test_parse_reasons_filters_empty`
-- **현상:** `parse_reasons()` 가 평탄 `["이유 하나", ...]` 대신 `[{"reason": "...", "evidence": "..."}]` 구조를 반환하지만 테스트는 옛 형태 기대 → 항상 `AssertionError`
-- **영향:** CI/local pytest 가 항상 빨갛게 나오는 noise. 진짜 회귀가 묻힘.
-- **발견 시점:** 2026-04-09 reason_extractor 정밀화 작업 중
-- **원인 추정:** `parse_reasons` 가 evidence 필드를 추가하는 리팩터로 진화했으나 테스트 동시 갱신 누락
-- **해결 방향:**
-  - (a) 테스트를 새 dict 구조에 맞춰 갱신, 또는
-  - (b) `parse_reasons` 가 dict + str 둘 다 받을 수 있게 호환층
-  - (a) 가 더 깨끗 — 실제 caller 가 어떤 형태를 쓰는지 확인 후 결정
-- **우선순위:** Critical (CI noise → 진짜 장애 가림)
-- **추정 크기:** XS
+(현재 없음)
 
 ---
 
