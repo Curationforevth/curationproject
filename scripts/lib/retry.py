@@ -21,12 +21,15 @@ import time
 PG_RETRYABLE_SQLSTATES = frozenset({
     "57014",  # query_canceled (statement_timeout 포함)
     "57P01",  # admin_shutdown
+    "57P03",  # cannot_connect_now (server starting up)
     "53300",  # too_many_connections
     "53400",  # configuration_limit_exceeded
     "40001",  # serialization_failure
     "40P01",  # deadlock_detected
     "08000",  # connection_exception
+    "08001",  # sqlclient_unable_to_establish_sqlconnection
     "08003",  # connection_does_not_exist
+    "08004",  # sqlserver_rejected_establishment_of_sqlconnection
     "08006",  # connection_failure
 })
 
@@ -76,8 +79,11 @@ def _is_retryable(exc):
 def with_retry(fn, max_retries=3, base_delay=1.0):
     """fn()을 호출하고, 재시도 가능한 에러 시 exponential backoff로 재시도.
 
-    재시도 대상: 429, 502, 503, 504, ConnectionError, TimeoutError, OSError
-    즉시 실패: 그 외 모든 에러 (4xx 등)
+    재시도 대상:
+      - HTTP: 429, 502, 503, 504
+      - Postgres SQLSTATE: PG_RETRYABLE_SQLSTATES (57014 등)
+      - 저수준: ConnectionError, TimeoutError, OSError
+    즉시 실패: 그 외 모든 에러 (4xx, 23505, 22P02 등)
 
     Args:
         fn: 인자 없는 callable (lambda로 감싸서 전달)
