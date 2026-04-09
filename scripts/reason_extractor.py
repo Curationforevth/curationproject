@@ -376,10 +376,6 @@ class ReasonExtractor:
             "deleted": 0,
         }
 
-    @property
-    def total_errors(self) -> int:
-        """모든 실패의 합 (호환용 — 단위 섞임)."""
-        return self.stats["errors_books"] + self.stats["errors_rows"]
 
     def run(self, limit=None):
         """메인 배치 루프: 이유 미추출 도서 조회 → 추출 → 임베딩 → 저장."""
