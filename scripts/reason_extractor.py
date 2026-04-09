@@ -1,7 +1,14 @@
-"""Reason Extractor — 책의 "좋아할 이유" 추출 파이프라인
+"""v1 Reason 추출 — 레거시 경로.
 
-도서 메타데이터 기반으로 LLM을 활용해 "이 책을 좋아할 이유"를 추출하고,
-임베딩과 함께 DB에 저장한다.
+⚠️ 2026-04-10 이후 orchestrator 는 이 스크립트를 호출하지 않는다.
+   메인 경로는 scripts/v3_reason_extract.py (source='v3_context_rich').
+
+이 스크립트는:
+- source='llm_extracted' 로 저장 (v1 format)
+- 공존 가능: book_love_reasons UNIQUE (book_id, source, reason) 덕분
+- Eden 이 legacy data 를 re-extract 할 때만 수동 실행
+
+삭제 후보이지만 기존 v1 데이터 분석용으로 당분간 보존.
 
 사용법:
   python3 scripts/reason_extractor.py                  # 미처리분
