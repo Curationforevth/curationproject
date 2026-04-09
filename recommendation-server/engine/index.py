@@ -49,14 +49,27 @@ class VectorIndex:
         descs = [self._books[bid].desc for bid in self._desc_bid_order]
         self._desc_matrix = np.stack(descs)
 
-    def similar_by_desc(self, book_id: str, limit: int = 10) -> list[tuple[str, float]]:
+    def similar_by_vector(
+        self,
+        query_vec: np.ndarray,
+        exclude_ids: Optional[set[str]] = None,
+        limit: int = 10,
+    ) -> list[tuple[str, float]]:
+        """임의 L2-정규화 query 벡터에 대해 전체 책을 스코어링하고
+        exclude_ids를 제외한 top-K (book_id, score)를 반환."""
         if self._desc_matrix is None:
             self.build_desc_matrix()
+        if exclude_ids is None:
+            exclude_ids = set()
+        scores = self._desc_matrix @ query_vec.astype(self.dtype)
+        for ex in exclude_ids:
+            if ex in self._desc_bid_order:
+                scores[self._desc_bid_order.index(ex)] = -999.0
+        top_idx = np.argsort(scores)[::-1][:limit]
+        return [(self._desc_bid_order[i], float(scores[i])) for i in top_idx]
+
+    def similar_by_desc(self, book_id: str, limit: int = 10) -> list[tuple[str, float]]:
         bv = self._books.get(book_id)
         if bv is None:
             return []
-        scores = self._desc_matrix @ bv.desc
-        idx_self = self._desc_bid_order.index(book_id)
-        scores[idx_self] = -999
-        top_idx = np.argsort(scores)[::-1][:limit]
-        return [(self._desc_bid_order[i], float(scores[i])) for i in top_idx]
+        return self.similar_by_vector(bv.desc, exclude_ids={book_id}, limit=limit)

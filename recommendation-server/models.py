@@ -41,3 +41,8 @@ class FeedbackRequest(BaseModel):
 class FeedbackResponse(BaseModel):
     status: str
     feedback_id: Optional[str] = None
+
+
+class SimilarUnionRequest(BaseModel):
+    book_ids: List[str]
+    limit: int = 6
