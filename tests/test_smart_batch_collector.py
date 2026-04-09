@@ -97,21 +97,48 @@ def test_save_batch_timeout_falls_back():
     assert call_count["n"] == 4
 
 
-def test_main_returns_one_on_drop_failed():
-    """drop_failed > 0 이면 main() exit 1."""
+def test_main_status_returns_zero_regardless_of_drop_failed():
+    """--status 는 collector.run 을 안 거치므로 항상 0."""
     import smart_batch_collector
     collector = _make_collector(dry_run=False)
     collector.stats["drop_failed"] = 5
     with patch.object(smart_batch_collector, "SmartBatchCollector", return_value=collector):
         with patch("sys.argv", ["smart_batch_collector.py", "--status"]):
             rc = smart_batch_collector.main()
-    assert rc == 0  # --status path는 0 (early return)
+    assert rc == 0
 
 
-def test_main_returns_zero_on_clean_status():
+def test_main_returns_one_when_drop_failed_after_run():
+    """run 끝나고 drop_failed > 0 이면 main() exit 1."""
     import smart_batch_collector
     collector = _make_collector(dry_run=False)
-    with patch.object(smart_batch_collector, "SmartBatchCollector", return_value=collector):
-        with patch("sys.argv", ["smart_batch_collector.py", "--status"]):
+
+    def fake_run_phase():
+        collector.stats["drop_failed"] = 3
+
+    with patch.object(smart_batch_collector, "SmartBatchCollector", return_value=collector), \
+         patch.object(collector, "load_known_isbns"), \
+         patch.object(collector.state_mgr, "reset_expired_states"), \
+         patch.object(collector, "run_item_list", side_effect=fake_run_phase), \
+         patch.object(collector, "run_author_search"), \
+         patch.object(collector, "run_keyword_search"), \
+         patch.object(collector, "print_report"):
+        with patch("sys.argv", ["smart_batch_collector.py", "--phase", "item_list"]):
+            rc = smart_batch_collector.main()
+    assert rc == 1
+
+
+def test_main_returns_zero_when_clean_run():
+    """drop_failed=0 이면 main() exit 0."""
+    import smart_batch_collector
+    collector = _make_collector(dry_run=False)
+    with patch.object(smart_batch_collector, "SmartBatchCollector", return_value=collector), \
+         patch.object(collector, "load_known_isbns"), \
+         patch.object(collector.state_mgr, "reset_expired_states"), \
+         patch.object(collector, "run_item_list"), \
+         patch.object(collector, "run_author_search"), \
+         patch.object(collector, "run_keyword_search"), \
+         patch.object(collector, "print_report"):
+        with patch("sys.argv", ["smart_batch_collector.py"]):
             rc = smart_batch_collector.main()
     assert rc == 0
