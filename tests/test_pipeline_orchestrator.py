@@ -136,8 +136,12 @@ def test_collect_status_aggregates_counts(monkeypatch):
     assert status["with_embeddings"] == 8564
 
 
-def _mk_step(name, counter):
-    """테스트용 PipelineStep (build_command 가 호출되지만 subprocess 는 mock)."""
+def _mk_step(name, counter, ratio_verifiable=True):
+    """테스트용 PipelineStep (build_command 는 호출되지만 subprocess 는 mock).
+
+    `ratio_verifiable` 기본값은 True — 대부분의 테스트가 ratio 검증을 가정.
+    reason_extractor 같이 검증 비활성 케이스는 명시적으로 False 전달.
+    """
     return PipelineStep(
         name=name,
         script_path=f"scripts/{name}.py",
@@ -145,6 +149,7 @@ def _mk_step(name, counter):
         supports_dry_run=True,
         limit_flag="--limit",
         progress_counter=counter,
+        ratio_verifiable=ratio_verifiable,
     )
 
 
@@ -212,8 +217,9 @@ def test_run_step_progress_verification_passes(monkeypatch):
 
 
 def test_run_step_progress_verification_fails_on_zero_delta(monkeypatch):
-    """pre=100, post=100 → delta=0, expected=50 → 실패."""
-    step = _mk_step("fake", "with_rich_description")
+    """pre=100, post=100, pending=200 → delta=0 → silent drop 으로 잡힘."""
+    # yes24_scraper 는 RATIO_VERIFY_STEPS 멤버이지만, 0 진전 감지는 멤버십 무관.
+    step = _mk_step("yes24_scraper", "with_rich_description")
     sb = MagicMock()
 
     status_seq = [
@@ -233,12 +239,13 @@ def test_run_step_progress_verification_fails_on_zero_delta(monkeypatch):
     assert r.success is False
     assert r.progress_delta == 0
     assert r.progress_warning is not None
-    assert "기대치 미달" in r.progress_warning or "진전 0" in r.progress_warning
+    assert "silent drop" in r.progress_warning or "진전 0" in r.progress_warning
 
 
 def test_run_step_progress_verification_fails_on_below_threshold(monkeypatch):
-    """pre=100, post=120, limit=100 → delta=20/100=20% < 90%, 실패."""
-    step = _mk_step("fake", "with_rich_description")
+    """yes24_scraper, pre=100, post=120, limit=100 → 20/100=20% < 90% → fail."""
+    # ratio 검증은 RATIO_VERIFY_STEPS 멤버 한정 → yes24_scraper 사용
+    step = _mk_step("yes24_scraper", "with_rich_description")
     sb = MagicMock()
 
     status_seq = [
@@ -257,6 +264,76 @@ def test_run_step_progress_verification_fails_on_below_threshold(monkeypatch):
     assert r.success is False
     assert r.progress_delta == 20
     assert "미달" in r.progress_warning
+
+
+def test_run_step_reason_extractor_skips_ratio_verification(monkeypatch):
+    """reason_extractor 는 ratio 검증 비활성 — 부정확한 추정으로 false-positive 방지.
+    단 0 진전 감지는 여전히 동작해야 함.
+    """
+    step = _mk_step("reason_extractor", "with_reasons", ratio_verifiable=False)
+    sb = MagicMock()
+
+    # delta = 100, expected_inaccurate = 1000 → ratio 10% (90% 미달)
+    # but reason_extractor 는 RATIO_VERIFY_STEPS 멤버 아니므로 ratio 무시
+    status_seq = [
+        {
+            "with_v3_vectors": 2000,
+            "with_reasons": 13000,  # est books = 1000
+            "with_rich_description": 2000,
+            "with_embeddings": 2000,
+            "missing_rich_description": 0,
+            "with_loan_count": 100,
+        },
+        {
+            "with_v3_vectors": 2000,
+            "with_reasons": 13100,  # +100 row
+            "with_rich_description": 2000,
+            "with_embeddings": 2000,
+            "missing_rich_description": 0,
+            "with_loan_count": 100,
+        },
+    ]
+
+    def fake_collect(_sb):
+        return status_seq.pop(0)
+
+    monkeypatch.setattr(pipeline_orchestrator, "collect_status", fake_collect)
+    with patch("scripts.pipeline_orchestrator.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
+        r = pipeline_orchestrator.run_step(step, limit=None, dry_run=False, sb=sb)
+
+    # delta=100, pending est = 2000 - 1000 = 1000 → ratio 10% 인데 검증 비활성
+    assert r.success is True
+    assert r.progress_delta == 100
+    assert r.progress_warning is None
+
+
+def test_run_step_reason_extractor_still_catches_zero_delta(monkeypatch):
+    """reason_extractor 가 ratio 검증 비활성이지만 0 진전은 잡혀야 함."""
+    step = _mk_step("reason_extractor", "with_reasons", ratio_verifiable=False)
+    sb = MagicMock()
+
+    # pending est = 1000 인데 delta = 0
+    same_status = {
+        "with_v3_vectors": 2000,
+        "with_reasons": 13000,
+        "with_rich_description": 2000,
+        "with_embeddings": 2000,
+        "missing_rich_description": 0,
+        "with_loan_count": 100,
+    }
+
+    def fake_collect(_sb):
+        return same_status
+
+    monkeypatch.setattr(pipeline_orchestrator, "collect_status", fake_collect)
+    with patch("scripts.pipeline_orchestrator.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
+        r = pipeline_orchestrator.run_step(step, limit=None, dry_run=False, sb=sb)
+
+    assert r.success is False
+    assert r.progress_delta == 0
+    assert "silent drop" in r.progress_warning
 
 
 def test_run_step_skips_verification_when_sb_none():
@@ -325,7 +402,8 @@ def test_run_step_catches_tier1_zero_delta_on_full_backlog(monkeypatch):
     assert r.success is False, "full-backlog 에서도 0 진전을 감지해야 한다"
     assert r.progress_delta == 0
     assert r.progress_expected == 398  # pending = 2898 - 2500
-    assert "미달" in r.progress_warning
+    # 0 진전 감지가 ratio 검증보다 먼저 실행되므로 silent drop 메시지
+    assert "silent drop" in r.progress_warning or "진전 0" in r.progress_warning
 
 
 def test_run_step_pending_zero_does_not_false_positive(monkeypatch):

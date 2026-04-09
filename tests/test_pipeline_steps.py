@@ -90,3 +90,33 @@ def test_steps_covers_five_expected_stages():
         "tier1_embedder",
         "build_index",
     }
+
+
+def test_ratio_verifiable_default_false_for_safety():
+    """기본값 False — 새 step 추가 시 명시적으로 True 해야 ratio 검증 켜짐 (fail-safe)."""
+    step = PipelineStep(
+        name="x", script_path="scripts/x.py",
+        supports_limit=False, supports_dry_run=False, limit_flag=None,
+    )
+    assert step.ratio_verifiable is False
+
+
+def test_book_unit_steps_have_ratio_verifiable_true():
+    """책 단위 정확한 step (yes24/v3/tier1) 만 ratio 검증 활성."""
+    by_name = {s.name: s for s in STEPS}
+    assert by_name["yes24_scraper"].ratio_verifiable is True
+    assert by_name["v3_vectors"].ratio_verifiable is True
+    assert by_name["tier1_embedder"].ratio_verifiable is True
+
+
+def test_reason_extractor_ratio_verifiable_false():
+    """row/book 단위 혼재 → ratio 검증 비활성, 0진전만 감지."""
+    by_name = {s.name: s for s in STEPS}
+    assert by_name["reason_extractor"].ratio_verifiable is False
+
+
+def test_build_index_ratio_verifiable_false_default():
+    """파일 산출물 — DB 카운터 없으므로 검증 자체 안 됨."""
+    by_name = {s.name: s for s in STEPS}
+    assert by_name["build_index"].ratio_verifiable is False
+    assert by_name["build_index"].progress_counter is None

@@ -20,6 +20,12 @@ class PipelineStep:
     # DB 검증용 — 이 step 이 성공하면 `collect_status()` 의 어떤 키가 증가해야 하는가.
     # None 이면 DB 검증 스킵 (예: build_index 는 파일 산출물이라 DB 카운터가 없음).
     progress_counter: Optional[str] = None
+    # Ratio 검증 활성 여부.
+    # True 면 (delta / progress_expected < PROGRESS_THRESHOLD) 시 실패.
+    # False 면 ratio 검증은 건너뛰고 0진전 감지만 동작.
+    # 단위가 row/book 혼재라 pending 추정이 부정확한 step (예: reason_extractor) 은 False.
+    # **fail-safe 기본값: False** — 새 step 추가 시 명시적으로 True 로 설정해야 ratio 검증 켜짐.
+    ratio_verifiable: bool = False
 
 
 STEPS: List[PipelineStep] = [
@@ -30,6 +36,7 @@ STEPS: List[PipelineStep] = [
         supports_dry_run=True,
         limit_flag="--limit",
         progress_counter="with_rich_description",
+        ratio_verifiable=True,  # 책 단위 정확
     ),
     PipelineStep(
         name="v3_vectors",
@@ -38,6 +45,7 @@ STEPS: List[PipelineStep] = [
         supports_dry_run=True,
         limit_flag=None,  # positional
         progress_counter="with_v3_vectors",
+        ratio_verifiable=True,  # 책 단위 정확
     ),
     PipelineStep(
         name="reason_extractor",
@@ -46,6 +54,7 @@ STEPS: List[PipelineStep] = [
         supports_dry_run=True,
         limit_flag="--limit",
         progress_counter="with_reasons",
+        ratio_verifiable=False,  # row 단위 카운터 + book 단위 추정 혼재 → 0진전만
     ),
     PipelineStep(
         name="tier1_embedder",
@@ -54,6 +63,7 @@ STEPS: List[PipelineStep] = [
         supports_dry_run=True,
         limit_flag="--limit",
         progress_counter="with_embeddings",
+        ratio_verifiable=True,  # 책 단위 정확
     ),
     PipelineStep(
         name="build_index",
