@@ -27,13 +27,16 @@ try:
 except ImportError:
     pass  # 테스트 환경에서는 순수 함수만 사용
 
-try:
-    from lib.retry import with_retry
-except ImportError:
-    def with_retry(fn, **kwargs): return fn()
+# `lib.retry.with_retry` 는 hard dependency — silent no-op fallback 은 금지.
+# (과거: 패스 문제로 retry 가 통째로 no-op 되어 수백 권 drop 하고도
+#  exit 0 으로 끝나는 사고가 있었음. 반드시 실제 retry 가 돌아야 한다.)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from lib.retry import with_retry  # noqa: E402
+from lib.batch_fallback import save_with_size_fallback  # noqa: E402
 
 EMBEDDING_MODEL = "text-embedding-3-small"
 BATCH_SIZE = 50
+BATCH_SIZE_FALLBACKS = [20, 5]  # 57014 시 축소 단계
 MAX_CHARS = 15000  # ~7500 토큰 (한국어 ~2자 = ~1토큰)
 EXCERPT_LIMIT = 300
 
@@ -149,6 +152,11 @@ def compose_embedding(book):
     return text, data_sources
 
 
+def _is_statement_timeout(exc):
+    """Supabase upsert 가 Postgres statement_timeout (57014) 로 실패했는지."""
+    return str(getattr(exc, "code", "") or "") == "57014"
+
+
 class Tier2Embedder:
     def __init__(self, dry_run=False):
         self.dry_run = dry_run
@@ -157,7 +165,7 @@ class Tier2Embedder:
             os.getenv("SUPABASE_SERVICE_ROLE_KEY"),
         )
         self._openai_client = None  # lazy init — --status에서는 불필요
-        self.stats = {"embedded": 0, "skipped": 0, "errors": 0}
+        self.stats = {"embedded": 0, "skipped": 0, "errors": 0, "drop_failed": 0}
 
     @property
     def openai_client(self):
@@ -226,7 +234,7 @@ class Tier2Embedder:
 
         if not books:
             print("✅ Tier 2 임베딩이 필요한 도서가 없습니다.")
-            return
+            return 0
 
         # compose + filter
         valid_books = []
@@ -239,7 +247,7 @@ class Tier2Embedder:
 
         if not valid_books:
             print(f"⚠ 유효한 텍스트를 생성할 수 없는 도서 {self.stats['skipped']}권 스킵.")
-            return
+            return 0
 
         print(f"  {len(valid_books)}권 처리 예정 ({self.stats['skipped']}권 스킵)\n")
 
@@ -262,7 +270,10 @@ class Tier2Embedder:
                     self.stats["errors"] += 1
                     continue
 
-                if not self.dry_run:
+                if self.dry_run:
+                    self.stats["embedded"] += len(batch)
+                    print(f"  (dry-run) 배치 {i // BATCH_SIZE + 1}: {len(batch)}권 Tier 2 임베딩 완료")
+                else:
                     rows = [
                         {
                             "book_id": bid,
@@ -273,21 +284,35 @@ class Tier2Embedder:
                         }
                         for bid, emb, txt, src in zip(book_ids, embeddings, texts, sources_list)
                     ]
-                    with_retry(lambda: self.sb.table("book_embeddings").upsert(
-                        rows, on_conflict="book_id"
-                    ).execute())
 
-                self.stats["embedded"] += len(batch)
-                prefix = "(dry-run) " if self.dry_run else ""
-                print(f"  {prefix}배치 {i // BATCH_SIZE + 1}: {len(batch)}권 Tier 2 임베딩 완료")
+                    def saver(chunk):
+                        with_retry(lambda: self.sb.table("book_embeddings").upsert(
+                            chunk, on_conflict="book_id"
+                        ).execute())
+
+                    saved, failed = save_with_size_fallback(
+                        items=rows,
+                        saver=saver,
+                        fallback_sizes=BATCH_SIZE_FALLBACKS,
+                        is_timeout=_is_statement_timeout,
+                    )
+                    self.stats["embedded"] += saved
+                    self.stats["drop_failed"] += failed
+                    status = "완료" if failed == 0 else f"부분 실패 ({failed}권 drop)"
+                    print(f"  배치 {i // BATCH_SIZE + 1}: {saved}/{len(batch)}권 Tier 2 임베딩 {status}")
 
             except Exception as e:
                 self.stats["errors"] += 1
+                self.stats["drop_failed"] += len(batch)
                 print(f"  ✗ 배치 {i // BATCH_SIZE + 1} 실패: {e}")
 
             time.sleep(0.5)
 
         self.print_report()
+        # 실패가 하나라도 있으면 caller 에게 알린다.
+        if self.stats["drop_failed"] > 0 or self.stats["errors"] > 0:
+            return 1
+        return 0
 
     def print_report(self):
         s = self.stats
@@ -297,6 +322,7 @@ class Tier2Embedder:
         print(f"{'=' * 50}")
         print(f"  임베딩 완료: {s['embedded']}권")
         print(f"  스킵 (책소개 없음): {s['skipped']}권")
+        print(f"  드롭 (저장 실패): {s['drop_failed']}권")
         print(f"  에러: {s['errors']}건")
         print(f"{'=' * 50}")
 
@@ -337,10 +363,10 @@ def main():
 
     if args.status:
         embedder.show_status()
-        return
+        return 0
 
-    embedder.run(limit=args.limit, force=args.force)
+    return embedder.run(limit=args.limit, force=args.force) or 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)

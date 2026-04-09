@@ -31,11 +31,11 @@ try:
 except ImportError:
     pass
 
-try:
-    from lib.retry import with_retry
-except ImportError:
-    def with_retry(fn, **kwargs):
-        return fn()
+# `lib.retry.with_retry` 는 hard dependency — silent no-op fallback 은 금지.
+# (과거: 패스 문제로 retry 가 통째로 no-op 되어 수백 권 drop 하고도
+#  exit 0 으로 끝나는 사고가 있었음. 반드시 실제 retry 가 돌아야 한다.)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from lib.retry import with_retry  # noqa: E402
 
 
 CO_LOAN_CAP = 50
@@ -168,7 +168,7 @@ class Data4LibraryCollector:
 
         if not books:
             print("✅ 모든 도서의 정보나루 데이터가 수집 완료됨.")
-            return
+            return 0
 
         for i, book in enumerate(books):
             isbn = book["isbn"]
@@ -198,6 +198,7 @@ class Data4LibraryCollector:
             time.sleep(REQUEST_DELAY)
 
         self._print_report(len(books))
+        return 1 if self.stats["errors"] > 0 else 0
 
     def _print_report(self, total):
         s = self.stats
@@ -247,10 +248,10 @@ def main():
 
     if args.status:
         collector.show_status()
-        return
+        return 0
 
-    collector.run(limit=args.limit)
+    return collector.run(limit=args.limit) or 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)

@@ -24,10 +24,11 @@ import urllib.error
 from dotenv import load_dotenv
 from supabase import create_client
 
-try:
-    from lib.retry import with_retry
-except ImportError:
-    def with_retry(fn, **kwargs): return fn()
+# `lib.retry.with_retry` 는 hard dependency — silent no-op fallback 은 금지.
+# (과거: 패스 문제로 retry 가 통째로 no-op 되어 수백 권 drop 하고도
+#  exit 0 으로 끝나는 사고가 있었음. 반드시 실제 retry 가 돌아야 한다.)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from lib.retry import with_retry  # noqa: E402
 
 load_dotenv()
 
@@ -151,7 +152,7 @@ class BatchEnricher:
 
         if not books:
             print("✅ 모든 도서가 보강 완료됨.")
-            return
+            return 0
 
         for i, book in enumerate(books):
             try:
@@ -175,6 +176,7 @@ class BatchEnricher:
             time.sleep(0.1)
 
         self.print_report(len(books))
+        return 1 if self.stats["errors"] > 0 else 0
 
     def print_report(self, total):
         """결과 리포트"""
@@ -216,10 +218,10 @@ def main():
 
     if args.status:
         enricher.show_status()
-        return
+        return 0
 
-    enricher.run(limit=args.limit)
+    return enricher.run(limit=args.limit) or 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)

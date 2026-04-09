@@ -397,7 +397,7 @@ def main():
 
     if not ids:
         print("모든 책이 이미 v3 처리되었습니다.", flush=True)
-        return
+        return 0
 
     # 3) 처리 시작
     start = time.time()
@@ -503,6 +503,9 @@ def main():
         os.remove(CHECKPOINT_FILE)
         print("  체크포인트 파일 삭제 (정상 완료)", flush=True)
 
+    # 실패가 있으면 caller (cron, pipeline) 가 감지할 수 있도록 exit 1.
+    return 1 if total_errors > 0 else 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)

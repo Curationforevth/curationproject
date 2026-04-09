@@ -23,19 +23,7 @@
 
 ## 🟡 Important
 
-### KI-002 — 파이프라인 밖 with_retry 사용자 audit/하드닝
-- **출처:** 2026-04-09 Step 5 audit 에서 발견
-- **위치:** `scripts/batch_enricher.py`, `scripts/data4library_collector.py`, `scripts/smart_batch_collector.py`, `scripts/taste_recomputer.py`, `scripts/tier2_embedder.py`, `scripts/v3_reason_extract.py`
-- **현상:** 파이프라인 orchestrator 가 호출하지 않는 6개 enrich 스크립트가 동일한 silent ImportError fallback + exit code 부재 패턴 보유
-- **세부:**
-  - 모두 `try: from lib.retry import with_retry; except ImportError: def with_retry(fn, **kwargs): return fn()` — `lib/` 가 sys.path 에서 빠지면 retry 통째로 no-op
-  - main() 이 None 반환 → 호출자가 실패 감지 불가
-  - **Critical 후보 3개** (vector 컬럼 upsert):
-    - `taste_recomputer.py` — `user_taste_vectors` insert, chunking 없음, fallback 없음
-    - `tier2_embedder.py` — `book_embeddings` upsert, mini-batch fallback 없음
-    - `smart_batch_collector.py` — per-row fallback 이 silent `except: pass`
-- **우선순위:** Important (수동 운영 시 silent drop 위험)
-- **추정 크기:** M (6 파일 × 동일 패턴, 1-2일)
+(현재 없음)
 
 ---
 
