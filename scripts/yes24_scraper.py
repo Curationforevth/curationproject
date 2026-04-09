@@ -324,11 +324,30 @@ def main():
 
     scraper.run(limit=args.limit)
 
-    # processed 중 성공 비율이 극단적으로 낮으면 exit 1.
-    # 기준: success == 0 이고 처리 대상이 있었음 → 전멸.
+    # 실패율 기반 exit code. orchestrator 의 DB 검증이 1차 guard 이지만
+    # 이 스크립트 자체도 내부 성공률 급락을 감지해서 주도적으로 실패 반환.
+    #
+    # 기준:
+    #   - 처리 대상이 없었음 → 0 (nothing to do)
+    #   - 처리량 < 10권 이고 success > 0 → 0 (통계적으로 의미 없음)
+    #   - success 0 건 → 1 (전멸)
+    #   - success / processed < 0.5 → 1 (50% 미만 실패율)
     s = scraper.stats
-    if s.get("processed", 0) > 0 and s.get("success", 0) == 0:
-        print("⚠ 처리 대상이 있었지만 성공 0건 — 재실행 권장")
+    processed = s.get("processed", 0)
+    success = s.get("success", 0)
+    errors = s.get("errors", 0)
+
+    if processed == 0:
+        return 0
+    if success == 0:
+        print(f"⚠ 처리 {processed}권 전원 실패 — 재실행 권장 (idempotent)")
+        return 1
+    if processed >= 10 and success / processed < 0.5:
+        ratio = success / processed
+        print(f"⚠ 성공률 {ratio*100:.0f}% ({success}/{processed}) — 50% 미만, 재실행 권장")
+        return 1
+    if errors > success:
+        print(f"⚠ 에러({errors}) > 성공({success}) — 재실행 권장")
         return 1
     return 0
 
