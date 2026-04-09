@@ -42,6 +42,8 @@ from scripts.lib.data4library_api import (
     is_adult_general,
 )
 from scripts.lib.dedup_checker import DeduplicateChecker
+from scripts.lib.book_filter import is_non_book
+from scripts.lib.books_upsert import upsert_books_rich_merge
 
 load_dotenv(os.path.join(REPO, ".env"))
 
@@ -151,6 +153,7 @@ def sanitize_for_upsert(parsed: dict) -> dict:
         "cover_url": parsed.get("cover_url"),
         "loan_count": parsed.get("loan_count") or 0,
         "sales_point": parsed.get("loan_count") or 0,
+        "source": "data4library",
     }
 
 
@@ -293,9 +296,22 @@ class DiscoveryCollector:
         self.stats["filtered_children"] += len(parsed_rows) - len(adult_rows)
         print(f"  성인 단행본 필터: {len(adult_rows)}/{len(parsed_rows)}")
 
-        by_isbn = dedup_in_batch_by_isbn(adult_rows)
-        self.stats["filtered_isbn_dup"] += len(adult_rows) - len(by_isbn)
-        print(f"  배치 ISBN dedup: {len(by_isbn)}/{len(adult_rows)}")
+        # B5: smart_batch 와 동일한 non-book 필터 적용 (문제집/수험서/만화 등).
+        book_rows = [
+            r for r in adult_rows
+            if not is_non_book({
+                "title": r.get("title") or "",
+                "categoryName": r.get("class_name") or "",
+            })
+        ]
+        self.stats["filtered_non_book"] = (
+            self.stats.get("filtered_non_book", 0) + (len(adult_rows) - len(book_rows))
+        )
+        print(f"  non-book 필터: {len(book_rows)}/{len(adult_rows)}")
+
+        by_isbn = dedup_in_batch_by_isbn(book_rows)
+        self.stats["filtered_isbn_dup"] += len(book_rows) - len(by_isbn)
+        print(f"  배치 ISBN dedup: {len(by_isbn)}/{len(book_rows)}")
 
         if not by_isbn:
             return 0
@@ -322,11 +338,8 @@ class DiscoveryCollector:
             print(f"  sample: {rows[0]}")
             return len(rows)
 
-        upserted = 0
-        for i in range(0, len(rows), 200):
-            chunk = rows[i:i + 200]
-            self.sb.table("books").upsert(chunk, on_conflict="isbn").execute()
-            upserted += len(chunk)
+        # B6: field-level richer merge (cross-source overwrite 방지 + richer 선택).
+        upserted = upsert_books_rich_merge(self.sb, rows, chunk_size=200)
         self.stats["upserted"] += upserted
         return upserted
 
@@ -367,7 +380,7 @@ def main():
     c = DiscoveryCollector(dry_run=args.dry_run)
     if args.status:
         c.show_status()
-        return
+        return 0
 
     if args.tier == 1:
         print(f"Tier 1: loanItemSrch × {len(KDC_BUCKETS)} KDC × {args.pages} pages × {PAGE_SIZE}/page")
@@ -396,12 +409,17 @@ def main():
 
     c.report()
 
+    # B2: stats.errors 가 있으면 exit 1. cron 이 감지 가능하도록.
+    rc = 1 if c.stats.get("errors", 0) > 0 else 0
+
     if args.with_enrich:
         code = trigger_enrich_pipeline(dry_run=args.dry_run, limit=args.enrich_limit)
         if code != 0:
             print(f"⚠ enrich pipeline 실패 (exit {code})", file=sys.stderr)
-            sys.exit(code)
+            return max(rc, code)
+
+    return rc
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)
