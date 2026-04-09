@@ -148,6 +148,45 @@ def _mk_step(name, counter):
     )
 
 
+# ----- _pending_for_step: step 별 pending 추정 -----
+
+def test_pending_for_yes24_scraper_uses_missing_rich_description():
+    from scripts.pipeline_orchestrator import _pending_for_step
+    status = {"missing_rich_description": 525}
+    assert _pending_for_step("yes24_scraper", status) == 525
+
+
+def test_pending_for_v3_vectors_is_rich_minus_v3():
+    from scripts.pipeline_orchestrator import _pending_for_step
+    status = {"with_rich_description": 2898, "with_v3_vectors": 2811}
+    assert _pending_for_step("v3_vectors", status) == 87
+
+
+def test_pending_for_tier1_embedder_is_rich_minus_embeddings():
+    from scripts.pipeline_orchestrator import _pending_for_step
+    status = {"with_rich_description": 2898, "with_embeddings": 2500}
+    assert _pending_for_step("tier1_embedder", status) == 398
+
+
+def test_pending_for_reason_extractor_uses_v3_minus_reasons_approx():
+    from scripts.pipeline_orchestrator import _pending_for_step
+    status = {"with_v3_vectors": 2811, "with_reasons": 37911}
+    # reasons // 13 ≈ 2916 → max(0, 2811 - 2916) = 0 (이미 다 처리됨)
+    assert _pending_for_step("reason_extractor", status) == 0
+
+
+def test_pending_for_unknown_step_returns_none():
+    from scripts.pipeline_orchestrator import _pending_for_step
+    assert _pending_for_step("nonexistent", {}) is None
+
+
+def test_pending_for_v3_vectors_clamps_at_zero():
+    """앞 stage 카운트보다 현재 stage 가 더 많으면 (다른 경로로 생성된 경우) 0."""
+    from scripts.pipeline_orchestrator import _pending_for_step
+    status = {"with_rich_description": 100, "with_v3_vectors": 200}
+    assert _pending_for_step("v3_vectors", status) == 0
+
+
 def test_run_step_progress_verification_passes(monkeypatch):
     """pre=100, post=145, limit=50 → delta=45, ratio=0.9 = 경계, 성공."""
     step = _mk_step("fake", "with_rich_description")
@@ -243,6 +282,98 @@ def test_run_step_skips_verification_on_dry_run(monkeypatch):
         r = pipeline_orchestrator.run_step(step, limit=50, dry_run=True, sb=sb)
     assert r.success is True
     assert r.progress_delta is None
+
+
+def test_run_step_catches_tier1_zero_delta_on_full_backlog(monkeypatch):
+    """**핵심 회귀 테스트** — limit 없는 full-backlog 에서 tier1 이 0 진전하면 잡혀야 함.
+
+    어젯밤 사고 재현: rich_description 2898, embeddings 2500 → pending 398.
+    tier1 이 내부에서 다 drop 하고 exit 0 → delta 0, expected 398 → 실패 처리.
+    """
+    step = _mk_step("tier1_embedder", "with_embeddings")
+    sb = MagicMock()
+
+    status_seq = [
+        {  # pre
+            "with_rich_description": 2898,
+            "with_v3_vectors": 2811,
+            "with_reasons": 37911,
+            "with_embeddings": 2500,
+            "missing_rich_description": 525,
+            "with_loan_count": 1019,
+        },
+        {  # post — 안 변함 (silent drop)
+            "with_rich_description": 2898,
+            "with_v3_vectors": 2811,
+            "with_reasons": 37911,
+            "with_embeddings": 2500,
+            "missing_rich_description": 525,
+            "with_loan_count": 1019,
+        },
+    ]
+
+    def fake_collect(_sb):
+        return status_seq.pop(0)
+
+    monkeypatch.setattr(pipeline_orchestrator, "collect_status", fake_collect)
+    with patch("scripts.pipeline_orchestrator.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)  # 🎉
+        r = pipeline_orchestrator.run_step(
+            step, limit=None, dry_run=False, sb=sb  # limit 없음 = full backlog
+        )
+
+    assert r.success is False, "full-backlog 에서도 0 진전을 감지해야 한다"
+    assert r.progress_delta == 0
+    assert r.progress_expected == 398  # pending = 2898 - 2500
+    assert "미달" in r.progress_warning
+
+
+def test_run_step_pending_zero_does_not_false_positive(monkeypatch):
+    """처리할 게 없는 full-backlog 는 delta 0 으로 끝나도 실패 아님."""
+    step = _mk_step("tier1_embedder", "with_embeddings")
+    sb = MagicMock()
+
+    empty_status = {
+        "with_rich_description": 100,
+        "with_v3_vectors": 100,
+        "with_reasons": 1300,
+        "with_embeddings": 100,  # 이미 다 처리
+        "missing_rich_description": 0,
+        "with_loan_count": 100,
+    }
+
+    def fake_collect(_sb):
+        return empty_status
+
+    monkeypatch.setattr(pipeline_orchestrator, "collect_status", fake_collect)
+    with patch("scripts.pipeline_orchestrator.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
+        r = pipeline_orchestrator.run_step(
+            step, limit=None, dry_run=False, sb=sb
+        )
+
+    assert r.success is True  # 아무것도 할 게 없었으니 OK
+    assert r.progress_delta == 0
+    assert r.progress_expected == 0
+    assert r.progress_warning is None
+
+
+def test_run_step_pre_snapshot_failure_skips_verification_with_warning(monkeypatch):
+    """pre snapshot 이 에러나면 경고만 남기고 subprocess 는 그대로 실행."""
+    step = _mk_step("yes24_scraper", "with_rich_description")
+    sb = MagicMock()
+
+    def fake_collect(_sb):
+        raise RuntimeError("supabase blip")
+
+    monkeypatch.setattr(pipeline_orchestrator, "collect_status", fake_collect)
+    with patch("scripts.pipeline_orchestrator.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
+        r = pipeline_orchestrator.run_step(step, limit=50, dry_run=False, sb=sb)
+
+    assert r.success is True  # subprocess 가 OK 였으므로 통과
+    assert r.progress_delta is None
+    assert r.progress_warning == "pre snapshot 실패로 DB 검증 생략됨"
 
 
 def test_run_step_skips_verification_when_no_progress_counter(monkeypatch):

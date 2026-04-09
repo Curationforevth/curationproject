@@ -42,6 +42,34 @@ from scripts.lib.pipeline_steps import (
 PROGRESS_THRESHOLD = 0.9
 
 
+def _pending_for_step(step_name: str, status: dict) -> Optional[int]:
+    """각 step 이 실행 전 '처리해야 할' 대략적 row 수를 추정.
+
+    이 값은 full-backlog run (limit 없음) 시의 기대치 기준이 된다.
+    정확하지 않아도 "0진전 감지" 에는 충분.
+
+    Returns:
+        pending 추정값, 또는 계산 불가 시 None.
+    """
+    try:
+        if step_name == "yes24_scraper":
+            # rich_description 없는 책 중 loan_count 있는 것
+            return status.get("missing_rich_description")
+        if step_name == "v3_vectors":
+            # rich_description 있지만 book_v3_vectors 없는 책
+            return max(0, status.get("with_rich_description", 0) - status.get("with_v3_vectors", 0))
+        if step_name == "reason_extractor":
+            # v3_vectors 있지만 reason 없는 책 — reason 은 row 수이므로 근사치
+            # (한 책당 평균 ~13개 reason 이지만 여기선 책 수 기준 하한)
+            return max(0, status.get("with_v3_vectors", 0) - (status.get("with_reasons", 0) // 13))
+        if step_name == "tier1_embedder":
+            # rich_description 있지만 embedding 없는 책
+            return max(0, status.get("with_rich_description", 0) - status.get("with_embeddings", 0))
+    except (TypeError, KeyError):
+        return None
+    return None
+
+
 @dataclass
 class StepResult:
     name: str
@@ -77,19 +105,15 @@ def run_step(
     # Pre snapshot
     pre_count = None
     pending_before = None
+    pre_snapshot_failed = False
     if sb is not None and step.progress_counter and not dry_run:
         try:
             status = collect_status(sb)
             pre_count = status.get(step.progress_counter)
-            # pending 은 step 마다 다른 소스
-            if step.progress_counter == "with_rich_description":
-                pending_before = status.get("missing_rich_description")
-            else:
-                # 대략적 pending: 앞 stage 카운트 - 현재 stage 카운트
-                # (정확도는 낮지만 0 진전 감지에는 충분)
-                pending_before = None  # caller 가 limit 으로 기대치 잡음
+            pending_before = _pending_for_step(step.name, status)
         except Exception as e:
-            print(f"  ⚠ pre snapshot 실패: {e} — DB 검증 스킵")
+            pre_snapshot_failed = True
+            print(f"  ⚠ pre snapshot 실패: {e} — 이 step 의 DB 검증은 스킵됩니다")
 
     try:
         proc = subprocess.run(cmd, cwd=cwd, check=False)
@@ -109,7 +133,10 @@ def run_step(
             post_count = post.get(step.progress_counter)
             progress_delta = post_count - pre_count
 
-            # 기대치: min(limit, pending_before). limit 없으면 pending_before.
+            # 기대치 계산:
+            #   - limit 과 pending_before 모두 있으면 작은 쪽
+            #   - 하나만 있으면 그것
+            #   - 둘 다 없으면 None (검증 스킵)
             if limit is not None and pending_before is not None:
                 progress_expected = min(limit, pending_before)
             elif limit is not None:
@@ -119,6 +146,8 @@ def run_step(
             else:
                 progress_expected = None
 
+            # 검증 실행 조건: expected > 0 일 때만.
+            # expected == 0 이면 "처리할게 없었다" → delta 0 이 정상 (false-positive 방지)
             if progress_expected is not None and progress_expected > 0:
                 ratio = progress_delta / progress_expected
                 if ratio < PROGRESS_THRESHOLD:
@@ -128,12 +157,12 @@ def run_step(
                     )
                     ok = False
                     error = progress_warning
-            elif progress_delta == 0 and (progress_expected or 0) > 0:
-                progress_warning = "DB 진전 0 — step 이 실제로 아무 것도 반영하지 않음"
-                ok = False
-                error = progress_warning
         except Exception as e:
             print(f"  ⚠ post snapshot 실패: {e} — DB 검증 스킵")
+    elif pre_snapshot_failed and ok:
+        # Pre snapshot 이 실패했는데 subprocess 는 성공 — 검증 없이 통과시키되
+        # summary 에서 보이도록 warning 남김
+        progress_warning = "pre snapshot 실패로 DB 검증 생략됨"
 
     return StepResult(
         name=step.name,
