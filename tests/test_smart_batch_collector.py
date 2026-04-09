@@ -220,3 +220,32 @@ def test_run_search_phase_propagates_partial_save_success():
 
     assert collector.stats["saved"] == 50
     assert collector.stats["drop_failed"] == 0
+
+
+def test_run_search_phase_api_failure_does_not_mark_completed():
+    """A6/B3: transient API 실패 시 keyword 가 completed=True 로 저장되지 않음."""
+    import smart_batch_collector
+    # smart_batch_collector 가 실제 사용하는 예외 심볼을 그대로 재사용
+    # (sys.path 차이로 scripts.lib.* vs lib.* 가 서로 다른 모듈이 될 수 있음)
+    AladinAPIError = smart_batch_collector.AladinAPIError
+    collector = _make_collector(dry_run=False)
+
+    capacity_calls = {"n": 0}
+    def fake_has_capacity():
+        capacity_calls["n"] += 1
+        return capacity_calls["n"] <= 2
+
+    collector.aladin.search_books = MagicMock(
+        side_effect=AladinAPIError("transient 500")
+    )
+    collector.state_mgr.get_state = MagicMock(return_value=None)
+    collector.state_mgr.upsert_state = MagicMock()
+
+    with patch.object(collector, "has_capacity", side_effect=fake_has_capacity), \
+         patch("time.sleep"):
+        collector._run_search_phase(["테스트키워드"], "keyword_search")
+
+    assert collector.state_mgr.upsert_state.called
+    last_call = collector.state_mgr.upsert_state.call_args
+    assert last_call.kwargs["completed"] is False
+    assert collector.stats["api_errors"] >= 1

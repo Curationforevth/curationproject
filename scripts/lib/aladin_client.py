@@ -12,6 +12,11 @@ import urllib.parse
 import urllib.error
 
 
+class AladinAPIError(Exception):
+    """Aladin API 호출 실패 (retry 소진 등). 호출자가 transient 여부 판단."""
+    pass
+
+
 class AladinClient:
     ITEM_LIST_URL = "http://www.aladin.co.kr/ttb/api/ItemList.aspx"
     ITEM_SEARCH_URL = "http://www.aladin.co.kr/ttb/api/ItemSearch.aspx"
@@ -51,7 +56,8 @@ class AladinClient:
                     time.sleep(wait)
                 else:
                     print(f"    ✗ API 호출 실패 (재시도 소진): {e}")
-                    return None
+                    raise AladinAPIError(f"retries exhausted: {e}") from e
+        raise AladinAPIError("unreachable")
 
     def fetch_item_list(self, query_type, category_id=None, page=1, max_results=50):
         """ItemList API — 베스트셀러, 신간, 편집자추천 등"""

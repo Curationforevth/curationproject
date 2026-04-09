@@ -26,7 +26,7 @@ from supabase import create_client
 
 # lib 모듈 import
 sys.path.insert(0, os.path.dirname(__file__))
-from lib.aladin_client import AladinClient
+from lib.aladin_client import AladinClient, AladinAPIError
 from lib.book_filter import is_non_book
 from lib.title_cleaner import clean_title
 from lib.dedup_checker import DeduplicateChecker
@@ -110,6 +110,7 @@ class SmartBatchCollector:
             "filtered_no_isbn": 0,
             "saved": 0,
             "drop_failed": 0,
+            "api_errors": 0,
         }
 
     def has_capacity(self):
@@ -237,7 +238,14 @@ class SmartBatchCollector:
                         print("\n⚠ 일일 API 한도 도달. 다음 실행에서 이어갑니다.")
                         return
 
-                    items, total = self.aladin.fetch_item_list(qt, cat_id, page)
+                    try:
+                        items, total = self.aladin.fetch_item_list(qt, cat_id, page)
+                    except AladinAPIError as e:
+                        # A6/B3: transient → skip but do NOT persist state as completed.
+                        # item_list 는 state 를 저장하지 않는 phase 라 로그 + 카운터만.
+                        print(f"    ⚠ {cat_name}/{qt} p{page} API 실패: {e}")
+                        self.stats["api_errors"] += 1
+                        continue
 
                     if not items:
                         continue
@@ -340,7 +348,23 @@ class SmartBatchCollector:
                 if not self.has_capacity():
                     break
 
-                items, total = self.aladin.search_books(keyword, page)
+                try:
+                    items, total = self.aladin.search_books(keyword, page)
+                except AladinAPIError as e:
+                    # A6/B3: transient API 실패 → keyword 영구 스킵 금지.
+                    # last_page_fetched 는 진전 없음 (last_page 유지), completed=False.
+                    print(f"    ⚠ '{keyword}' p{page} API 실패 — 다음 실행에서 재시도: {e}")
+                    self.stats["api_errors"] = self.stats.get("api_errors", 0) + 1
+                    self.state_mgr.upsert_state(
+                        source_type=source_type,
+                        search_keyword=keyword,
+                        last_page_fetched=last_page,
+                        total_items_found=total_found,
+                        unique_items_saved=unique_saved,
+                        completed=False,
+                    )
+                    break
+
                 total_found += len(items)
                 pages_fetched += 1
 
@@ -472,7 +496,7 @@ def main():
         collector.run_keyword_search()
 
     collector.print_report()
-    return 1 if collector.stats["drop_failed"] > 0 else 0
+    return 1 if (collector.stats["drop_failed"] > 0 or collector.stats["api_errors"] > 0) else 0
 
 
 if __name__ == "__main__":
