@@ -54,6 +54,7 @@ def test_parse_reasons_filters_empty():
         "이유 둘",
     ]}
     result = parse_reasons(raw)
+    assert len(result) == 2
     assert [r["reason"] for r in result] == ["이유 하나", "이유 둘"]
     assert result[0]["evidence"] == "근거"
     assert result[1]["evidence"] == ""
