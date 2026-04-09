@@ -287,7 +287,7 @@ class Tier2Embedder:
 
                     def saver(chunk):
                         with_retry(lambda: self.sb.table("book_embeddings").upsert(
-                            chunk, on_conflict="book_id"
+                            chunk, on_conflict="book_id,tier"
                         ).execute())
 
                     saved, failed = save_with_size_fallback(

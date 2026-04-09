@@ -133,7 +133,7 @@ def save_embeddings_chunk(sb, book_ids, embeddings, dry_run=False):
 
     with_retry(
         lambda: sb.table("book_embeddings")
-        .upsert(rows, on_conflict="book_id")
+        .upsert(rows, on_conflict="book_id,tier")
         .execute()
     )
 
