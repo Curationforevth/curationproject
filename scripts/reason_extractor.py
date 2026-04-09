@@ -367,12 +367,19 @@ class ReasonExtractor:
         self.dry_run = dry_run
         self.rerun = rerun
         self.stats = {
-            "processed": 0,
-            "reasons_created": 0,
-            "skipped": 0,
-            "errors": 0,
+            "processed": 0,           # 성공한 책 수
+            "reasons_created": 0,      # 생성된 reason row 수 (성공한 것만)
+            "skipped": 0,              # LLM 이 빈 결과 반환한 책 수
+            # --- 실패 카운터 (단위 분리) ---
+            "errors_books": 0,         # 책 단위 실패: LLM 실패 + 임베딩 손실
+            "errors_rows": 0,          # row 단위 실패: insert 실패 reason row 수
             "deleted": 0,
         }
+
+    @property
+    def total_errors(self) -> int:
+        """모든 실패의 합 (호환용 — 단위 섞임)."""
+        return self.stats["errors_books"] + self.stats["errors_rows"]
 
     def run(self, limit=None):
         """메인 배치 루프: 이유 미추출 도서 조회 → 추출 → 임베딩 → 저장."""
@@ -546,7 +553,7 @@ class ReasonExtractor:
                     else:
                         self.stats["skipped"] += 1
                 except Exception as e:
-                    self.stats["errors"] += 1
+                    self.stats["errors_books"] += 1
                     print(f"  ✗ [{book.get('title', '?')[:25]}] LLM 실패: {e}")
 
         if not extracted:
@@ -577,7 +584,7 @@ class ReasonExtractor:
         if failed_count > 0:
             print(f"  ⚠ 임베딩 {failed_count}건 실패, {len(valid_indices)}건 진행")
         if not valid_indices:
-            self.stats["errors"] += len(extracted)
+            self.stats["errors_books"] += len(extracted)
             return
 
         all_reasons = [all_reasons[i] for i in valid_indices]
@@ -588,7 +595,7 @@ class ReasonExtractor:
         surviving_book_ids = set(reason_map)
         lost_book_ids = set(extracted.keys()) - surviving_book_ids
         if lost_book_ids:
-            self.stats["errors"] += len(lost_book_ids)
+            self.stats["errors_books"] += len(lost_book_ids)
             self.stats["processed"] -= len(lost_book_ids)
 
         # 3단계: DB 일괄 저장
@@ -625,7 +632,7 @@ class ReasonExtractor:
                                 .insert(m).execute())
                         except Exception as e2:
                             print(f"  ✗ insert 실패 ({len(mini)}행): {e2}")
-                            self.stats["errors"] += len(mini)
+                            self.stats["errors_rows"] += len(mini)
 
         # 실제 저장된 이유 수 기준으로 카운트
         self.stats["reasons_created"] += len(all_reasons)
@@ -692,7 +699,8 @@ class ReasonExtractor:
         print(f"  처리 완료: {s['processed']}권")
         print(f"  이유 생성: {s['reasons_created']}건")
         print(f"  스킵 (이유 없음): {s['skipped']}권")
-        print(f"  에러: {s['errors']}건")
+        print(f"  실패 (책 단위): {s['errors_books']}권")
+        print(f"  실패 (row 단위): {s['errors_rows']}건")
         print(f"{'=' * 50}")
 
     @staticmethod
@@ -758,15 +766,30 @@ def main():
     extractor = ReasonExtractor(sb, dry_run=args.dry_run, rerun=args.rerun)
     extractor.run(limit=args.limit)
 
-    # stats["errors"] 는 LLM 추출 / 임베딩 / insert 실패를 모두 합친 카운트
-    # (단위는 섞여있음 — LLM/embed 는 책 단위, insert 는 row 단위).
-    # orchestrator 가 exit code 로 실패를 감지할 수 있도록 non-zero 반환.
-    if extractor.stats.get("errors", 0) > 0:
-        print(
-            f"⚠ reason 처리 실패 {extractor.stats['errors']}건 "
-            f"(LLM/임베딩/insert 포함) — 재실행 권장 (idempotent)"
-        )
+    # 실패 판정 정책 (단위 분리):
+    #   errors_books (책 단위 — LLM 실패 / 임베딩 손실) > 0  → 항상 fail
+    #     이유: 책이 통째로 reason 없는 상태로 남으면 추천에서 invisible
+    #   errors_rows (row 단위 — insert 실패) 비율 > 10%  → fail
+    #     이유: row 일부 drop 은 일시적 DB 부하 가능. 10% 이상이면 비정상.
+    s = extractor.stats
+    eb = s.get("errors_books", 0)
+    er = s.get("errors_rows", 0)
+    created = s.get("reasons_created", 0)
+
+    if eb > 0:
+        print(f"⚠ 책 단위 실패 {eb}권 (LLM/임베딩) — 재실행 권장 (idempotent)")
         return 1
+    if er > 0 and (created + er) > 0:
+        ratio = er / (created + er)
+        if ratio > 0.10:
+            print(
+                f"⚠ row 실패율 {ratio*100:.1f}% ({er}/{created + er}) — "
+                f"10% 초과, 재실행 권장"
+            )
+            return 1
+        else:
+            # 일부 row 실패는 허용하되 로그는 남김
+            print(f"  ℹ row 실패 {er}건 ({ratio*100:.1f}%) — 임계 내")
     return 0
 
 
