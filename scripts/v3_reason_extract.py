@@ -182,14 +182,18 @@ def embed_and_save(sb, book_reasons_map):
     for i in range(0, len(rows), INSERT_BATCH):
         chunk = rows[i:i + INSERT_BATCH]
         try:
-            with_retry(lambda c=chunk: sb.table("book_love_reasons").insert(c).execute(),
+            with_retry(lambda c=chunk: sb.table("book_love_reasons").upsert(
+                           c, on_conflict="book_id,source,reason",
+                           ignore_duplicates=True).execute(),
                        max_retries=2, base_delay=1.0)
             saved += len(chunk)
         except Exception:
             # 배치 실패 → 1건씩 재시도
             for row in chunk:
                 try:
-                    with_retry(lambda r=row: sb.table("book_love_reasons").insert(r).execute(),
+                    with_retry(lambda r=row: sb.table("book_love_reasons").upsert(
+                                   r, on_conflict="book_id,source,reason",
+                                   ignore_duplicates=True).execute(),
                                max_retries=2, base_delay=1.0)
                     saved += 1
                 except Exception as e:

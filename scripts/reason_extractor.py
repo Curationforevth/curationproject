@@ -618,14 +618,16 @@ class ReasonExtractor:
                 chunk = rows[i:i + INSERT_BATCH]
                 try:
                     with_retry(lambda c=chunk: self.sb.table("book_love_reasons")
-                        .insert(c).execute())
+                        .upsert(c, on_conflict="book_id,source,reason",
+                                ignore_duplicates=True).execute())
                 except Exception:
                     # 배치 실패 시 더 작은 단위로 쪼개서 재시도 (retry.py 도 함께 backoff)
                     for j in range(0, len(chunk), MINI_BATCH):
                         mini = chunk[j:j + MINI_BATCH]
                         try:
                             with_retry(lambda m=mini: self.sb.table("book_love_reasons")
-                                .insert(m).execute())
+                                .upsert(m, on_conflict="book_id,source,reason",
+                                        ignore_duplicates=True).execute())
                         except Exception as e2:
                             print(f"  ✗ insert 실패 ({len(mini)}행): {e2}")
                             self.stats["errors_rows"] += len(mini)
