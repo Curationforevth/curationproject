@@ -31,10 +31,19 @@ from lib.book_filter import is_non_book
 from lib.title_cleaner import clean_title
 from lib.dedup_checker import DeduplicateChecker
 from lib.state_manager import StateManager
-try:
-    from lib.retry import with_retry
-except ImportError:
-    def with_retry(fn, **kwargs): return fn()
+# `lib.retry.with_retry` 는 hard dependency — silent no-op fallback 은 금지.
+# (과거: 패스 문제로 retry 가 통째로 no-op 되어 수백 권 drop 하고도
+#  exit 0 으로 끝나는 사고가 있었음. 반드시 실제 retry 가 돌아야 한다.)
+from lib.retry import with_retry  # noqa: E402
+from lib.batch_fallback import save_with_size_fallback  # noqa: E402
+
+
+def _is_statement_timeout(exc):
+    """Supabase upsert 가 Postgres statement_timeout (57014) 로 실패했는지."""
+    return str(getattr(exc, "code", "") or "") == "57014"
+
+
+BATCH_SIZE_FALLBACKS = [20, 5]  # 57014 시 축소 단계
 
 load_dotenv()
 
@@ -100,6 +109,7 @@ class SmartBatchCollector:
             "filtered_edition_dup": 0,
             "filtered_no_isbn": 0,
             "saved": 0,
+            "drop_failed": 0,
         }
 
     def has_capacity(self):
@@ -185,24 +195,32 @@ class SmartBatchCollector:
         return books
 
     def save_batch(self, books):
-        """DB에 배치 upsert (카운트는 호출부에서 관리)"""
-        if not books or self.dry_run:
-            return
+        """DB에 배치 upsert. (saved, failed) 반환.
 
-        try:
+        - dry_run: 모두 saved 로 카운트, DB 호출 없음
+        - 일시적 timeout (57014): batch_fallback helper 로 chunk 축소 재시도
+        - 영구 에러 (다른 pgcode 또는 비-Postgres 예외): 해당 chunk 만 fail
+        - 과거 silent `except: pass` 는 카운트로 대체 (drop 감지 가능)
+        """
+        if not books:
+            return 0, 0
+        if self.dry_run:
+            return len(books), 0
+
+        def saver(chunk):
             with_retry(lambda: self.sb.table("books").upsert(
-                books, on_conflict="isbn"
+                chunk, on_conflict="isbn"
             ).execute())
-        except Exception as e:
-            print(f"    ✗ DB 저장 오류: {e}")
-            # 개별 저장 fallback
-            for book in books:
-                try:
-                    with_retry(lambda b=book: self.sb.table("books").upsert(
-                        b, on_conflict="isbn"
-                    ).execute())
-                except Exception:
-                    pass
+
+        saved, failed = save_with_size_fallback(
+            items=books,
+            saver=saver,
+            fallback_sizes=BATCH_SIZE_FALLBACKS,
+            is_timeout=_is_statement_timeout,
+        )
+        if failed > 0:
+            print(f"    ✗ DB 저장 실패 {failed}/{len(books)}권 (drop)")
+        return saved, failed
 
     # ── Phase 1: ItemList 스윕 ──────────────────────────
 
@@ -225,12 +243,13 @@ class SmartBatchCollector:
                         continue
 
                     books = self.process_items(items)
-                    self.stats["saved"] += len(books)
 
                     if books:
-                        self.save_batch(books)
+                        saved, failed = self.save_batch(books)
+                        self.stats["saved"] += saved
+                        self.stats["drop_failed"] += failed
                         yield_rate = len(books) / len(items) if items else 0
-                        print(f"  {cat_name} / {qt} p{page}: +{len(books)}권 (yield {yield_rate:.0%})")
+                        print(f"  {cat_name} / {qt} p{page}: +{saved}권 (yield {yield_rate:.0%})")
 
                     time.sleep(API_CALL_DELAY)
 
@@ -338,13 +357,14 @@ class SmartBatchCollector:
                     break
 
                 books = self.process_items(items)
-                self.stats["saved"] += len(books)
-                unique_saved += len(books)
-                page_new_count += len(books)
-
+                saved_now = 0
                 if books:
-                    self.save_batch(books)
-                    print(f"  '{keyword}' p{page}: +{len(books)}권")
+                    saved_now, failed_now = self.save_batch(books)
+                    self.stats["saved"] += saved_now
+                    self.stats["drop_failed"] += failed_now
+                    print(f"  '{keyword}' p{page}: +{saved_now}권")
+                unique_saved += saved_now
+                page_new_count += saved_now
 
                 # 상태 저장
                 self.state_mgr.upsert_state(
@@ -387,6 +407,7 @@ class SmartBatchCollector:
         print(f"  - 문제집/수험서: {s['filtered_non_book']}건")
         prefix = "(dry-run) " if self.dry_run else ""
         print(f"  {prefix}새로 저장: {s['saved']}권")
+        print(f"  드롭 (저장 실패): {s['drop_failed']}권")
         print(f"  DB 총 도서: {len(self.known_isbns)}권")
         print(f"{'=' * 60}")
 
@@ -433,7 +454,7 @@ def main():
 
     if args.status:
         collector.show_status()
-        return
+        return 0
 
     collector.load_known_isbns()
     collector.state_mgr.reset_expired_states(days=30)
@@ -451,7 +472,8 @@ def main():
         collector.run_keyword_search()
 
     collector.print_report()
+    return 1 if collector.stats["drop_failed"] > 0 else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)

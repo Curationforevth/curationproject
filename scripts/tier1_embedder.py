@@ -29,6 +29,7 @@ except ImportError:
 #  exit 0 으로 끝나는 사고가 있었음. 반드시 실제 retry 가 돌아야 한다.)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from lib.retry import with_retry  # noqa: E402
+from lib.batch_fallback import save_with_size_fallback  # noqa: E402
 
 EMBEDDING_MODEL = "text-embedding-3-small"
 
@@ -137,74 +138,29 @@ def save_embeddings_chunk(sb, book_ids, embeddings, dry_run=False):
 def save_embeddings_with_fallback(sb, book_ids, embeddings, dry_run=False):
     """Chunk 크기를 줄여가며 저장 시도.
 
-    첫 upsert 가 statement_timeout 으로 실패하면 `BATCH_SIZE_FALLBACKS`
-    순서로 chunk 를 쪼개 다시 시도한다. 개별 chunk 에서 57014 가 아닌
-    영구 에러가 나면 그 chunk 만 실패로 기록하고 남은 chunk 는 계속 시도.
+    `lib.batch_fallback.save_with_size_fallback` 의 얇은 wrapper.
+    book_ids 와 embeddings 를 (id, emb) pair 로 묶어서 helper 에 위임한다.
 
     Returns: (saved_count, failed_count)
     """
-    total = len(book_ids)
-    # 첫 시도: 전체를 한 번에 (가장 빠른 경로)
-    try:
-        save_embeddings_chunk(sb, book_ids, embeddings, dry_run=dry_run)
-        return total, 0
-    except Exception as e:
-        if not _is_statement_timeout(e):
-            # 진짜 영구 에러 — 재시도 의미 없음
-            print(f"  ✗ 영구 에러로 chunk 실패 ({total}권): {e}")
-            return 0, total
-        print(f"  ⚠ statement_timeout — chunk 크기 축소 재시도 ({total}권)")
+    if len(book_ids) != len(embeddings):
+        raise ValueError(
+            f"임베딩 수({len(embeddings)})와 도서 수({len(book_ids)}) 불일치"
+        )
 
-    # 첫 시도가 실패했으므로 바로 다음 fallback 단계부터 시작.
-    # queue 에 들어가는 chunk 는 항상 "아직 시도 안 한 크기" 여야 함.
-    def _next_smaller_size(current: int):
-        for fb in BATCH_SIZE_FALLBACKS:
-            if fb < current:
-                return fb
-        return None  # 이미 최소 단위
+    paired = list(zip(book_ids, embeddings))
 
-    initial_size = _next_smaller_size(total)
-    saved = 0
-    failed = 0
-    queue = []
-    if initial_size is None:
-        # 이미 BATCH_SIZE_FALLBACKS 최소값 이하 — 1권씩 쪼개기
-        if total > 1:
-            for j in range(total):
-                queue.append((book_ids[j:j+1], embeddings[j:j+1]))
-        else:
-            print(f"  ✗ 1권 chunk 에서도 57014 — 포기 ({book_ids[0]})")
-            return 0, 1
-    else:
-        for j in range(0, total, initial_size):
-            queue.append((book_ids[j:j+initial_size], embeddings[j:j+initial_size]))
+    def saver(chunk):
+        chunk_ids = [p[0] for p in chunk]
+        chunk_embs = [p[1] for p in chunk]
+        save_embeddings_chunk(sb, chunk_ids, chunk_embs, dry_run=dry_run)
 
-    while queue:
-        cur_ids, cur_embs = queue.pop(0)
-        size = len(cur_ids)
-        try:
-            save_embeddings_chunk(sb, cur_ids, cur_embs, dry_run=dry_run)
-            saved += size
-            continue
-        except Exception as e:
-            if not _is_statement_timeout(e):
-                print(f"  ✗ chunk 영구 에러 ({size}권): {e}")
-                failed += size
-                continue
-            next_size = _next_smaller_size(size)
-            if next_size is None:
-                # 최소 fallback 에서도 timeout → 1권씩 마지막 시도
-                if size > 1:
-                    for j in range(size):
-                        queue.append((cur_ids[j:j+1], cur_embs[j:j+1]))
-                    continue
-                print(f"  ✗ 1권 chunk 에서도 57014 — 포기 ({cur_ids[0]})")
-                failed += 1
-                continue
-            for j in range(0, size, next_size):
-                queue.append((cur_ids[j:j+next_size], cur_embs[j:j+next_size]))
-
-    return saved, failed
+    return save_with_size_fallback(
+        items=paired,
+        saver=saver,
+        fallback_sizes=BATCH_SIZE_FALLBACKS,
+        is_timeout=_is_statement_timeout,
+    )
 
 
 def main():

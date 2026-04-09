@@ -33,13 +33,20 @@ try:
 except ImportError:
     pass
 
-try:
-    from lib.retry import with_retry
-except ImportError:
-    def with_retry(fn, **kwargs):
-        return fn()
+# `lib.retry.with_retry` 는 hard dependency — silent no-op fallback 은 금지.
+# (과거: 패스 문제로 retry 가 통째로 no-op 되어 수백 권 drop 하고도
+#  exit 0 으로 끝나는 사고가 있었음. 반드시 실제 retry 가 돌아야 한다.)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from lib.retry import with_retry  # noqa: E402
+from lib.batch_fallback import save_with_size_fallback  # noqa: E402
 
 
+def _is_statement_timeout(exc):
+    """Supabase upsert/insert 가 Postgres statement_timeout (57014) 로 실패했는지."""
+    return str(getattr(exc, "code", "") or "") == "57014"
+
+
+KMEANS_VECTOR_FALLBACK = [3, 1]  # cluster row insert 가 timeout 시 축소 단계
 KMEANS_MIN_BOOKS = 10
 KMEANS_MAX_K = 5
 SILHOUETTE_THRESHOLD = 0.2
@@ -108,6 +115,7 @@ class TasteRecomputer:
         self.stats = {
             "processed": 0, "weighted_avg": 0,
             "kmeans": 0, "skipped": 0, "errors": 0,
+            "drop_failed": 0, "confidence_failed": 0,
         }
 
     def fetch_users_with_books(self, limit=0, user_id=None):
@@ -278,11 +286,23 @@ class TasteRecomputer:
                     "weight": cluster["weight"],
                     "method": "kmeans",
                 })
-            with_retry(lambda: (
-                self.sb.table("user_taste_vectors")
-                .insert(rows)
-                .execute()
-            ))
+
+            def saver(chunk):
+                with_retry(lambda: (
+                    self.sb.table("user_taste_vectors")
+                    .insert(chunk)
+                    .execute()
+                ))
+
+            saved, failed = save_with_size_fallback(
+                items=rows,
+                saver=saver,
+                fallback_sizes=KMEANS_VECTOR_FALLBACK,
+                is_timeout=_is_statement_timeout,
+            )
+            if failed > 0:
+                self.stats["drop_failed"] += failed
+                print(f"  ⚠ kmeans cluster {failed}/{len(rows)}개 저장 실패 ({user_id[:8]}...)")
 
     def process_user(self, user_id):
         """단일 유저 처리."""
@@ -322,7 +342,11 @@ class TasteRecomputer:
         self._refresh_confidence(user_id)
 
     def _refresh_confidence(self, user_id):
-        """추천 신뢰도 스코어 갱신 (RPC 호출)."""
+        """추천 신뢰도 스코어 갱신 (RPC 호출).
+
+        실패해도 본 처리는 성공이지만, 운영자가 noise 를 인식할 수 있도록
+        카운트 + 처음 몇 건은 로그에 남긴다 (silent pass 금지).
+        """
         if self.dry_run:
             return
         try:
@@ -330,8 +354,10 @@ class TasteRecomputer:
                 self.sb.rpc("calculate_recommendation_confidence",
                             {"target_user_id": user_id}).execute()
             ))
-        except Exception:
-            pass  # confidence 갱신 실패는 치명적이지 않음
+        except Exception as e:
+            self.stats["confidence_failed"] += 1
+            if self.stats["confidence_failed"] <= 5:
+                print(f"  ⚠ confidence 갱신 실패 ({user_id[:8]}...): {e}")
 
     def run(self, limit=0, user_id=None):
         """메인 실행."""
@@ -341,7 +367,7 @@ class TasteRecomputer:
 
         if not users:
             print("✅ 처리할 유저가 없습니다.")
-            return
+            return 0
 
         for i, uid in enumerate(users):
             try:
@@ -356,6 +382,12 @@ class TasteRecomputer:
                     print(f"  ✗ 에러 ({uid[:8]}...): {e}")
 
         self._print_report(len(users))
+        # 어떤 종류든 실패가 있으면 caller 에게 알린다.
+        if (self.stats["errors"] > 0
+                or self.stats["drop_failed"] > 0
+                or self.stats["confidence_failed"] > 0):
+            return 1
+        return 0
 
     def _print_report(self, total):
         s = self.stats
@@ -368,6 +400,8 @@ class TasteRecomputer:
         print(f"  가중 평균: {s['weighted_avg']}명")
         print(f"  K-means: {s['kmeans']}명")
         print(f"  스킵: {s['skipped']}명")
+        print(f"  드롭 (저장 실패): {s['drop_failed']}건")
+        print(f"  confidence 갱신 실패: {s['confidence_failed']}건")
         print(f"  에러: {s['errors']}건")
         print(f"{'=' * 50}")
 
@@ -402,10 +436,10 @@ def main():
 
     if args.status:
         recomputer.show_status()
-        return
+        return 0
 
-    recomputer.run(limit=args.limit, user_id=args.user_id)
+    return recomputer.run(limit=args.limit, user_id=args.user_id) or 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)
