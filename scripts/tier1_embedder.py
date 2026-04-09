@@ -35,7 +35,10 @@ EMBEDDING_MODEL = "text-embedding-3-small"
 
 # OpenAI 한 번에 보낼 텍스트 수. DB 부하로 timeout (57014) 시 자동으로 축소.
 BATCH_SIZE = 50
-BATCH_SIZE_FALLBACKS = [50, 20, 5]  # 57014 나면 다음 단계로 축소 재시도
+# 57014 (statement_timeout) 시 chunk 축소 단계.
+# helper(save_with_size_fallback) 가 _next_smaller(current) 로 "현재보다
+# 작은" 값을 고르므로 BATCH_SIZE(=50) 자체는 fallback 리스트에 포함하지 않는다.
+BATCH_SIZE_FALLBACKS = [20, 5]
 
 
 def compose_embedding_text(book):

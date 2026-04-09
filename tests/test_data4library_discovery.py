@@ -188,3 +188,67 @@ def test_trigger_enrich_pipeline_passes_limit():
     cmd = mock_run.call_args[0][0]
     assert "--limit" in cmd
     assert "20" in cmd
+
+
+# ============================================================
+# KI-004: Tier 2 시드를 books DB 에서 직접 조회 (fetch_tier1 재호출 제거)
+# ============================================================
+
+def test_fetch_tier2_seeds_from_db_returns_isbns():
+    """KI-004: books 테이블에서 loan_count desc 로 top-N ISBN 반환."""
+    from scripts.data4library_discovery_collector import DiscoveryCollector
+
+    c = DiscoveryCollector(dry_run=True)
+    c._sb = MagicMock()
+
+    fake_result = MagicMock()
+    fake_result.data = [
+        {"isbn": "9781111111111"},
+        {"isbn": "9782222222222"},
+        {"isbn": "9783333333333"},
+    ]
+    # supabase 체이닝 mock — 마지막 execute() 만 결과 반환하면 됨
+    c.sb.table.return_value.select.return_value.not_.is_.return_value \
+        .not_.is_.return_value.order.return_value.limit.return_value \
+        .execute.return_value = fake_result
+
+    seeds = c.fetch_tier2_seeds_from_db(top_n=3)
+    assert seeds == ["9781111111111", "9782222222222", "9783333333333"]
+
+
+def test_fetch_tier2_seeds_from_db_skips_blank_isbns():
+    """ISBN 누락된 row 는 결과에서 빠진다."""
+    from scripts.data4library_discovery_collector import DiscoveryCollector
+
+    c = DiscoveryCollector(dry_run=True)
+    c._sb = MagicMock()
+
+    fake_result = MagicMock()
+    fake_result.data = [
+        {"isbn": "9781111111111"},
+        {"isbn": ""},
+        {"isbn": None},
+        {"isbn": "9782222222222"},
+    ]
+    c.sb.table.return_value.select.return_value.not_.is_.return_value \
+        .not_.is_.return_value.order.return_value.limit.return_value \
+        .execute.return_value = fake_result
+
+    seeds = c.fetch_tier2_seeds_from_db(top_n=10)
+    assert seeds == ["9781111111111", "9782222222222"]
+
+
+def test_fetch_tier2_seeds_from_db_empty_when_no_books():
+    from scripts.data4library_discovery_collector import DiscoveryCollector
+
+    c = DiscoveryCollector(dry_run=True)
+    c._sb = MagicMock()
+
+    fake_result = MagicMock()
+    fake_result.data = []
+    c.sb.table.return_value.select.return_value.not_.is_.return_value \
+        .not_.is_.return_value.order.return_value.limit.return_value \
+        .execute.return_value = fake_result
+
+    seeds = c.fetch_tier2_seeds_from_db(top_n=10)
+    assert seeds == []

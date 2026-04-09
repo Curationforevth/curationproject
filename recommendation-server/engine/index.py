@@ -22,6 +22,9 @@ class VectorIndex:
         self._books: dict[str, BookVectors] = {}
         self._desc_matrix: Optional[np.ndarray] = None
         self._desc_bid_order: list[str] = []
+        # bid → matrix index O(1) 조회용. build_desc_matrix 에서 채워지고
+        # add_book 에서 invalidate 된다.
+        self._desc_bid_to_idx: dict[str, int] = {}
 
     @property
     def book_ids(self) -> list[str]:
@@ -36,6 +39,7 @@ class VectorIndex:
             l2=l2.astype(self.dtype),
         )
         self._desc_matrix = None
+        self._desc_bid_to_idx = {}
 
     def get_book(self, book_id: str) -> Optional[BookVectors]:
         return self._books.get(book_id)
@@ -48,6 +52,9 @@ class VectorIndex:
         self._desc_bid_order = list(self._books.keys())
         descs = [self._books[bid].desc for bid in self._desc_bid_order]
         self._desc_matrix = np.stack(descs)
+        self._desc_bid_to_idx = {
+            bid: i for i, bid in enumerate(self._desc_bid_order)
+        }
 
     def similar_by_vector(
         self,
@@ -63,8 +70,9 @@ class VectorIndex:
             exclude_ids = set()
         scores = self._desc_matrix @ query_vec.astype(self.dtype)
         for ex in exclude_ids:
-            if ex in self._desc_bid_order:
-                scores[self._desc_bid_order.index(ex)] = -999.0
+            idx = self._desc_bid_to_idx.get(ex)
+            if idx is not None:
+                scores[idx] = -999.0
         top_idx = np.argsort(scores)[::-1][:limit]
         return [(self._desc_bid_order[i], float(scores[i])) for i in top_idx]
 

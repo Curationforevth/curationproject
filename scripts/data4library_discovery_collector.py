@@ -224,6 +224,25 @@ class DiscoveryCollector:
                 time.sleep(REQUEST_DELAY)
         return all_rows
 
+    def fetch_tier2_seeds_from_db(self, top_n: int) -> list[str]:
+        """Tier 2 시드 ISBN 을 books 테이블의 loan_count desc top-N 에서 가져온다.
+
+        과거에는 fetch_tier1() 를 다시 돌려서 시드를 얻었지만, 이미 Tier 1
+        결과가 books 에 upsert 되어 있으므로 DB 에서 직접 읽으면 됨.
+        정보나루 API 호출 10 KDC × pages 만큼 절약 (KI-004).
+        """
+        result = (
+            self.sb.table("books")
+            .select("isbn")
+            .not_.is_("isbn", "null")
+            .not_.is_("loan_count", "null")
+            .order("loan_count", desc=True)
+            .limit(top_n)
+            .execute()
+        )
+        seeds = [r["isbn"] for r in (result.data or []) if r.get("isbn")]
+        return seeds
+
     def fetch_tier2(self, seed_isbns: list[str]) -> list[dict]:
         """Tier 2: recommandList for each seed ISBN."""
         all_rows: list[dict] = []
@@ -355,12 +374,14 @@ def main():
         rows = c.fetch_tier1(args.period_days, args.pages)
         c.filter_and_upsert(rows)
     elif args.tier == 2:
-        print(f"Tier 2: recommandList for top-{args.tier2_seeds} books from Tier 1 result")
-        tier1_rows = c.fetch_tier1(args.period_days, args.pages)
-        seeds = select_seed_isbns_for_tier2(tier1_rows, top_n=args.tier2_seeds)
-        print(f"  selected {len(seeds)} seed ISBNs")
+        print(f"Tier 2: recommandList for top-{args.tier2_seeds} books from books DB (loan_count desc)")
+        seeds = c.fetch_tier2_seeds_from_db(top_n=args.tier2_seeds)
+        print(f"  selected {len(seeds)} seed ISBNs from DB")
+        if not seeds:
+            print("  ⚠ DB 에 loan_count 가 채워진 책이 없습니다. Tier 1 을 먼저 실행하세요.")
+            sys.exit(1)
         tier2_rows = c.fetch_tier2(seeds)
-        c.filter_and_upsert(tier1_rows + tier2_rows)
+        c.filter_and_upsert(tier2_rows)
     elif args.tier == 3:
         if args.month:
             month = args.month
