@@ -27,6 +27,7 @@ from supabase import create_client
 # lib 모듈 import
 sys.path.insert(0, os.path.dirname(__file__))
 from lib.aladin_client import AladinClient, AladinAPIError
+from lib.books_upsert import upsert_books_rich_merge
 from lib.book_filter import is_non_book
 from lib.title_cleaner import clean_title
 from lib.dedup_checker import DeduplicateChecker
@@ -209,9 +210,8 @@ class SmartBatchCollector:
             return len(books), 0
 
         def saver(chunk):
-            with_retry(lambda: self.sb.table("books").upsert(
-                chunk, on_conflict="isbn"
-            ).execute())
+            # B6: cross-source overwrite 방지 — 기존 row 와 필드별 richer merge.
+            upsert_books_rich_merge(self.sb, chunk, chunk_size=len(chunk))
 
         saved, failed = save_with_size_fallback(
             items=books,

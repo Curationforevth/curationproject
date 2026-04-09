@@ -17,6 +17,8 @@ ISBN 중복은 DB의 unique constraint로 처리되지만,
 import re
 from collections import defaultdict
 
+from .title_cleaner import clean_title
+
 
 def _normalize_for_dedup(title: str) -> str:
     """
@@ -82,7 +84,9 @@ class DeduplicateChecker:
                 break
 
             for row in result.data:
-                title = row.get("title", "")
+                # B3: 수집 시점에 clean_title 을 통과한 값과 동일한 key 로 매칭되도록
+                # DB raw title 에도 clean_title 을 먼저 적용한다.
+                title = clean_title(row.get("title", "") or "")
                 author = row.get("author", "")
                 isbn = row.get("isbn", "")
 
@@ -104,7 +108,8 @@ class DeduplicateChecker:
             True: 동일 작품이 이미 DB에 있음 → 스킵 권장
             False: 새 작품 → 수집 진행
         """
-        key = (_normalize_for_dedup(title), _normalize_author(author))
+        # B3: load_title_index 와 동일한 normalization 경로
+        key = (_normalize_for_dedup(clean_title(title or "")), _normalize_author(author))
         existing = self.title_index.get(key, [])
 
         if not existing:
@@ -119,5 +124,5 @@ class DeduplicateChecker:
 
     def register(self, title: str, author: str, isbn: str):
         """수집 완료 후 인덱스에 추가 (세션 내 중복 방지)"""
-        key = (_normalize_for_dedup(title), _normalize_author(author))
+        key = (_normalize_for_dedup(clean_title(title or "")), _normalize_author(author))
         self.title_index[key].append(isbn)

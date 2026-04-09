@@ -54,22 +54,22 @@ def test_save_batch_empty_returns_zero_zero():
 
 
 def test_save_batch_success_path():
-    """upsert 정상 → (len, 0)."""
+    """B6: upsert_books_rich_merge 가 호출되고 saved == len."""
     import smart_batch_collector
     collector = _make_collector(dry_run=False)
-    # save_with_size_fallback 의 saver 가 호출되면 그냥 통과
-    with patch.object(smart_batch_collector, "with_retry", return_value=None) as mock_retry:
+    with patch.object(smart_batch_collector, "upsert_books_rich_merge",
+                      return_value=2) as mock_helper:
         saved, failed = collector.save_batch([{"isbn": "1"}, {"isbn": "2"}])
     assert saved == 2
     assert failed == 0
-    assert mock_retry.called
+    assert mock_helper.called
 
 
 def test_save_batch_permanent_error_counts_drop_not_silent():
-    """영구 에러 시 silent 가 아니라 failed 반환."""
+    """B6: helper 예외 발생 시 silent 가 아니라 failed 카운트 반환."""
     import smart_batch_collector
     collector = _make_collector(dry_run=False)
-    with patch.object(smart_batch_collector, "with_retry",
+    with patch.object(smart_batch_collector, "upsert_books_rich_merge",
                       side_effect=FakeAPIError("23505")):
         saved, failed = collector.save_batch([{"isbn": "1"}, {"isbn": "2"}])
     assert saved == 0
@@ -77,18 +77,19 @@ def test_save_batch_permanent_error_counts_drop_not_silent():
 
 
 def test_save_batch_timeout_falls_back():
-    """첫 시도 57014 → chunk 축소로 일부 성공 가능."""
+    """첫 시도 57014 → save_with_size_fallback 이 chunk 축소로 재시도."""
     import smart_batch_collector
     collector = _make_collector(dry_run=False)
     call_count = {"n": 0}
 
-    def fake_retry(fn, **kwargs):
+    def fake_helper(sb, chunk, chunk_size=None):
         call_count["n"] += 1
         if call_count["n"] == 1:
             raise FakeAPIError("57014")
-        return None  # 이후 chunk 는 모두 성공
+        return len(chunk)
 
-    with patch.object(smart_batch_collector, "with_retry", side_effect=fake_retry):
+    with patch.object(smart_batch_collector, "upsert_books_rich_merge",
+                      side_effect=fake_helper):
         items = [{"isbn": str(i)} for i in range(50)]
         saved, failed = collector.save_batch(items)
     assert saved == 50
@@ -175,7 +176,7 @@ def test_run_search_phase_propagates_save_batch_failure_end_to_end():
 
     with patch.object(collector, "has_capacity", side_effect=fake_has_capacity), \
          patch.object(collector, "process_items", return_value=fake_books), \
-         patch.object(smart_batch_collector, "with_retry",
+         patch.object(smart_batch_collector, "upsert_books_rich_merge",
                       side_effect=FakeAPIError("23505")), \
          patch("time.sleep"):
         collector._run_search_phase(["테스트키워드"], "keyword_search")
@@ -206,20 +207,49 @@ def test_run_search_phase_propagates_partial_save_success():
     # 첫 시도 (50권) 57014 실패 → 20씩 쪼개서 성공
     retry_calls = {"n": 0}
 
-    def fake_retry(fn, **kwargs):
+    def fake_helper(sb, chunk, chunk_size=None):
         retry_calls["n"] += 1
         if retry_calls["n"] == 1:
             raise FakeAPIError("57014")
-        return None
+        return len(chunk)
 
     with patch.object(collector, "has_capacity", side_effect=fake_has_capacity), \
          patch.object(collector, "process_items", return_value=fake_books), \
-         patch.object(smart_batch_collector, "with_retry", side_effect=fake_retry), \
+         patch.object(smart_batch_collector, "upsert_books_rich_merge",
+                      side_effect=fake_helper), \
          patch("time.sleep"):
         collector._run_search_phase(["테스트키워드"], "keyword_search")
 
     assert collector.stats["saved"] == 50
     assert collector.stats["drop_failed"] == 0
+
+
+def test_run_item_list_survives_api_error():
+    """B1: 한 카테고리 API 실패 → 다음 카테고리/루프 계속 진행, api_errors 카운트."""
+    import smart_batch_collector
+    AladinAPIError = smart_batch_collector.AladinAPIError
+    collector = _make_collector(dry_run=False)
+
+    call_count = {"n": 0}
+
+    def flaky_fetch(*args, **kwargs):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            raise AladinAPIError("transient")
+        return ([], 0)
+
+    collector.aladin.fetch_item_list = MagicMock(side_effect=flaky_fetch)
+    # has_capacity 가 몇 번 True 이후 False — 무한루프 방지
+    cap_calls = {"n": 0}
+    def fake_cap():
+        cap_calls["n"] += 1
+        return cap_calls["n"] <= 3
+    collector.has_capacity = fake_cap
+
+    with patch("time.sleep"):
+        collector.run_item_list()
+
+    assert collector.stats["api_errors"] >= 1
 
 
 def test_run_search_phase_api_failure_does_not_mark_completed():
