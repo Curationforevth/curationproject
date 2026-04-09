@@ -142,3 +142,81 @@ def test_main_returns_zero_when_clean_run():
         with patch("sys.argv", ["smart_batch_collector.py"]):
             rc = smart_batch_collector.main()
     assert rc == 0
+
+
+# ============================================================
+# KI-008: end-to-end (saved, failed) 튜플 흐름 검증
+# ============================================================
+
+def test_run_search_phase_propagates_save_batch_failure_end_to_end():
+    """KI-008: _run_search_phase → save_batch → helper → drop_failed 가
+    실제 메소드 호출 체인으로 흐르는지 검증.
+
+    process_items 가 책 5권을 반환하고, with_retry 가 모두 23505 영구 에러를
+    던지면 → save_batch 가 (0, 5) 반환 → run search phase 가
+    self.stats['drop_failed'] += 5 처리해야 한다.
+    """
+    import smart_batch_collector
+    collector = _make_collector(dry_run=False)
+
+    # has_capacity 는 첫 호출만 True → 한 키워드만 처리하고 종료
+    # has_capacity 는 키워드 진입 + 페이지 진입 양쪽에서 호출됨.
+    # 첫 page 처리만 허용 (2번 True), 그 다음부터 False 로 종료.
+    capacity_calls = {"n": 0}
+
+    def fake_has_capacity():
+        capacity_calls["n"] += 1
+        return capacity_calls["n"] <= 2
+
+    fake_books = [{"isbn": str(i), "title": "x", "author": "y"} for i in range(5)]
+    collector.aladin.search_books = MagicMock(return_value=(["item"] * 5, 5))
+    collector.state_mgr.get_state = MagicMock(return_value=None)
+    collector.state_mgr.upsert_state = MagicMock()
+
+    with patch.object(collector, "has_capacity", side_effect=fake_has_capacity), \
+         patch.object(collector, "process_items", return_value=fake_books), \
+         patch.object(smart_batch_collector, "with_retry",
+                      side_effect=FakeAPIError("23505")), \
+         patch("time.sleep"):
+        collector._run_search_phase(["테스트키워드"], "keyword_search")
+
+    # save_batch 가 모두 영구에러로 실패 → drop_failed=5, saved=0
+    assert collector.stats["drop_failed"] == 5
+    assert collector.stats["saved"] == 0
+
+
+def test_run_search_phase_propagates_partial_save_success():
+    """KI-008: timeout fallback 으로 일부 성공한 경우도 stats 가 정확히 분리."""
+    import smart_batch_collector
+    collector = _make_collector(dry_run=False)
+
+    # has_capacity 는 키워드 진입 + 페이지 진입 양쪽에서 호출됨.
+    # 첫 page 처리만 허용 (2번 True), 그 다음부터 False 로 종료.
+    capacity_calls = {"n": 0}
+
+    def fake_has_capacity():
+        capacity_calls["n"] += 1
+        return capacity_calls["n"] <= 2
+
+    fake_books = [{"isbn": str(i), "title": "x", "author": "y"} for i in range(50)]
+    collector.aladin.search_books = MagicMock(return_value=(["item"] * 50, 50))
+    collector.state_mgr.get_state = MagicMock(return_value=None)
+    collector.state_mgr.upsert_state = MagicMock()
+
+    # 첫 시도 (50권) 57014 실패 → 20씩 쪼개서 성공
+    retry_calls = {"n": 0}
+
+    def fake_retry(fn, **kwargs):
+        retry_calls["n"] += 1
+        if retry_calls["n"] == 1:
+            raise FakeAPIError("57014")
+        return None
+
+    with patch.object(collector, "has_capacity", side_effect=fake_has_capacity), \
+         patch.object(collector, "process_items", return_value=fake_books), \
+         patch.object(smart_batch_collector, "with_retry", side_effect=fake_retry), \
+         patch("time.sleep"):
+        collector._run_search_phase(["테스트키워드"], "keyword_search")
+
+    assert collector.stats["saved"] == 50
+    assert collector.stats["drop_failed"] == 0
