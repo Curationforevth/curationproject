@@ -758,13 +758,17 @@ def main():
     extractor = ReasonExtractor(sb, dry_run=args.dry_run, rerun=args.rerun)
     extractor.run(limit=args.limit)
 
-    # stats["errors"] 는 insert 실패한 reason 개수.
+    # stats["errors"] 는 LLM 추출 / 임베딩 / insert 실패를 모두 합친 카운트
+    # (단위는 섞여있음 — LLM/embed 는 책 단위, insert 는 row 단위).
     # orchestrator 가 exit code 로 실패를 감지할 수 있도록 non-zero 반환.
     if extractor.stats.get("errors", 0) > 0:
-        print(f"⚠ reason insert 실패 {extractor.stats['errors']}건 — 재실행 권장 (idempotent)")
+        print(
+            f"⚠ reason 처리 실패 {extractor.stats['errors']}건 "
+            f"(LLM/임베딩/insert 포함) — 재실행 권장 (idempotent)"
+        )
         return 1
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main() or 0)
+    sys.exit(main())
