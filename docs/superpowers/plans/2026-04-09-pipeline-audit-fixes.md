@@ -2434,3 +2434,55 @@ Claude 는 코드만 수정, SQL 은 파일 생성. Eden 이 수동 적용:
 **Type consistency:** `with_retry`, `save_with_size_fallback`, `stats["drop_failed"]` 등 PR #6 에서 확립된 네이밍을 유지.
 
 **예상 규모:** 전체 M~L. Phase A 만 0.5~1일, 전체 2~3일.
+
+---
+
+## Branch / PR 전략 (cold-session 실행 가이드)
+
+**Phase 별 1 PR 권장.** 근거:
+- Phase A 는 Eden 수동 SQL 적용 (A1 migration) 을 포함하므로 자체 PR 로 분리해야 리뷰/머지 시 DB 변경 추적 용이
+- Phase B/C/D 는 상호 독립적 영역 (Discovery / Pipeline / Enricher) 이라 병렬 리뷰 가능
+- Phase E 는 cross-cutting — 작은 수정 여러 개라 하나로 묶어도 무방
+- Phase H (smoke) 는 코드 변경 없이 실행 로그 기록이므로 별도 PR 또는 docs/notes commit
+
+```
+PR #N+1: docs/pipeline-audit-plan (이미 생성됨, 이 문서)
+PR #N+2: fix/pipeline-phase-a       — Phase A 전체 (A1~A8)
+  * A1 commit 후 Eden SQL 수동 적용 확인 대기
+  * 이후 A2~A8 는 순차 commit
+  * PR body 에 SQL 적용 완료 체크박스 포함
+PR #N+3: fix/pipeline-phase-b       — Phase B 전체 (Discovery 수정 6건)
+PR #N+4: fix/pipeline-phase-c       — Phase C 전체 (Pipeline 수정 5건)
+PR #N+5: fix/pipeline-phase-d       — Phase D 전체 (Enricher 수정 4건)
+PR #N+6: fix/pipeline-phase-e       — Phase E 전체 (Cross-cutting 6건)
+PR #N+7: chore/phase-h-smoke-notes  — Phase H smoke 실행 로그 (선택)
+```
+
+각 PR 은 main 에서 branch off. Phase A 가 main 에 머지된 뒤 Phase B 가 시작되어야 retry whitelist (E1) 순서 의존성이 안전 (E1 은 Phase E 에 있지만 독립적이라 Phase A 와 병렬 가능).
+
+**활성 GitHub 계정 확인:** `gh auth status` 로 `hyhuh0910` 확인 후 push (`feedback_git_push.md`).
+
+---
+
+## AladinAPIError 공유 import 규칙
+
+Phase A6 에서 `scripts/lib/aladin_client.py::AladinAPIError` 를 정의한 뒤, 다른 파일에서 참조할 때는 **반드시 `scripts.lib.aladin_client` 에서 import**:
+
+```python
+# scripts/smart_batch_collector.py 상단 (A6 Step 3 작업 시 추가)
+from lib.aladin_client import AladinAPIError  # or: from scripts.lib.aladin_client
+```
+
+Test 코드에서도 같은 경로 사용:
+
+```python
+# tests/test_smart_batch_collector.py
+from scripts.lib.aladin_client import AladinAPIError
+
+# ... 그 다음
+collector.aladin.search_books = MagicMock(
+    side_effect=AladinAPIError("transient 500")
+)
+```
+
+Plan 의 A6 Step 5, B1 Step 2 test 예시에서 `smart_batch_collector.AladinAPIError` 로 되어 있는 부분은 **실행 시 `scripts.lib.aladin_client.AladinAPIError` 로 수정**하거나, smart_batch_collector.py 가 `from lib.aladin_client import AladinAPIError` 로 re-export 한 뒤 `smart_batch_collector.AladinAPIError` 네임스페이스를 쓰도록 하는 것 중 선택. 권장: 직접 import.
