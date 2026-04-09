@@ -13,6 +13,7 @@
 import argparse
 import os
 import re
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -25,10 +26,11 @@ try:
 except ImportError:
     pass  # 테스트 환경에서는 순수 함수만 사용
 
-try:
-    from lib.retry import with_retry
-except ImportError:
-    def with_retry(fn, **kwargs): return fn()
+# lib.retry 는 hard dependency. silent no-op fallback 금지.
+# (과거: 패스 문제로 retry 가 no-op 되어 수백 건 reason drop 하고도
+#  exit 0 으로 끝나는 사고가 있었음.)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from lib.retry import with_retry  # noqa: E402
 
 MIN_REASON_LENGTH = 2
 BATCH_SIZE = 20  # 배치 크기 (insert는 3행씩이라 안정적)
@@ -599,17 +601,25 @@ class ReasonExtractor:
                     "reason_embedding": embedding,
                     "source": "llm_extracted",
                 })
-            # Supabase 배치 insert (20행씩)
+            # Supabase 배치 insert (20행씩 → 실패 시 5행씩 mini-fallback)
+            #
+            # 왜 20 → 5 단계로 쪼개는가:
+            #   reason row 하나에 `reason_embedding` (1536-dim vector) 가 박히기 때문에
+            #   20행 insert 는 payload 가 꽤 크고 DB statement_timeout (57014) 에 자주 걸린다.
+            #   5행으로 쪼개면 statement 가 훨씬 빨라 timeout 을 회피할 수 있다.
+            #   retry.py 가 57014 를 backoff 재시도하므로 쪼개기 + 재시도가 결합돼
+            #   일시적 DB 부하를 견딘다.
             INSERT_BATCH = 20
+            MINI_BATCH = 5
             for i in range(0, len(rows), INSERT_BATCH):
                 chunk = rows[i:i + INSERT_BATCH]
                 try:
                     with_retry(lambda c=chunk: self.sb.table("book_love_reasons")
                         .insert(c).execute())
                 except Exception:
-                    # 배치 실패 시 5행씩 재시도
-                    for j in range(0, len(chunk), 5):
-                        mini = chunk[j:j + 5]
+                    # 배치 실패 시 더 작은 단위로 쪼개서 재시도 (retry.py 도 함께 backoff)
+                    for j in range(0, len(chunk), MINI_BATCH):
+                        mini = chunk[j:j + MINI_BATCH]
                         try:
                             with_retry(lambda m=mini: self.sb.table("book_love_reasons")
                                 .insert(m).execute())
@@ -743,11 +753,18 @@ def main():
 
     if args.status:
         ReasonExtractor.get_status(sb)
-        return
+        return 0
 
     extractor = ReasonExtractor(sb, dry_run=args.dry_run, rerun=args.rerun)
     extractor.run(limit=args.limit)
 
+    # stats["errors"] 는 insert 실패한 reason 개수.
+    # orchestrator 가 exit code 로 실패를 감지할 수 있도록 non-zero 반환.
+    if extractor.stats.get("errors", 0) > 0:
+        print(f"⚠ reason insert 실패 {extractor.stats['errors']}건 — 재실행 권장 (idempotent)")
+        return 1
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)
