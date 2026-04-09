@@ -69,14 +69,6 @@
 - **우선순위:** Low (실제 발생 빈도 낮음)
 - **추정 크기:** S
 
-### KI-007 — `_pending_for_step` reason_extractor 근사치 (`with_reasons // 13`)
-- **위치:** `scripts/pipeline_orchestrator.py::_pending_for_step`
-- **현상:** reason 은 row 단위 카운트인데 책 평균 ~13 reason 으로 나눠 책 수 추정 — 정확하지 않음
-- **해결 방향:** `book_v3_vectors` 와 `book_love_reasons` 의 distinct book_id 차집합 query (or RPC)
-- **우선순위:** Low (현재 0진전 감지엔 충분)
-- **추정 크기:** S
-- **상태:** **fix/reason-extractor-precision 브랜치 Step 3 에서 다룰 예정**
-
 ---
 
 ## 작성 규칙
