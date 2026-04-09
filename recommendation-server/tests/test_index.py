@@ -79,6 +79,54 @@ class TestVectorIndex:
         sim16 = float(np.dot(bv16.desc.astype(np.float32), bv16.l1.astype(np.float32)))
         assert abs(sim32 - sim16) < 0.01
 
+    def test_exclude_ids_uses_dict_cache(self):
+        """KI-003: exclude_ids 처리는 dict O(1) 조회 — list.index O(n) 아님."""
+        idx = VectorIndex(dim=4)
+        for i in range(10):
+            v = _norm([1, i * 0.1, 0, 0])
+            idx.add_book(f"b{i}", reasons=[], desc=v, l1=v, l2=v)
+        idx.build_desc_matrix()
+        # 캐시가 채워졌는지 확인
+        assert len(idx._desc_bid_to_idx) == 10
+        assert idx._desc_bid_to_idx["b3"] == 3
+
+        # exclude 가 결과에 반영되는지 (기존 동작 회귀 방지)
+        sims = idx.similar_by_vector(
+            _norm([1, 0, 0, 0]), exclude_ids={"b0", "b1"}, limit=3,
+        )
+        ids = [s[0] for s in sims]
+        assert "b0" not in ids
+        assert "b1" not in ids
+
+    def test_add_book_invalidates_cache(self):
+        """KI-003: add_book 후에는 캐시가 초기화되어 다음 빌드 때 재구축."""
+        idx = VectorIndex(dim=4)
+        idx.add_book("b1", reasons=[], desc=_norm([1, 0, 0, 0]),
+                     l1=_norm([1, 0, 0, 0]), l2=_norm([0, 1, 0, 0]))
+        idx.build_desc_matrix()
+        assert "b1" in idx._desc_bid_to_idx
+
+        idx.add_book("b2", reasons=[], desc=_norm([0, 1, 0, 0]),
+                     l1=_norm([0, 1, 0, 0]), l2=_norm([1, 0, 0, 0]))
+        # 캐시 invalidate 확인
+        assert idx._desc_bid_to_idx == {}
+        assert idx._desc_matrix is None
+
+        # 재호출 시 자동 재빌드
+        idx.similar_by_vector(_norm([1, 0, 0, 0]), limit=2)
+        assert set(idx._desc_bid_to_idx.keys()) == {"b1", "b2"}
+
+    def test_exclude_unknown_id_is_noop(self):
+        """알 수 없는 exclude id 는 스코어에 영향 없음."""
+        idx = VectorIndex(dim=4)
+        idx.add_book("b1", reasons=[], desc=_norm([1, 0, 0, 0]),
+                     l1=_norm([1, 0, 0, 0]), l2=_norm([0, 1, 0, 0]))
+        idx.build_desc_matrix()
+        sims = idx.similar_by_vector(
+            _norm([1, 0, 0, 0]), exclude_ids={"unknown"}, limit=1,
+        )
+        assert sims[0][0] == "b1"
+
     def test_float16_similar_by_desc(self):
         """float16 인덱스에서 similar_by_desc가 동일한 순위를 반환."""
         idx = VectorIndex(dim=4, dtype=np.float16)

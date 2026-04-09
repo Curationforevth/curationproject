@@ -99,6 +99,49 @@ def test_run_pipeline_unknown_only_step_raises():
         run_pipeline(limit=None, dry_run=False, only_step="nonexistent")
 
 
+def test_run_pipeline_aborts_after_2_consecutive_pre_snapshot_fails():
+    """KI-006: pre snapshot 이 2회 연속 실패하면 인프라 이슈로 보고 중단."""
+    with patch("scripts.pipeline_orchestrator.run_step") as mock_step:
+        # 첫 step 성공 + pre snapshot 실패 (count=1)
+        # 둘째 step 성공 + pre snapshot 실패 (count=2 → abort)
+        # 셋째 step 은 호출되면 안 됨
+        mock_step.side_effect = [
+            StepResult("s1", True, 0, None, pre_snapshot_failed=True),
+            StepResult("s2", True, 0, None, pre_snapshot_failed=True),
+            StepResult("s3", True, 0, None),  # should never be called
+        ]
+        results = run_pipeline(limit=None, dry_run=False)
+    assert len(results) == 2
+    assert mock_step.call_count == 2
+
+
+def test_run_pipeline_resets_pre_snapshot_counter_on_success():
+    """KI-006: 한 번 성공한 snapshot 이 끼면 카운터 리셋 — 단발 인프라 hiccup 은 통과."""
+    with patch("scripts.pipeline_orchestrator.run_step") as mock_step:
+        # 실패 → 성공 → 실패 → 성공 → 실패 → ...
+        # 한 번도 "연속 2회" 가 안 되므로 pipeline 끝까지 진행
+        seq = []
+        for i in range(len(STEPS)):
+            seq.append(StepResult(
+                f"s{i}", True, 0, None,
+                pre_snapshot_failed=(i % 2 == 0),
+            ))
+        mock_step.side_effect = seq
+        results = run_pipeline(limit=None, dry_run=False)
+    assert len(results) == len(STEPS)
+    assert mock_step.call_count == len(STEPS)
+
+
+def test_run_pipeline_does_not_abort_on_single_pre_snapshot_fail():
+    """KI-006: 한 번만 실패하면 abort 하지 않음 (transient 허용)."""
+    with patch("scripts.pipeline_orchestrator.run_step") as mock_step:
+        seq = [StepResult(f"s{i}", True, 0, None) for i in range(len(STEPS))]
+        seq[0] = StepResult("s0", True, 0, None, pre_snapshot_failed=True)
+        mock_step.side_effect = seq
+        results = run_pipeline(limit=None, dry_run=False)
+    assert len(results) == len(STEPS)
+
+
 from scripts import pipeline_orchestrator
 from scripts.pipeline_orchestrator import collect_status, print_status
 

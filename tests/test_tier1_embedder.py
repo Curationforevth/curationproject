@@ -174,7 +174,9 @@ def test_fallback_mixed_one_bad_row_rest_survive():
 
 
 def test_batch_fallbacks_monotone_decreasing():
-    from tier1_embedder import BATCH_SIZE_FALLBACKS
+    from tier1_embedder import BATCH_SIZE_FALLBACKS, BATCH_SIZE
     assert BATCH_SIZE_FALLBACKS == sorted(BATCH_SIZE_FALLBACKS, reverse=True)
-    assert BATCH_SIZE_FALLBACKS[0] == 50
+    # 첫 시도는 BATCH_SIZE 자체를 쓰므로 fallback 리스트에 포함되면 dead entry.
+    assert BATCH_SIZE not in BATCH_SIZE_FALLBACKS
+    assert BATCH_SIZE_FALLBACKS[0] < BATCH_SIZE
     assert BATCH_SIZE_FALLBACKS[-1] == 5

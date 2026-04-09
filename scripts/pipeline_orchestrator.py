@@ -82,6 +82,9 @@ class StepResult:
     progress_delta: Optional[int] = None
     progress_expected: Optional[int] = None
     progress_warning: Optional[str] = None
+    # 인프라 진단: pre snapshot 자체가 실패했는지. orchestrator 가
+    # 연속 실패 감지로 abort 결정할 때 쓴다.
+    pre_snapshot_failed: bool = False
 
 
 def run_step(
@@ -194,6 +197,7 @@ def run_step(
         progress_delta=progress_delta,
         progress_expected=progress_expected,
         progress_warning=progress_warning,
+        pre_snapshot_failed=pre_snapshot_failed,
     )
 
 
@@ -224,14 +228,32 @@ def run_pipeline(
         steps_to_run = list(STEPS)
 
     results: List[StepResult] = []
+    consecutive_pre_snapshot_fails = 0
     for step in steps_to_run:
         r = run_step(step, limit=limit, dry_run=dry_run, sb=sb)
         results.append(r)
+
+        # KI-006: pre snapshot 이 연속으로 실패하면 인프라 이슈 (DB 다운,
+        # 권한, 네트워크) 가 의심됨. 매 step 마다 같은 에러를 반복하지 말고
+        # 2회 연속이면 orchestrator 자체를 중단해서 운영자가 빨리 인지하게.
+        if r.pre_snapshot_failed:
+            consecutive_pre_snapshot_fails += 1
+        else:
+            consecutive_pre_snapshot_fails = 0
+
         if not r.success:
             print(
                 f"\n✗ {step.name} 실패 (returncode={r.returncode}"
                 f"{', ' + r.progress_warning if r.progress_warning else ''}). "
                 "체인 중단.",
+                file=sys.stderr,
+            )
+            break
+
+        if consecutive_pre_snapshot_fails >= 2:
+            print(
+                f"\n⛔ pre snapshot 이 {consecutive_pre_snapshot_fails}회 "
+                "연속 실패 — 인프라 이슈로 추정. orchestrator 중단.",
                 file=sys.stderr,
             )
             break
