@@ -1,7 +1,14 @@
-"""Reason Extractor — 책의 "좋아할 이유" 추출 파이프라인
+"""v1 Reason 추출 — 레거시 경로.
 
-도서 메타데이터 기반으로 LLM을 활용해 "이 책을 좋아할 이유"를 추출하고,
-임베딩과 함께 DB에 저장한다.
+⚠️ 2026-04-10 이후 orchestrator 는 이 스크립트를 호출하지 않는다.
+   메인 경로는 scripts/v3_reason_extract.py (source='v3_context_rich').
+
+이 스크립트는:
+- source='llm_extracted' 로 저장 (v1 format)
+- 공존 가능: book_love_reasons UNIQUE (book_id, source, reason) 덕분
+- Eden 이 legacy data 를 re-extract 할 때만 수동 실행
+
+삭제 후보이지만 기존 v1 데이터 분석용으로 당분간 보존.
 
 사용법:
   python3 scripts/reason_extractor.py                  # 미처리분
@@ -618,14 +625,16 @@ class ReasonExtractor:
                 chunk = rows[i:i + INSERT_BATCH]
                 try:
                     with_retry(lambda c=chunk: self.sb.table("book_love_reasons")
-                        .insert(c).execute())
+                        .upsert(c, on_conflict="book_id,source,reason",
+                                ignore_duplicates=True).execute())
                 except Exception:
                     # 배치 실패 시 더 작은 단위로 쪼개서 재시도 (retry.py 도 함께 backoff)
                     for j in range(0, len(chunk), MINI_BATCH):
                         mini = chunk[j:j + MINI_BATCH]
                         try:
                             with_retry(lambda m=mini: self.sb.table("book_love_reasons")
-                                .insert(m).execute())
+                                .upsert(m, on_conflict="book_id,source,reason",
+                                        ignore_duplicates=True).execute())
                         except Exception as e2:
                             print(f"  ✗ insert 실패 ({len(mini)}행): {e2}")
                             self.stats["errors_rows"] += len(mini)

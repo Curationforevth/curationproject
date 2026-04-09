@@ -48,13 +48,15 @@ STEPS: List[PipelineStep] = [
         ratio_verifiable=True,  # 책 단위 정확
     ),
     PipelineStep(
+        # A3: reason_extractor (v1) → v3_reason_extract 전환.
+        # name 은 호환을 위해 그대로 유지 (로그/테스트/체크포인트 키).
         name="reason_extractor",
-        script_path="scripts/reason_extractor.py",
+        script_path="scripts/v3_reason_extract.py",
         supports_limit=True,
         supports_dry_run=True,
         limit_flag="--limit",
         progress_counter="with_reasons",
-        ratio_verifiable=False,  # row 단위 카운터 + book 단위 추정 혼재 → 0진전만
+        ratio_verifiable=False,  # v3 는 row 단위, pending 추정 부정확
     ),
     PipelineStep(
         name="tier1_embedder",

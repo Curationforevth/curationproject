@@ -119,6 +119,28 @@ def test_save_taste_vectors_kmeans_partial_failure():
     assert rc.stats["drop_failed"] == 1
 
 
+def test_fetch_user_books_prefers_max_tier():
+    """A5: 같은 book_id 에 tier1/tier2 공존 시 tier desc 정렬로 max tier 채택."""
+    import taste_recomputer
+    with patch.object(taste_recomputer, "create_client", return_value=MagicMock()):
+        rc = taste_recomputer.TasteRecomputer(dry_run=True)
+
+    user_books_chain = rc.sb.table.return_value.select.return_value.eq.return_value.eq.return_value
+    user_books_chain.execute.return_value = MagicMock(
+        data=[{"book_id": "b1", "rating": "good",
+               "emotion_tags": [], "review_text": ""}]
+    )
+    emb_chain = rc.sb.table.return_value.select.return_value.in_.return_value.order.return_value
+    emb_chain.execute.return_value = MagicMock(data=[
+        {"book_id": "b1", "tier": 2, "embedding": [0.9, 0.9]},
+        {"book_id": "b1", "tier": 1, "embedding": [0.1, 0.1]},
+    ])
+
+    result = rc.fetch_user_books_with_embeddings("user1")
+    assert len(result) == 1
+    assert result[0]["embedding"] == [0.9, 0.9]
+
+
 def test_save_taste_vectors_kmeans_full_success_no_drop():
     """KI-007: 전부 성공이면 drop_failed 0 유지."""
     import taste_recomputer

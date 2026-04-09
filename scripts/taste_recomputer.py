@@ -168,13 +168,19 @@ class TasteRecomputer:
             return []
 
         book_ids = [b["book_id"] for b in books_result.data]
+        # A5: (book_id, tier) composite unique 후 같은 책에 tier1/tier2 공존 가능.
+        # tier desc 정렬 후 첫 row 채택 → max tier 우선.
         embeddings_result = with_retry(lambda: (
             self.sb.table("book_embeddings")
-            .select("book_id, embedding")
+            .select("book_id, tier, embedding")
             .in_("book_id", book_ids)
+            .order("tier", desc=True)
             .execute()
         ))
-        emb_map = {e["book_id"]: e["embedding"] for e in (embeddings_result.data or [])}
+        emb_map = {}
+        for e in (embeddings_result.data or []):
+            if e["book_id"] not in emb_map:
+                emb_map[e["book_id"]] = e["embedding"]
 
         combined = []
         for b in books_result.data:

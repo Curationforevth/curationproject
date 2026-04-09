@@ -33,6 +33,7 @@ from scripts.lib.retry import with_retry
 
 # ── 설정 ──
 SOURCE_TAG = "v3_context_rich"
+DRY_RUN = False
 CHUNK_SIZE = 20          # 한 번에 처리할 권수
 SLEEP_BETWEEN = 2        # chunk 사이 대기 (초)
 LLM_WORKERS = 10         # LLM 병렬 호출
@@ -178,18 +179,26 @@ def embed_and_save(sb, book_reasons_map):
         "source": SOURCE_TAG,
     } for reason, emb, book_id in valid]
 
+    if DRY_RUN:
+        print(f"  (dry-run) would upsert {len(rows)} reason rows", flush=True)
+        return len(rows), 0
+
     saved, failed = 0, 0
     for i in range(0, len(rows), INSERT_BATCH):
         chunk = rows[i:i + INSERT_BATCH]
         try:
-            with_retry(lambda c=chunk: sb.table("book_love_reasons").insert(c).execute(),
+            with_retry(lambda c=chunk: sb.table("book_love_reasons").upsert(
+                           c, on_conflict="book_id,source,reason",
+                           ignore_duplicates=True).execute(),
                        max_retries=2, base_delay=1.0)
             saved += len(chunk)
         except Exception:
             # 배치 실패 → 1건씩 재시도
             for row in chunk:
                 try:
-                    with_retry(lambda r=row: sb.table("book_love_reasons").insert(r).execute(),
+                    with_retry(lambda r=row: sb.table("book_love_reasons").upsert(
+                                   r, on_conflict="book_id,source,reason",
+                                   ignore_duplicates=True).execute(),
                                max_retries=2, base_delay=1.0)
                     saved += 1
                 except Exception as e:
@@ -330,8 +339,12 @@ def main():
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--checkpoint", action="store_true", default=True)
     parser.add_argument("--no-checkpoint", action="store_true")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="DB upsert 스킵 (LLM/embed 는 호출)")
     args = parser.parse_args()
     do_checkpoint = not args.no_checkpoint
+    global DRY_RUN
+    DRY_RUN = args.dry_run
 
     sb = make_client()
 
