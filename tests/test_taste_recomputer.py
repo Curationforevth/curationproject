@@ -90,3 +90,42 @@ def test_refresh_confidence_skipped_in_dry_run():
         rc.sb.rpc.side_effect = RuntimeError("should not be called")
         rc._refresh_confidence("user-id")
     assert rc.stats["confidence_failed"] == 0
+
+
+def test_save_taste_vectors_kmeans_drop_failed_increments_stat():
+    """KI-007: kmeans cluster insert 가 모두 실패하면 drop_failed 증가."""
+    import taste_recomputer
+    with patch.object(taste_recomputer, "create_client", return_value=MagicMock()):
+        rc = taste_recomputer.TasteRecomputer(dry_run=False)
+        clusters = [
+            {"vector": [0.1] * 4, "weight": 0.5},
+            {"vector": [0.2] * 4, "weight": 0.5},
+        ]
+        with patch.object(taste_recomputer, "save_with_size_fallback",
+                          return_value=(0, 2)):
+            rc.save_taste_vectors("user-uuid-1234", "kmeans", clusters)
+    assert rc.stats["drop_failed"] == 2
+
+
+def test_save_taste_vectors_kmeans_partial_failure():
+    """KI-007: 일부 cluster 만 실패하면 그만큼만 drop_failed 증가."""
+    import taste_recomputer
+    with patch.object(taste_recomputer, "create_client", return_value=MagicMock()):
+        rc = taste_recomputer.TasteRecomputer(dry_run=False)
+        clusters = [{"vector": [0.1] * 4, "weight": 1.0}] * 3
+        with patch.object(taste_recomputer, "save_with_size_fallback",
+                          return_value=(2, 1)):
+            rc.save_taste_vectors("user-uuid-1234", "kmeans", clusters)
+    assert rc.stats["drop_failed"] == 1
+
+
+def test_save_taste_vectors_kmeans_full_success_no_drop():
+    """KI-007: 전부 성공이면 drop_failed 0 유지."""
+    import taste_recomputer
+    with patch.object(taste_recomputer, "create_client", return_value=MagicMock()):
+        rc = taste_recomputer.TasteRecomputer(dry_run=False)
+        clusters = [{"vector": [0.1] * 4, "weight": 1.0}]
+        with patch.object(taste_recomputer, "save_with_size_fallback",
+                          return_value=(1, 0)):
+            rc.save_taste_vectors("user-uuid-1234", "kmeans", clusters)
+    assert rc.stats["drop_failed"] == 0
