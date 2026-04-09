@@ -35,11 +35,10 @@ try:
 except ImportError:
     pass  # --status 등에서는 불필요
 
-try:
-    from lib.retry import with_retry
-except ImportError:
-    def with_retry(fn, **kwargs):
-        return fn()
+# lib.retry 는 hard dependency — silent no-op fallback 금지
+# (과거: 패스 문제로 retry 가 no-op 되어 수백 권 drop 하고도 exit 0 사고)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from lib.retry import with_retry  # noqa: E402
 
 # --- 순수 함수 (테스트 가능) ---
 
@@ -321,10 +320,18 @@ def main():
 
     if args.status:
         scraper.show_status()
-        return
+        return 0
 
     scraper.run(limit=args.limit)
 
+    # processed 중 성공 비율이 극단적으로 낮으면 exit 1.
+    # 기준: success == 0 이고 처리 대상이 있었음 → 전멸.
+    s = scraper.stats
+    if s.get("processed", 0) > 0 and s.get("success", 0) == 0:
+        print("⚠ 처리 대상이 있었지만 성공 0건 — 재실행 권장")
+        return 1
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
