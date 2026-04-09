@@ -94,7 +94,8 @@ def test_save_batch_timeout_falls_back():
         saved, failed = collector.save_batch(items)
     assert saved == 50
     assert failed == 0
-    # 1 (50 실패) + 3 (20+20+10) = 4
+    # save_with_size_fallback 의 chunk 축소 패턴:
+    # 1회 (50 실패 timeout) + 3회 (20 + 20 + 10) = 4회 helper 호출.
     assert call_count["n"] == 4
 
 
@@ -250,6 +251,9 @@ def test_run_item_list_survives_api_error():
         collector.run_item_list()
 
     assert collector.stats["api_errors"] >= 1
+    # 첫 호출은 예외, 다음 호출부터 정상 ([], 0) — 루프가 다음 카테고리로
+    # 넘어갔는지 검증 (call_count >= 2 면 예외 후 다시 호출된 것).
+    assert call_count["n"] >= 2
 
 
 def test_run_search_phase_api_failure_does_not_mark_completed():

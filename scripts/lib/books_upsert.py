@@ -80,10 +80,13 @@ def upsert_books_rich_merge(sb, rows: list[dict], chunk_size: int = 200) -> int:
         if not isbns:
             continue
 
-        # 기존 row 조회
+        # 기존 row 전체 조회 — merge_richer 가 알지 못하는 필드 (description,
+        # genre, rich_description, published_date 등) 도 merged 에 함께 실려가야
+        # upsert 시 덮어쓰기 되지 않는다. books 테이블은 embedding 을 포함하지
+        # 않으므로 SELECT * 가 과하지 않다 (book_embeddings 는 별도 테이블).
         existing_rows = with_retry(lambda: (
             sb.table("books")
-            .select("isbn, title, author, publisher, cover_url, loan_count, sales_point, source")
+            .select("*")
             .in_("isbn", isbns)
             .execute()
         ))

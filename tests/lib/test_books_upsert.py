@@ -71,14 +71,18 @@ def test_upsert_books_rich_merge_inserts_new_row():
 
 
 def test_upsert_books_rich_merge_merges_with_existing():
-    """기존 row 있음 → 더 긴 title 유지."""
+    """기존 row 있음 → 더 긴 title 유지, 언급 안 된 필드도 보존."""
     sb = MagicMock()
     sb.table.return_value.select.return_value.in_.return_value \
         .execute.return_value.data = [
         {"isbn": "123", "title": "매우 길고 상세한 원본 제목",
          "author": "기존저자", "publisher": "X",
          "cover_url": "http://old", "loan_count": 100,
-         "sales_point": 100, "source": "data4library"},
+         "sales_point": 100, "source": "data4library",
+         # new 에 없는 필드들 — upsert 후에도 살아남아야 함
+         "description": "기존 description",
+         "rich_description": "기존 rich",
+         "genre": "소설"},
     ]
 
     new = [{"isbn": "123", "title": "짧은제목", "author": "",
@@ -91,8 +95,15 @@ def test_upsert_books_rich_merge_merges_with_existing():
     assert merged_row["title"] == "매우 길고 상세한 원본 제목"
     # 빈 새 author 가 기존 author 를 덮어쓰지 않음
     assert merged_row["author"] == "기존저자"
+    # new 에 없는 publisher 도 그대로 보존
+    assert merged_row["publisher"] == "X"
     # 숫자는 큰 쪽
     assert merged_row["loan_count"] == 100
     assert merged_row["sales_point"] == 200
     # source 는 최신
     assert merged_row["source"] == "aladin"
+    # new 에 전혀 언급되지 않은 필드들 (description, rich_description, genre)
+    # 이 merged 에 살아남아야 cross-pipeline overwrite 방지.
+    assert merged_row["description"] == "기존 description"
+    assert merged_row["rich_description"] == "기존 rich"
+    assert merged_row["genre"] == "소설"
