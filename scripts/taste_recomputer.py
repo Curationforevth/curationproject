@@ -409,6 +409,12 @@ class TasteRecomputer:
         print(f"  드롭 (저장 실패): {s['drop_failed']}건")
         print(f"  confidence 갱신 실패: {s['confidence_failed']}건")
         print(f"  에러: {s['errors']}건")
+        # D4 (I4): confidence_failed 비율이 높으면 RPC 장애 의심 경고.
+        if s["processed"] > 0:
+            conf_ratio = s["confidence_failed"] / s["processed"]
+            if conf_ratio > 0.1:
+                print(f"  ⚠ confidence_failed 비율 {conf_ratio:.1%} > 10% — "
+                      f"RPC 장애 의심")
         print(f"{'=' * 50}")
 
     def show_status(self):

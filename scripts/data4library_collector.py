@@ -137,7 +137,11 @@ class Data4LibraryCollector:
             r = requests.get(url, params=params, timeout=15)
             r.raise_for_status()
             if not r.text.strip():
-                return [], []
+                # D3 (I5): 빈 body 는 transient 로 간주 → 예외로 raise.
+                # 정상적인 "데이터 없음" 은 JSON 빈 배열로 내려옴.
+                # return [], [] 하면 library_keywords=[] 로 영구 persist 돼
+                # 다음 런에서 재시도 대상에서 빠진다.
+                raise RuntimeError(f"빈 응답 body (transient 의심, isbn={isbn})")
             data = r.json()
             keywords = parse_keywords(data)
             co_loan = parse_co_loan_books(data)

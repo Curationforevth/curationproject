@@ -11,6 +11,23 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 from unittest.mock import MagicMock, patch
 
 
+def test_fetch_usage_raises_on_empty_body():
+    """D3 (I5): 빈 body 는 transient 로 raise — library_keywords=[] 영구 persist 방지."""
+    import data4library_collector
+    import pytest
+    with patch.object(data4library_collector, "create_client", return_value=MagicMock()):
+        c = data4library_collector.Data4LibraryCollector(dry_run=True)
+        c._api_key = "fake"
+
+        fake_resp = MagicMock()
+        fake_resp.text = ""
+        fake_resp.raise_for_status = MagicMock()
+
+        with patch("data4library_collector.requests.get", return_value=fake_resp):
+            with pytest.raises(RuntimeError, match="transient"):
+                c.fetch_usage("9781234567890")
+
+
 def test_hard_import_no_silent_fallback():
     import data4library_collector
     from lib.retry import with_retry as real_retry
