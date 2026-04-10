@@ -52,6 +52,22 @@ def test_run_returns_one_when_errors():
     assert e.stats["errors"] == 1
 
 
+def test_colors_failed_counted_on_extraction_error():
+    """D1 (I1): extract_colors 가 None 반환 시 colors_failed 증가."""
+    import batch_enricher
+    with patch.object(batch_enricher, "create_client", return_value=MagicMock()):
+        e = batch_enricher.BatchEnricher(dry_run=True)
+        books = [{"id": "b1", "cover_url": "http://bad.url/x.jpg",
+                  "spine_font": None, "dominant_colors": None,
+                  "genre": "소설", "description": ""}]
+        with patch.object(e, "fetch_books_needing_enrichment", return_value=books):
+            with patch.object(batch_enricher, "extract_colors", return_value=None):
+                with patch("time.sleep"):
+                    e.run()
+    assert e.stats["colors_failed"] == 1
+    assert e.stats["colors_extracted"] == 0
+
+
 def test_run_returns_zero_on_success():
     import batch_enricher
     with patch.object(batch_enricher, "create_client", return_value=MagicMock()):
