@@ -250,6 +250,8 @@ class Tier2Embedder:
                 valid_books.append((book, text, sources))
             else:
                 self.stats["skipped"] += 1
+                if self.stats["skipped"] <= 5:
+                    print(f"  ⚠ 스킵: {book.get('title', '')[:35]} (책소개 없음)")
 
         if not valid_books:
             print(f"⚠ 유효한 텍스트를 생성할 수 없는 도서 {self.stats['skipped']}권 스킵.")

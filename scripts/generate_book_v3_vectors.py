@@ -184,6 +184,7 @@ def main():
     # 5. 배치 처리
     start = time.time()
     done, errors, consecutive_errors = 0, 0, 0
+    successfully_saved = set()  # 실제 DB 저장 성공한 book_id만 추적
 
     for i in range(0, len(prepared), EMBED_BATCH):
         batch = prepared[i:i + EMBED_BATCH]
@@ -227,6 +228,7 @@ def main():
         try:
             with_retry(lambda: sb.table("book_v3_vectors").upsert(rows, on_conflict="book_id").execute())
             done += len(rows)
+            successfully_saved.update(row["book_id"] for row in rows)
             consecutive_errors = 0
         except Exception as e:
             print(f"  배치 UPSERT 실패, 1건씩 재시도: {e}", flush=True)
@@ -234,6 +236,7 @@ def main():
                 try:
                     with_retry(lambda r=row: sb.table("book_v3_vectors").upsert(r, on_conflict="book_id").execute())
                     done += 1
+                    successfully_saved.add(row["book_id"])
                 except Exception as e2:
                     errors += 1
                     print(f"    ✗ {row['book_id'][:8]}...: {e2}", flush=True)
@@ -246,11 +249,16 @@ def main():
               f"{elapsed/60:.1f}분경과 ~{eta:.0f}초남음", flush=True)
 
         if done > 0 and done % CHECKPOINT_INTERVAL == 0:
-            all_done = existing | {p["book_id"] for p in prepared[:i + len(batch)] if p["book_id"] not in existing}
+            all_done = existing | successfully_saved
             save_checkpoint(all_done)
             print(f"  ── 체크포인트: {done}건 완료, 상태 저장 ──", flush=True)
 
         time.sleep(SLEEP_BETWEEN)
+
+    # 루프 종료 후 최종 체크포인트 저장 (성공한 것만)
+    if successfully_saved:
+        all_done = existing | successfully_saved
+        save_checkpoint(all_done)
 
     elapsed = time.time() - start
     print(f"\n{'='*50}", flush=True)

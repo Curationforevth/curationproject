@@ -25,3 +25,8 @@ venv/
 .superpowers/
 reason_log.txt
 .claude/
+
+# Generated artifacts
+recommendation-server/data/index.pkl
+recommendation-server/data/index.pkl.sha256
+recommendation-server/data/index.pkl.tmp
