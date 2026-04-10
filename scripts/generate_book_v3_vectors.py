@@ -9,7 +9,7 @@
   python3 scripts/generate_book_v3_vectors.py --dry-run  # API 호출 없이 파싱만
 """
 import os, sys, time, re, argparse
-import json as _json
+import json
 
 CHECKPOINT_FILE = os.path.join(os.path.dirname(__file__), ".checkpoint_book_v3.json")
 
@@ -100,7 +100,7 @@ def load_checkpoint():
     """체크포인트 파일에서 완료된 book_id 목록 로드."""
     if os.path.exists(CHECKPOINT_FILE):
         with open(CHECKPOINT_FILE) as f:
-            data = _json.load(f)
+            data = json.load(f)
             print(f"  체크포인트 로드: {len(data.get('done_ids', []))}건", flush=True)
             return set(data.get("done_ids", []))
     return set()
@@ -109,7 +109,7 @@ def load_checkpoint():
 def save_checkpoint(done_ids):
     """처리 완료된 book_id를 체크포인트 파일에 저장."""
     with open(CHECKPOINT_FILE, "w") as f:
-        _json.dump({"done_ids": list(done_ids), "last_updated": time.strftime("%Y-%m-%dT%H:%M:%S")}, f)
+        json.dump({"done_ids": list(done_ids), "last_updated": time.strftime("%Y-%m-%dT%H:%M:%S")}, f)
 
 
 def main():

@@ -49,8 +49,9 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 CREATE EXTENSION IF NOT EXISTS pg_cron;
 
 -- 기존 동일 job 제거 후 등록
-SELECT cron.unschedule('refresh_user_state_hourly')
-  WHERE EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'refresh_user_state_hourly');
+SELECT cron.unschedule(jobid)
+  FROM cron.job
+  WHERE jobname = 'refresh_user_state_hourly';
 
 SELECT cron.schedule(
   'refresh_user_state_hourly',
