@@ -149,6 +149,7 @@ def test_build_loan_item_params_with_kdc():
     assert p["startDt"] == "2026-01-01"
     assert p["endDt"] == "2026-04-01"
     assert p["kdc"] == "8"
+    assert p["addCode"] == "0"  # 기본값: 성인 단행본만
 
 
 def test_build_loan_item_params_without_kdc():
@@ -157,6 +158,16 @@ def test_build_loan_item_params_without_kdc():
         start_dt="2026-01-01", end_dt="2026-04-01",
     )
     assert "kdc" not in p
+    assert p["addCode"] == "0"  # 기본값
+
+
+def test_build_loan_item_params_add_code_disabled():
+    """add_code=None이면 addCode 파라미터 생략 (전체 대상 포함)."""
+    p = build_loan_item_params(
+        api_key="abc", page_no=1, page_size=50,
+        start_dt="2026-01-01", end_dt="2026-04-01", add_code=None,
+    )
+    assert "addCode" not in p
 
 
 def test_build_recommand_params_requires_isbn13():

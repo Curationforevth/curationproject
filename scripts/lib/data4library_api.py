@@ -170,9 +170,10 @@ def is_adult_general(book: dict) -> bool:
 def fetch_loan_item_page(
     api_key: str, page_no: int, page_size: int,
     start_dt: str, end_dt: str, kdc: Optional[str] = None,
+    add_code: Optional[str] = "0",
     timeout: float = 60.0,
 ) -> dict:
-    params = build_loan_item_params(api_key, page_no, page_size, start_dt, end_dt, kdc)
+    params = build_loan_item_params(api_key, page_no, page_size, start_dt, end_dt, kdc, add_code)
     r = requests.get(f"{API_BASE}/loanItemSrch", params=params, timeout=timeout)
     r.raise_for_status()
     return r.json()
