@@ -153,13 +153,12 @@ def is_adult_general(book: dict) -> bool:
       8 = 학습참고서
       9 = 만화
 
-    Empty addition_symbol → reject (unknown target audience, safer to skip).
-    recommandList 에서 빈 값이 오면 성인 일반 여부를 확인할 수 없으므로
-    False 로 처리하여 후속 필터에서 제외.
+    Empty addition_symbol → pass (recommandList often returns empty;
+    we don't want to throw away the whole pipe).
     """
     sym = (book.get("addition_symbol") or "").strip()
     if not sym:
-        return False
+        return True
     return sym[0] == "0"
 
 

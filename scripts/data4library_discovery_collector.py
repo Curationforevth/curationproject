@@ -416,7 +416,7 @@ def main():
         sm = StateManager(c.sb)
         sm.upsert_state(
             source_type=source_type,
-            total_items_found=c.stats.get("api_fetched", 0),
+            total_items_found=c.stats.get("fetched_raw", 0),
             unique_items_saved=c.stats.get("upserted", 0),
             completed=True,
         )
