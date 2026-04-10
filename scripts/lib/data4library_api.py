@@ -28,6 +28,7 @@ API_BASE = "http://data4library.kr/api"
 def build_loan_item_params(
     api_key: str, page_no: int, page_size: int,
     start_dt: str, end_dt: str, kdc: Optional[str] = None,
+    add_code: Optional[str] = "0",
 ) -> dict:
     p = {
         "authKey": api_key,
@@ -39,6 +40,8 @@ def build_loan_item_params(
     }
     if kdc:
         p["kdc"] = kdc
+    if add_code:
+        p["addCode"] = add_code
     return p
 
 

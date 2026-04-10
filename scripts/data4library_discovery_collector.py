@@ -50,7 +50,7 @@ load_dotenv(os.path.join(REPO, ".env"))
 
 
 PAGE_SIZE = 50
-REQUEST_DELAY = 0.5
+REQUEST_DELAY = 0.3  # API 응답 자체가 ~0.4s이므로 실제 간격 ~0.7s
 
 
 KDC_BUCKETS = [
