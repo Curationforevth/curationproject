@@ -99,6 +99,7 @@ class BatchEnricher:
         self.stats = {
             "processed": 0,
             "colors_extracted": 0,
+            "colors_failed": 0,
             "fonts_assigned": 0,
             "errors": 0,
         }
@@ -135,6 +136,8 @@ class BatchEnricher:
             if colors:
                 updates["dominant_colors"] = colors
                 self.stats["colors_extracted"] += 1
+            else:
+                self.stats["colors_failed"] += 1
 
         # 폰트 배정 (NULL일 때만)
         if book.get("spine_font") is None:
@@ -187,6 +190,7 @@ class BatchEnricher:
         print(f"{'=' * 50}")
         print(f"  처리: {s['processed']}/{total}권")
         print(f"  색상 추출: {s['colors_extracted']}권")
+        print(f"  색상 추출 실패: {s['colors_failed']}권")
         print(f"  폰트 배정: {s['fonts_assigned']}권")
         print(f"  에러: {s['errors']}건")
         print(f"{'=' * 50}")

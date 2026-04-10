@@ -105,6 +105,11 @@ def filter_v3_reasons(reasons, title):
 
 # ── 추출 파이프라인 ──
 
+# D2 (I2): "데이터 부족으로 스킵" 을 에러와 구별하기 위한 sentinel.
+# extract_v3_reasons 가 이 값을 반환하면 caller 는 total_errors 에 넣지 않는다.
+SKIPPED_NO_DATA = "__SKIPPED_NO_DATA__"
+
+
 def extract_v3_reasons(book):
     """단일 책에서 v3 reason 추출."""
     title = book.get("title", "")
@@ -120,7 +125,7 @@ def extract_v3_reasons(book):
     desc = (desc or "")[:1500]
 
     if not desc or len(desc) < 50:
-        return None
+        return SKIPPED_NO_DATA
 
     prompt = build_v3_prompt(title, genre, desc)
     raw = call_chat(prompt, temperature=0)
@@ -414,7 +419,7 @@ def main():
 
     # 3) 처리 시작
     start = time.time()
-    total_done, total_errors, total_saved = 0, 0, 0
+    total_done, total_errors, total_saved, total_skipped_no_data = 0, 0, 0, 0
     consecutive_errors = 0
     checkpoint_num = 0
 
@@ -450,7 +455,10 @@ def main():
                 book = futures[future]
                 try:
                     reasons = future.result(timeout=60)
-                    if reasons:
+                    if reasons == SKIPPED_NO_DATA:
+                        # D2 (I2): 데이터 부족 — 에러가 아닌 스킵으로 분류.
+                        total_skipped_no_data += 1
+                    elif reasons:
                         extracted[book["id"]] = (book, reasons)
                     else:
                         chunk_errors += 1
@@ -492,7 +500,9 @@ def main():
             checkpoint_num += 1
             processed_so_far = set(ids[:i + len(chunk_ids)])
             save_reason_checkpoint(done_ids | processed_so_far)
-            passed = run_checkpoint(sb, checkpoint_num, total_done, total_saved, total_errors)
+            # D2 (I2): QC error_ratio 계산에서 no_data 를 분모에서 제외.
+            qc_done = max(total_done - total_skipped_no_data, 1)
+            passed = run_checkpoint(sb, checkpoint_num, qc_done, total_saved, total_errors)
             if not passed:
                 print("⛔ 품질 검증 실패 — 자동 중단. 위 이슈를 확인하세요.", flush=True)
                 break
@@ -508,6 +518,7 @@ def main():
     print(f"{'='*60}", flush=True)
     print(f"  처리: {total_done}권", flush=True)
     print(f"  저장: {total_saved}건", flush=True)
+    print(f"  스킵 (데이터 부족): {total_skipped_no_data}권", flush=True)
     print(f"  에러: {total_errors}건", flush=True)
     print(f"  소요: {elapsed/60:.1f}분", flush=True)
     print(f"{'='*60}", flush=True)
