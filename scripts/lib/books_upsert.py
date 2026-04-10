@@ -93,13 +93,20 @@ def upsert_books_rich_merge(sb, rows: list[dict], chunk_size: int = 200) -> int:
         existing_map = {r["isbn"]: r for r in (existing_rows.data or [])}
 
         merged_chunk = []
+        # DB 가 자동 생성하는 컬럼 — merge 결과에서 제거해야
+        # 배치 upsert 시 새 row 에 NULL 이 들어가는 문제를 방지.
+        _DB_MANAGED = {"id", "created_at", "updated_at"}
         for new_row in chunk:
             isbn = new_row.get("isbn")
             if not isbn:
                 continue
             existing = existing_map.get(isbn)
             if existing:
-                merged_chunk.append(merge_richer(existing, new_row))
+                merged = merge_richer(existing, new_row)
+                # 기존 row 의 DB 관리 컬럼 제거 (upsert 시 DB 가 유지)
+                for k in _DB_MANAGED:
+                    merged.pop(k, None)
+                merged_chunk.append(merged)
             else:
                 merged_chunk.append(new_row)
 
