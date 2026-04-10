@@ -65,11 +65,76 @@ def is_non_standard_isbn(isbn):
     return isbn.startswith('K') or len(isbn) < 10
 
 
+# 제목 구분자 패턴: 부제/저자정보 이전의 핵심 제목만 추출
+# `=` `/` 무조건 분리
+# 공백+구분자(: = -)+공백? → 분리 (파친코 :부제, 여덟 단어 :부제)
+# 한글:한글 → 분리 (고래:천명관) — 12:00 보호
+TITLE_SPLIT = r'\s+[:=-][\s]?|(?<=[가-힣]):(?=[가-힣])|[=/]'
+
+
 def build_search_query(title, author):
-    """검색 쿼리 생성: 제목 핵심부 + 첫 번째 저자"""
-    clean_author = re.sub(r'\s*\(.*?\)', '', author or '').strip().split(',')[0].strip()
-    core_title = title.split(' - ')[0].split(' :')[0].split(' (')[0].strip()
-    return f"{core_title} {clean_author}".strip()
+    """검색 쿼리 생성: 제목 핵심부 + 첫 번째 저자
+
+    구분자(: = / -)로 부제 분리, 괄호 제거, 시리즈 번호 제거.
+    저자명에서 역할 suffix(지음, 옮김 등) 제거.
+    """
+    # 핵심 제목 추출
+    core = re.split(TITLE_SPLIT, title)[0]
+    core = re.sub(r'\s*\(.*?\)', '', core).strip()
+    # 시리즈 번호 제거 — "1984" 같은 숫자 제목 보호 (3자 이하면 제거 안 함)
+    without_num = re.sub(r'\s+\d+\s*$', '', core).strip()
+    if len(without_num) > 3:
+        core = without_num
+
+    # 저자: 괄호 제거 + 첫 번째 저자 + 역할 suffix 제거
+    clean_author = re.sub(r'\s*\(.*?\)', '', author or '').split(',')[0].strip()
+    clean_author = re.sub(
+        r'\s*(지음|옮김|그림|글|엮음|원작|지은이|옮긴이)\s*$', '', clean_author,
+    ).strip()
+
+    return f"{core} {clean_author}".strip()
+
+
+def normalize_for_match(title):
+    """제목 정규화: 공백 제거, 괄호/부제/시리즈번호/세트 제거.
+
+    ISBN이 다른 에디션 간 매칭용. 예:
+      "해리 포터와 마법사의 돌 1~2권 세트" → "해리포터와마법사의돌"
+      "예루살렘의 아이히만 (알라딘 리커버 특별판)" → "예루살렘의아이히만"
+    """
+    t = re.sub(r'\s*\(.*?\)', '', title)
+    t = re.split(TITLE_SPLIT, t)[0]
+    without_num = re.sub(r'\s*\d+~?\d*권?\s*(세트)?', '', t).strip()
+    t = without_num if len(without_num) > 3 else t  # "1984" 보호
+    return re.sub(r'\s+', '', t).strip().lower()
+
+
+def _extract_author_from_ld(html):
+    """HTML에서 JSON-LD author.name 추출. 없으면 None."""
+    m = re.search(r'<script type="application/ld\+json">(.*?)</script>', html, re.DOTALL)
+    if m:
+        try:
+            ld = json.loads(m.group(1))
+            author = ld.get('author')
+            if isinstance(author, dict):
+                return author.get('name', '')
+            if isinstance(author, list) and author:
+                return author[0].get('name', '')
+        except (json.JSONDecodeError, KeyError, IndexError):
+            pass
+    return None
+
+
+def _extract_title_from_ld(html):
+    """HTML에서 JSON-LD name(제목) 추출. 없으면 None."""
+    m = re.search(r'<script type="application/ld\+json">(.*?)</script>', html, re.DOTALL)
+    if m:
+        try:
+            ld = json.loads(m.group(1))
+            return ld.get('name')
+        except (json.JSONDecodeError, KeyError):
+            pass
+    return None
 
 
 def clean_section_text(raw_text):
@@ -96,7 +161,7 @@ def extract_isbn_from_html(html):
 class Yes24Scraper:
     DEFAULT_LIMIT = 80
     REQUEST_DELAY = 1.0
-    MAX_SEARCH_RESULTS = 5
+    MAX_SEARCH_RESULTS = 3
     HEADERS = {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
                        'AppleWebKit/537.36 (KHTML, like Gecko) '
@@ -167,20 +232,50 @@ class Yes24Scraper:
         except Exception:
             return None
 
-    def _find_matching_page(self, goods_ids, expected_isbn):
-        """goods ID 리스트를 순회하며 ISBN 일치하는 상세 페이지 HTML 반환"""
+    def _find_matching_page(self, goods_ids, expected_isbn,
+                            expected_title="", expected_author=""):
+        """goods ID 리스트를 순회하며 매칭되는 상세 페이지 HTML 반환.
+
+        1차: ISBN 완전일치
+        2차: ISBN 불일치 시, 제목+저자 정규화 매칭 (다른 에디션 복구)
+        """
+        best_title_match = None  # ISBN 불일치지만 제목+저자 매칭된 첫 페이지
+
         for i, goods_id in enumerate(goods_ids):
             html = self._fetch_detail_page(goods_id)
             if not html:
                 continue
             page_isbn = extract_isbn_from_html(html)
+
+            # 1차: ISBN 매칭
             if isbn_matches(page_isbn, expected_isbn):
                 return html
-            # JSON-LD 없는 경우 — ISBN 검증 불가이므로 skip (오매칭 방지)
-            if page_isbn is None:
-                self.stats.setdefault("isbn_unverified_skip", 0)
-                self.stats["isbn_unverified_skip"] += 1
+
+            # 2차 후보: 제목+저자 매칭 (첫 번째만 저장)
+            if best_title_match is None and expected_title:
+                page_title = _extract_title_from_ld(html)
+                page_author = _extract_author_from_ld(html)
+                if (page_title and page_author
+                        and normalize_for_match(expected_title)
+                        == normalize_for_match(page_title)):
+                    # 저자도 확인 (오매칭 방지)
+                    db_author = re.sub(r'\s*\(.*?\)', '', expected_author or '')
+                    db_author = db_author.split(',')[0].strip()
+                    db_author = re.sub(
+                        r'\s*(지음|옮김|그림|글|엮음|원작|지은이|옮긴이)\s*$',
+                        '', db_author,
+                    ).strip()
+                    if db_author and db_author in page_author:
+                        best_title_match = html
+
             time.sleep(0.3)
+
+        # ISBN 매칭 실패 → 제목+저자 매칭 fallback
+        if best_title_match:
+            self.stats.setdefault("title_matched", 0)
+            self.stats["title_matched"] += 1
+            return best_title_match
+
         return None
 
     def _extract_sections(self, html):
@@ -235,6 +330,12 @@ class Yes24Scraper:
 
                 goods_ids = self._search_goods_ids(title, author)
                 if not goods_ids:
+                    # fallback: 제목만으로 재시도
+                    goods_ids = self._search_goods_ids(title, "")
+                    if goods_ids:
+                        self.stats.setdefault("search_retry_success", 0)
+                        self.stats["search_retry_success"] += 1
+                if not goods_ids:
                     self.stats["search_fail"] += 1
                     if self.stats["search_fail"] <= 10:
                         print(f"  ✗ 검색 실패: {title[:35]}")
@@ -243,7 +344,10 @@ class Yes24Scraper:
 
                 time.sleep(self.REQUEST_DELAY)
 
-                html = self._find_matching_page(goods_ids, isbn)
+                html = self._find_matching_page(
+                    goods_ids, isbn,
+                    expected_title=title, expected_author=author,
+                )
                 if not html:
                     self.stats["isbn_mismatch"] += 1
                     if self.stats["isbn_mismatch"] <= 5:
@@ -254,6 +358,8 @@ class Yes24Scraper:
                 sections = self._extract_sections(html)
                 if not sections:
                     self.stats["scrape_fail"] += 1
+                    if self.stats["scrape_fail"] <= 10:
+                        print(f"  ✗ 섹션 없음: {title[:35]}")
                     time.sleep(self.REQUEST_DELAY)
                     continue
 
@@ -290,6 +396,10 @@ class Yes24Scraper:
         print(f"  비표준 ISBN 스킵: {s['isbn_skip']}권")
         print(f"  스크래핑 실패: {s['scrape_fail']}권")
         print(f"  에러: {s['errors']}건")
+        if s.get("title_matched"):
+            print(f"  제목+저자 매칭 복구: {s['title_matched']}권")
+        if s.get("search_retry_success"):
+            print(f"  검색 재시도 성공: {s['search_retry_success']}권")
         print(f"{'=' * 50}")
 
     def show_status(self):

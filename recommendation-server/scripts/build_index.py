@@ -28,6 +28,7 @@ OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 OUTPUT_PATH = os.path.join(OUTPUT_DIR, "index.pkl")
 PAGE_SIZE_META = 1000
 PAGE_SIZE_VECTOR = 500
+PAGE_SIZE_REASONS = 200  # book_love_reasons 전용 (38K+ rows, timeout 방지)
 # NOTE: recommendation-server 는 scripts/lib 와 별도 패키지.
 # scripts.lib.retry.with_retry 와 의도적으로 독립된 retry 로직 사용.
 # 변경 시 scripts/lib/retry.py 의 SQLSTATE whitelist 와 동기화 필요 없음
@@ -73,7 +74,7 @@ def _fetch_paginated(sb, table: str, select: str, page_size: int,
     return all_rows
 
 
-def build():
+def build(dry_run: bool = False):
     sb = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
     # 1. books meta
@@ -112,7 +113,7 @@ def build():
     print("[build] Loading reason embeddings...")
     reasons_raw = _fetch_paginated(
         sb, "book_love_reasons", "book_id,reason_embedding",
-        PAGE_SIZE_VECTOR,
+        PAGE_SIZE_REASONS,
         filters={"reason_embedding": ("not.is", "null")})
     reasons_by_book = {}
     for r in reasons_raw:
@@ -175,6 +176,12 @@ def build():
 
     # 6. pkl 저장 — C2 (H3): tmp + os.replace 로 atomic write.
     # 서버가 load 중일 때 half-written pkl 을 읽지 않도록 보장.
+    if dry_run:
+        print(f"\n[dry-run] index.pkl 저장 건너뜀")
+        print(f"  books: {loaded}")
+        print(f"  reasons: {total_reasons}")
+        return
+
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     built_at = datetime.now(timezone.utc).isoformat()
     bundle = {
@@ -213,4 +220,9 @@ def build():
 
 
 if __name__ == "__main__":
-    build()
+    import argparse
+    p = argparse.ArgumentParser()
+    p.add_argument("--dry-run", action="store_true",
+                   help="DB에서 읽기만 하고 index.pkl 저장 안 함")
+    args = p.parse_args()
+    build(dry_run=args.dry_run)
