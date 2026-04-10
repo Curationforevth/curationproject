@@ -20,6 +20,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 from supabase import create_client
 from scripts.lib.openai_helpers import call_embedding, EMBEDDING_DIMENSIONS
 from scripts.lib.genre_parser import parse_genre, clean_html
+from scripts.lib.retry import with_retry
 
 EMBED_BATCH = 20
 SLEEP_BETWEEN = 1
@@ -47,8 +48,9 @@ def load_genre_lookup(sb):
     lookup = {}
     offset = 0
     while True:
-        res = sb.table("genre_embeddings").select("id, genre_text, level") \
-            .range(offset, offset + 999).execute()
+        res = with_retry(lambda: sb.table("genre_embeddings")
+                         .select("id, genre_text, level")
+                         .range(offset, offset + 999).execute())
         if not res.data:
             break
         for row in res.data:
@@ -64,8 +66,9 @@ def get_existing_book_ids(sb):
     ids = set()
     offset = 0
     while True:
-        res = sb.table("book_v3_vectors").select("book_id") \
-            .range(offset, offset + 999).execute()
+        res = with_retry(lambda: sb.table("book_v3_vectors")
+                         .select("book_id")
+                         .range(offset, offset + 999).execute())
         if not res.data:
             break
         ids.update(row["book_id"] for row in res.data)
@@ -80,10 +83,10 @@ def fetch_target_books(sb, limit):
     books = []
     offset = 0
     while len(books) < limit:
-        res = sb.table("books") \
-            .select("id, title, genre, description, rich_description") \
-            .not_.is_("rich_description", "null") \
-            .range(offset, offset + 999).execute()
+        res = with_retry(lambda: sb.table("books")
+                         .select("id, title, genre, description, rich_description")
+                         .not_.is_("rich_description", "null")
+                         .range(offset, offset + 999).execute())
         if not res.data:
             break
         books.extend(res.data)
@@ -222,14 +225,14 @@ def main():
             continue
 
         try:
-            sb.table("book_v3_vectors").insert(rows).execute()
+            with_retry(lambda: sb.table("book_v3_vectors").insert(rows).execute())
             done += len(rows)
             consecutive_errors = 0
         except Exception as e:
             print(f"  배치 INSERT 실패, 1건씩 재시도: {e}", flush=True)
             for row in rows:
                 try:
-                    sb.table("book_v3_vectors").insert(row).execute()
+                    with_retry(lambda r=row: sb.table("book_v3_vectors").insert(r).execute())
                     done += 1
                 except Exception as e2:
                     errors += 1
@@ -256,6 +259,10 @@ def main():
     if errors == 0 and os.path.exists(CHECKPOINT_FILE):
         os.remove(CHECKPOINT_FILE)
         print("  체크포인트 파일 삭제 (정상 완료)", flush=True)
+
+    # C5 (M4): errors > 0 이면 exit 1 — cron/orchestrator 가 감지 가능.
+    if errors > 0:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

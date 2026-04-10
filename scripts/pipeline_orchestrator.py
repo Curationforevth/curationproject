@@ -61,10 +61,11 @@ def _pending_for_step(step_name: str, status: dict) -> Optional[int]:
         if step_name == "v3_vectors":
             return max(0, status.get("with_rich_description", 0) - status.get("with_v3_vectors", 0))
         if step_name == "reason_extractor":
-            # v3 책 수 - 평균 13 reason 으로 나눈 책 수 추정. 0진전 감지에만 사용.
+            # C1 (H1): '/ 13' 추정 대신 distinct book_id 사용. v3 는 book 단위
+            # book_love_reasons 는 row 단위라서 row/13 나눗셈은 noise 큼.
             v3 = status.get("with_v3_vectors", 0)
-            est_books_with_reasons = status.get("with_reasons", 0) // 13
-            return max(0, v3 - est_books_with_reasons)
+            distinct = status.get("with_reasons_distinct_books", 0)
+            return max(0, v3 - distinct)
         if step_name == "tier1_embedder":
             return max(0, status.get("with_rich_description", 0) - status.get("with_embeddings", 0))
     except (TypeError, KeyError):
@@ -313,6 +314,31 @@ def _count_total(sb, table: str, pk: str = "id") -> int:
     return sb.table(table).select(pk, count="exact").limit(1).execute().count
 
 
+def _count_distinct_book_id_in_reasons(sb) -> int:
+    """C1 (H1): book_love_reasons 에서 distinct book_id 수.
+
+    supabase-py 는 COUNT(DISTINCT ...) 를 직접 지원하지 않아 pagination 으로
+    book_id 만 pull 해 in-memory set 크기 집계. row/13 추정보다 훨씬 정확.
+    """
+    seen: set = set()
+    offset = 0
+    while True:
+        res = (
+            sb.table("book_love_reasons")
+            .select("book_id")
+            .range(offset, offset + 999)
+            .execute()
+        )
+        if not res.data:
+            break
+        for r in res.data:
+            seen.add(r["book_id"])
+        if len(res.data) < 1000:
+            break
+        offset += 1000
+    return len(seen)
+
+
 def collect_status(sb) -> dict:
     """Query DB for counts at each pipeline stage.
 
@@ -324,6 +350,7 @@ def collect_status(sb) -> dict:
         "with_rich_description": _count_not_null(sb, "books", "rich_description"),
         "with_v3_vectors": _count_total(sb, "book_v3_vectors", pk="book_id"),
         "with_reasons": _count_total(sb, "book_love_reasons"),
+        "with_reasons_distinct_books": _count_distinct_book_id_in_reasons(sb),
         "with_embeddings": _count_total(sb, "book_embeddings"),
     }
 
@@ -334,8 +361,46 @@ def print_status(status: dict):
     print(f"  그중 rich_description 없음 (pending):    {status['missing_rich_description']:>6}")
     print(f"  rich_description 있음:                    {status['with_rich_description']:>6}")
     print(f"  book_v3_vectors:                           {status['with_v3_vectors']:>6}")
-    print(f"  book_love_reasons:                         {status['with_reasons']:>6}")
+    print(f"  book_love_reasons (rows):                  {status['with_reasons']:>6}")
+    print(f"  book_love_reasons (distinct books):        {status.get('with_reasons_distinct_books', 0):>6}")
     print(f"  book_embeddings:                           {status['with_embeddings']:>6}")
+
+
+def _env_fingerprint(path: str) -> str:
+    """C4 (H4): .env 의 SUPABASE_URL 라인 hash — prefix 12자.
+
+    curation/.env 와 recommendation-server/.env 가 같은 DB 를 가리키는지
+    startup 에서 빠르게 시각 확인. key 자체는 찍지 않는다.
+    """
+    import hashlib
+    try:
+        with open(path, "rb") as f:
+            content = f.read()
+        for line in content.decode("utf-8", errors="ignore").splitlines():
+            if line.startswith("SUPABASE_URL="):
+                return hashlib.sha256(line.encode()).hexdigest()[:12]
+    except OSError:
+        return "n/a"
+    return "n/a"
+
+
+def _warn_if_env_drift():
+    """curation/.env 와 recommendation-server/.env 의 SUPABASE_URL 비교."""
+    curation_env = os.path.join(REPO, ".env")
+    rec_env = os.path.join(REPO, "recommendation-server", ".env")
+    c_hash = _env_fingerprint(curation_env)
+    r_hash = _env_fingerprint(rec_env)
+    print(f"[env] curation/.env SUPABASE_URL hash: {c_hash}")
+    print(f"[env] rec-server/.env SUPABASE_URL hash: {r_hash}")
+    if os.path.exists(rec_env) and c_hash != "n/a" and r_hash != "n/a" and c_hash != r_hash:
+        print(
+            "⚠ curation 과 recommendation-server 의 SUPABASE_URL 이 다릅니다.",
+            file=sys.stderr,
+        )
+        print(
+            "  build_index 가 orchestrator 와 다른 DB 를 볼 수 있습니다.",
+            file=sys.stderr,
+        )
 
 
 def _make_supabase_client():
@@ -362,6 +427,8 @@ def main():
     p.add_argument("--status", action="store_true",
                    help="파이프라인 각 stage 의 현황만 출력")
     args = p.parse_args()
+
+    _warn_if_env_drift()
 
     if args.status:
         sb = _make_supabase_client()
