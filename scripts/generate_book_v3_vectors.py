@@ -48,9 +48,9 @@ def load_genre_lookup(sb):
     lookup = {}
     offset = 0
     while True:
-        res = with_retry(lambda: sb.table("genre_embeddings")
+        res = with_retry(lambda o=offset: sb.table("genre_embeddings")
                          .select("id, genre_text, level")
-                         .range(offset, offset + 999).execute())
+                         .range(o, o + 999).execute())
         if not res.data:
             break
         for row in res.data:
@@ -66,9 +66,9 @@ def get_existing_book_ids(sb):
     ids = set()
     offset = 0
     while True:
-        res = with_retry(lambda: sb.table("book_v3_vectors")
+        res = with_retry(lambda o=offset: sb.table("book_v3_vectors")
                          .select("book_id")
-                         .range(offset, offset + 999).execute())
+                         .range(o, o + 999).execute())
         if not res.data:
             break
         ids.update(row["book_id"] for row in res.data)
@@ -83,10 +83,10 @@ def fetch_target_books(sb, limit):
     books = []
     offset = 0
     while len(books) < limit:
-        res = with_retry(lambda: sb.table("books")
+        res = with_retry(lambda o=offset: sb.table("books")
                          .select("id, title, genre, description, rich_description")
                          .not_.is_("rich_description", "null")
-                         .range(offset, offset + 999).execute())
+                         .range(o, o + 999).execute())
         if not res.data:
             break
         books.extend(res.data)
