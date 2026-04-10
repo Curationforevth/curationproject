@@ -14,7 +14,6 @@ v3 설계 기준:
 """
 import argparse
 import json
-import json as _json
 import os
 import re
 import sys
@@ -325,7 +324,7 @@ def load_reason_checkpoint():
     """체크포인트 파일에서 완료된 book_id 목록 로드."""
     if os.path.exists(CHECKPOINT_FILE):
         with open(CHECKPOINT_FILE) as f:
-            data = _json.load(f)
+            data = json.load(f)
             print(f"  체크포인트 로드: {len(data.get('done_ids', []))}건", flush=True)
             return set(data.get("done_ids", []))
     return set()
@@ -334,7 +333,7 @@ def load_reason_checkpoint():
 def save_reason_checkpoint(done_ids):
     """처리 완료된 book_id를 체크포인트 파일에 저장."""
     with open(CHECKPOINT_FILE, "w") as f:
-        _json.dump({"done_ids": list(done_ids), "last_updated": time.strftime("%Y-%m-%dT%H:%M:%S")}, f)
+        json.dump({"done_ids": list(done_ids), "last_updated": time.strftime("%Y-%m-%dT%H:%M:%S")}, f)
 
 
 # ── 메인 루프 ──
