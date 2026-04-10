@@ -1,8 +1,6 @@
 name: Daily Collect (Batch + Enrich + Tier 1 Embed)
 
 on:
-  schedule:
-    - cron: '0 18 * * *'  # UTC 18:00 = KST 03:00
   workflow_dispatch:
 
 env:

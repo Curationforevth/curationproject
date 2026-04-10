@@ -1,8 +1,6 @@
 name: Daily Taste Vector Recomputation
 
 on:
-  schedule:
-    - cron: '0 22 * * *'  # UTC 22:00 = KST 07:00 (daily-embed-t2 이후)
   workflow_dispatch:
 
 env:

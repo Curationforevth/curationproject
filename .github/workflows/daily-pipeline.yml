@@ -1,0 +1,42 @@
+# E4: 단일 daily pipeline workflow — 기존 5개 workflow 를 순서 보장 하에 통합.
+# 기존 daily-*.yml 의 schedule 은 제거 (workflow_dispatch 만 유지).
+name: Daily Pipeline (discovery + enrich + index)
+
+on:
+  schedule:
+    - cron: '0 18 * * *'  # 매일 03:00 KST
+  workflow_dispatch: {}
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Discovery (Tier 1)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          DATA4LIBRARY_API_KEY: ${{ secrets.DATA4LIBRARY_API_KEY }}
+        run: python3 scripts/data4library_discovery_collector.py --tier 1
+
+      - name: Enrich pipeline (orchestrator)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: python3 scripts/pipeline_orchestrator.py --limit 500
+
+      - name: Build recommendation index
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          cd recommendation-server
+          python3 scripts/build_index.py

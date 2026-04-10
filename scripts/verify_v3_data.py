@@ -9,7 +9,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 from supabase import create_client
 from collections import Counter
 
-sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"])
+sb = create_client(os.environ["SUPABASE_URL"], os.getenv("SUPABASE_ANON_KEY", os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")))
 
 passed, failed = 0, 0
 

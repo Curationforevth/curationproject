@@ -5,7 +5,7 @@ from supabase import create_client
 load_dotenv()
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from lib.openai_helpers import call_chat
+from scripts.lib.openai_helpers import call_chat
 from scripts.reason_extractor import (
     build_step1_prompt, build_step2_prompt,
     filter_generic_reasons, extract_key_terms,

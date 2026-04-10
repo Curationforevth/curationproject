@@ -1,8 +1,6 @@
 name: Daily Tier 2 Embedding
 
 on:
-  schedule:
-    - cron: '30 21 * * *'  # UTC 21:30 = KST 06:30
   workflow_dispatch:
 
 env:

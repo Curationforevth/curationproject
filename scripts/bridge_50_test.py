@@ -7,10 +7,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
-from lib.openai_helpers import call_chat, call_embedding
+from scripts.lib.openai_helpers import call_chat, call_embedding
 from supabase import create_client
 
-sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"])
+sb = create_client(os.environ["SUPABASE_URL"], os.getenv("SUPABASE_ANON_KEY", os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")))
 
 def cosim(a, b):
     a, b = np.array(a, dtype=np.float32), np.array(b, dtype=np.float32)
@@ -82,7 +82,7 @@ while True:
         ).range(offset, offset + 499).execute()
     except:
         time.sleep(3)
-        sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"])
+        sb = create_client(os.environ["SUPABASE_URL"], os.getenv("SUPABASE_ANON_KEY", os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")))
         continue
     if not res.data:
         break
