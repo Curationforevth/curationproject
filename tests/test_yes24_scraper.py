@@ -93,6 +93,12 @@ def test_normalize_cross_edition_match():
     assert db == page
 
 
+def test_normalize_preserves_leading_digits():
+    """제목 앞 숫자는 시리즈 번호가 아니므로 유지."""
+    assert normalize_for_match("82년생 김지영") == "82년생김지영"
+    assert normalize_for_match("2001 스페이스 오디세이") == "2001스페이스오디세이"
+
+
 def test_normalize_space_difference_match():
     """띄어쓰기 차이가 있어도 매칭."""
     db = normalize_for_match("해리포터와 마법사의 돌")

@@ -104,7 +104,7 @@ def normalize_for_match(title):
     """
     t = re.sub(r'\s*\(.*?\)', '', title)
     t = re.split(TITLE_SPLIT, t)[0]
-    without_num = re.sub(r'\s*\d+~?\d*권?\s*(세트)?', '', t).strip()
+    without_num = re.sub(r'\s+\d+~?\d*권?\s*(세트)?\s*$', '', t).strip()
     t = without_num if len(without_num) >= 2 else t  # "1984" → "" 보호, "파친코 1" → "파친코" 허용
     return re.sub(r'\s+', '', t).strip().lower()
 
@@ -269,7 +269,7 @@ class Yes24Scraper:
                         # 전체 이름 또는 성(마지막 단어)으로 매칭
                         # "조앤 K. 롤링" → "롤링", "J.K. 롤링" → "롤링"
                         last_name = db_author.split()[-1]
-                        if db_author in page_author or last_name in page_author:
+                        if db_author in page_author or (len(last_name) >= 2 and last_name in page_author):
                             best_title_match = html
 
             time.sleep(0.3)
