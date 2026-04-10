@@ -205,7 +205,7 @@ def main():
     review_embs = call_embedding(all_reviews) if all_reviews else []
     review_emb_map = dict(zip(all_reviews, review_embs))
 
-    sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"])
+    sb = create_client(os.environ["SUPABASE_URL"], os.getenv("SUPABASE_ANON_KEY", os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")))
 
     print("[setup] 메타 로드")
     all_book_ids = list(index.book_ids)

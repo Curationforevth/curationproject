@@ -28,10 +28,7 @@ from dotenv import load_dotenv
 from supabase import create_client
 load_dotenv()
 
-try:
-    from lib.openai_helpers import call_chat, call_embedding
-except ImportError:
-    pass  # 테스트 환경에서는 순수 함수만 사용
+from scripts.lib.openai_helpers import call_chat, call_embedding
 
 # lib.retry 는 hard dependency. silent no-op fallback 금지.
 # (과거: 패스 문제로 retry 가 no-op 되어 수백 건 reason drop 하고도
@@ -65,7 +62,11 @@ META_CATEGORIES = [
 # ──────────────────────────────────────────────
 
 def extract_key_terms(rich_description):
-    """출판사가 강조한 텍스트(<b> 태그)와 따옴표로 감싼 핵심 용어를 추출."""
+    """출판사가 강조한 텍스트(<b> 태그)와 따옴표로 감싼 핵심 용어를 추출.
+
+    E6 (M6): _extract_reasons 에서는 미사용 (orphan). reason_debug_ids.py 가
+    아직 참조하므로 당분간 보존. v1 legacy 정리 시 함께 제거.
+    """
     if not rich_description:
         return []
 

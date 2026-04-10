@@ -26,6 +26,9 @@ PG_RETRYABLE_SQLSTATES = frozenset({
     "53400",  # configuration_limit_exceeded
     "40001",  # serialization_failure
     "40P01",  # deadlock_detected
+    "55P03",  # lock_not_available (E1: books 동시 upsert lock contention)
+    "25P02",  # in_failed_sql_transaction (E1: 트랜잭션 롤백 후 재시도 가치)
+    "58030",  # io_error (E1: 일시적 디스크/네트워크 I/O)
     "08000",  # connection_exception
     "08001",  # sqlclient_unable_to_establish_sqlconnection
     "08003",  # connection_does_not_exist
@@ -99,6 +102,9 @@ def with_retry(fn, max_retries=3, base_delay=1.0):
             if not _is_retryable(e) or attempt == max_retries:
                 raise
             delay = base_delay * (2 ** attempt) * (1 + random.uniform(-0.3, 0.3))
-            print(f"  ⚠ Supabase 재시도 {attempt + 1}/{max_retries} ({type(e).__name__}), {delay:.1f}초 대기...")
+            # E1: pg_code 를 로그에 포함해 디버깅 용이
+            pg_code = str(getattr(e, "code", "") or "")
+            code_info = f" pg_code={pg_code}" if pg_code else ""
+            print(f"  ⚠ Supabase 재시도 {attempt + 1}/{max_retries} ({type(e).__name__}{code_info}), {delay:.1f}초 대기...")
             time.sleep(delay)
     raise last_exc

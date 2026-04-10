@@ -240,7 +240,7 @@ def main():
     with open(PERSONAS_PATH) as f:
         data = json.load(f)
 
-    sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"])
+    sb = create_client(os.environ["SUPABASE_URL"], os.getenv("SUPABASE_ANON_KEY", os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")))
 
     # 모든 페르소나의 review_text 임베딩 일괄 생성 (1회)
     print("[3] 리뷰 임베딩 일괄 생성")

@@ -1,8 +1,6 @@
 name: Daily Extract Reasons
 
 on:
-  schedule:
-    - cron: '0 20 * * *'  # UTC 20:00 = KST 05:00
   workflow_dispatch:
 
 env:

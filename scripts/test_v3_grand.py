@@ -346,7 +346,7 @@ def main():
     review_emb_map = dict(zip(all_reviews, review_embs))
     print(f"  reviews: {len(all_reviews)}")
 
-    sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"])
+    sb = create_client(os.environ["SUPABASE_URL"], os.getenv("SUPABASE_ANON_KEY", os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")))
 
     print("[3] 메타 사전 로드")
     all_book_ids = list(index.book_ids)

@@ -211,7 +211,7 @@ def main():
         data = json.load(f)
     print(f"  페르소나 수: {len(data['personas'])}")
 
-    sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"])
+    sb = create_client(os.environ["SUPABASE_URL"], os.getenv("SUPABASE_ANON_KEY", os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")))
 
     # 인덱스에 있는 책만 사용 (누락 경고)
     for p in data["personas"]:
