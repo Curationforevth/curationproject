@@ -81,9 +81,9 @@ def build_search_query(title, author):
     # 핵심 제목 추출
     core = re.split(TITLE_SPLIT, title)[0]
     core = re.sub(r'\s*\(.*?\)', '', core).strip()
-    # 시리즈 번호 제거 — "1984" 같은 숫자 제목 보호 (3자 이하면 제거 안 함)
+    # 시리즈 번호 제거 — "1984" → "" 보호 (결과가 2자 미만이면 제거 안 함)
     without_num = re.sub(r'\s+\d+\s*$', '', core).strip()
-    if len(without_num) > 3:
+    if len(without_num) >= 2:
         core = without_num
 
     # 저자: 괄호 제거 + 첫 번째 저자 + 역할 suffix 제거
@@ -105,7 +105,7 @@ def normalize_for_match(title):
     t = re.sub(r'\s*\(.*?\)', '', title)
     t = re.split(TITLE_SPLIT, t)[0]
     without_num = re.sub(r'\s*\d+~?\d*권?\s*(세트)?', '', t).strip()
-    t = without_num if len(without_num) > 3 else t  # "1984" 보호
+    t = without_num if len(without_num) >= 2 else t  # "1984" → "" 보호, "파친코 1" → "파친코" 허용
     return re.sub(r'\s+', '', t).strip().lower()
 
 
@@ -265,8 +265,12 @@ class Yes24Scraper:
                         r'\s*(지음|옮김|그림|글|엮음|원작|지은이|옮긴이)\s*$',
                         '', db_author,
                     ).strip()
-                    if db_author and db_author in page_author:
-                        best_title_match = html
+                    if db_author:
+                        # 전체 이름 또는 성(마지막 단어)으로 매칭
+                        # "조앤 K. 롤링" → "롤링", "J.K. 롤링" → "롤링"
+                        last_name = db_author.split()[-1]
+                        if db_author in page_author or last_name in page_author:
+                            best_title_match = html
 
             time.sleep(0.3)
 
