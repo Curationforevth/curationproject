@@ -1,8 +1,7 @@
 name: Daily Extract Reasons
 
 on:
-  schedule:
-    - cron: '0 20 * * *'  # 매일 05:00 KST (daily-pipeline 이후)
+  # 스케줄은 daily-pipeline에서 enrich job으로 통합.
   workflow_dispatch:
 
 env:

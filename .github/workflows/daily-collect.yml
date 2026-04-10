@@ -1,8 +1,8 @@
 name: Daily Collect (Batch + Enrich + Tier 1 Embed)
 
 on:
-  schedule:
-    - cron: '30 19 * * *'  # 매일 04:30 KST (daily-pipeline 이후)
+  # 스케줄은 daily-pipeline에서 collect job으로 통합.
+  # 이 workflow는 수동 트리거용으로만 유지.
   workflow_dispatch:
 
 env:

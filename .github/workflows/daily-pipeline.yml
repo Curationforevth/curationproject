@@ -1,24 +1,34 @@
-# E4: 단일 daily pipeline workflow — 기존 5개 workflow 를 순서 보장 하에 통합.
-# 기존 daily-*.yml 의 schedule 은 제거 (workflow_dispatch 만 유지).
-name: Daily Pipeline (discovery + enrich + index)
+# 일일 파이프라인 — 단계별 독립 job, 가능한 병렬 실행.
+#
+# 의존성 구조:
+#   [병렬] discovery, collect, enrich  ← 각각 독립적으로 실행 가능
+#   [순차] build-and-recompute ← 위 3개 완료 후
+#
+# enrich는 이미 DB에 있는 rich_description 보유 책을 처리하므로
+# discovery/collect 완료를 기다릴 필요 없음.
+# YES24 스크래핑은 별도 workflow (daily-scrape.yml, 2시간마다).
+
+name: Daily Pipeline
 
 on:
   schedule:
     - cron: '0 18 * * *'  # 매일 03:00 KST
   workflow_dispatch: {}
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
-  run:
+  # ── 수집: 정보나루 ──────────────────────────
+  discovery:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install deps
-        run: pip install -r scripts/requirements.txt
-
+      - run: pip install -r scripts/requirements.txt
       - name: Discovery (Tier 1)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -26,13 +36,77 @@ jobs:
           DATA4LIBRARY_API_KEY: ${{ secrets.DATA4LIBRARY_API_KEY }}
         run: python3 scripts/data4library_discovery_collector.py --tier 1
 
-      - name: Enrich pipeline (orchestrator)
+  # ── 수집: 알라딘 + 보강 + Tier 1 임베딩 ────
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r scripts/requirements.txt
+      - name: Aladin batch collect
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          ALADIN_TTB_KEY: ${{ secrets.ALADIN_TTB_KEY }}
+        run: python scripts/smart_batch_collector.py --phase item_list --daily-target 200
+      - name: Batch enricher (color + font)
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python scripts/batch_enricher.py --limit 500
+      - name: Tier 1 embedder
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: python3 scripts/pipeline_orchestrator.py --limit 500
+        run: python scripts/tier1_embedder.py
 
+  # ── 보강: 기존 책 v3 + reason + tier2 (수집과 병렬) ──
+  enrich:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r scripts/requirements.txt
+      - name: v3 vectors
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: python3 scripts/generate_book_v3_vectors.py
+      - name: Reason extraction (v3)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: python3 scripts/v3_reason_extract.py --limit 200
+      - name: Tier 2 embedder
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: python3 scripts/tier2_embedder.py
+
+  # ── 마무리: 인덱스 빌드 + 취향 재계산 (모두 완료 후) ──
+  build-and-recompute:
+    needs: [discovery, collect, enrich]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r scripts/requirements.txt
       - name: Build recommendation index
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -40,3 +114,15 @@ jobs:
         run: |
           cd recommendation-server
           python3 scripts/build_index.py
+      - name: Commit index.pkl
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add recommendation-server/data/index.pkl
+          git diff --cached --quiet || git commit -m "chore: rebuild index.pkl ($(date -u '+%Y-%m-%d %H:%M UTC'))"
+          git push
+      - name: Taste vector recomputation
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python3 scripts/taste_recomputer.py --limit 500

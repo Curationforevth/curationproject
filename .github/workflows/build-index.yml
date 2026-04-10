@@ -1,0 +1,40 @@
+name: Build Recommendation Index
+
+on:
+  workflow_dispatch: {}
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: pip install -r scripts/requirements.txt
+
+      - name: Build index
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          cd recommendation-server
+          python3 scripts/build_index.py
+
+      - name: Commit and push index.pkl
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add recommendation-server/data/index.pkl
+          git diff --cached --quiet || git commit -m "chore: rebuild index.pkl ($(date -u '+%Y-%m-%d %H:%M UTC'))"
+          git push

@@ -1,8 +1,7 @@
 name: Daily Taste Vector Recomputation
 
 on:
-  schedule:
-    - cron: '0 21 * * *'  # 매일 06:00 KST (daily-embed-t2 이후)
+  # 스케줄은 daily-pipeline에서 build-and-recompute job으로 통합.
   workflow_dispatch:
 
 env:

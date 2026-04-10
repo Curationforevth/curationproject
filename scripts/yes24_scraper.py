@@ -161,7 +161,7 @@ def extract_isbn_from_html(html):
 class Yes24Scraper:
     DEFAULT_LIMIT = 80
     REQUEST_DELAY = 1.0
-    MAX_SEARCH_RESULTS = 3
+    MAX_SEARCH_RESULTS = 5
     HEADERS = {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
                        'AppleWebKit/537.36 (KHTML, like Gecko) '
