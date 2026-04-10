@@ -187,15 +187,18 @@ class Yes24Scraper:
             self._session.headers.update(self.HEADERS)
         return self._session
 
+    # YES24에 책소개 섹션이 없는 장르 — 스크래핑해도 결과 없음
+    _SKIP_GENRES = ('만화', '코믹', '라이트노벨')
+
     def fetch_books_needing_scrape(self, limit):
-        """rich_description이 NULL인 책 조회"""
+        """rich_description이 NULL인 책 조회 (만화/코믹/라노벨 제외)"""
         all_books = []
         offset = 0
         page_size = 1000
         while True:
             result = with_retry(lambda o=offset: (
                 self.sb.table("books")
-                .select("id, isbn, title, author")
+                .select("id, isbn, title, author, genre")
                 .is_("rich_description", "null")
                 .not_.is_("isbn", "null")
                 .order("sales_point", desc=True)
@@ -204,7 +207,13 @@ class Yes24Scraper:
             ))
             if not result.data:
                 break
-            all_books.extend(result.data)
+            for row in result.data:
+                genre = row.get("genre") or ""
+                if any(g in genre for g in self._SKIP_GENRES):
+                    self.stats.setdefault("genre_skip", 0)
+                    self.stats["genre_skip"] += 1
+                    continue
+                all_books.append(row)
             if len(result.data) < page_size or len(all_books) >= limit:
                 break
             offset += page_size
@@ -400,6 +409,8 @@ class Yes24Scraper:
         print(f"  비표준 ISBN 스킵: {s['isbn_skip']}권")
         print(f"  스크래핑 실패: {s['scrape_fail']}권")
         print(f"  에러: {s['errors']}건")
+        if s.get("genre_skip"):
+            print(f"  만화/코믹 제외: {s['genre_skip']}권")
         if s.get("title_matched"):
             print(f"  제목+저자 매칭 복구: {s['title_matched']}권")
         if s.get("search_retry_success"):
