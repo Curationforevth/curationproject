@@ -19,7 +19,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 from supabase import create_client
 from lib.retry import with_retry
-from lib.data4library_api import fetch_search, parse_books_response
+from lib.data4library_api import fetch_search, parse_book_docs
 
 REQUEST_DELAY = 0.5
 
@@ -27,7 +27,7 @@ REQUEST_DELAY = 0.5
 def fetch_loan_for_isbn(api_key: str, isbn: str) -> int | None:
     """정보나루 srchBooks 로 ISBN 검색 → loan_count 반환. 없으면 None."""
     data = fetch_search(api_key, keyword=isbn, page_size=1)
-    rows = parse_books_response(data)
+    rows = parse_book_docs(data)
     for r in rows:
         if r.get("isbn13") == isbn:
             return r.get("loan_count") or 0

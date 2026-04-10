@@ -28,12 +28,15 @@ from dotenv import load_dotenv
 from supabase import create_client
 load_dotenv()
 
+# E2: import path 통일 — scripts/ 디렉토리와 프로젝트 루트 모두 path 에 추가
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+
 from scripts.lib.openai_helpers import call_chat, call_embedding
 
 # lib.retry 는 hard dependency. silent no-op fallback 금지.
 # (과거: 패스 문제로 retry 가 no-op 되어 수백 건 reason drop 하고도
 #  exit 0 으로 끝나는 사고가 있었음.)
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from lib.retry import with_retry  # noqa: E402
 
 MIN_REASON_LENGTH = 2
