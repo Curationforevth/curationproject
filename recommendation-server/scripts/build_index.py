@@ -155,7 +155,22 @@ def build():
     index.build_desc_matrix()
     print(f"  → {loaded} books loaded, {skipped} skipped")
 
-    # 6. pkl 저장
+    # C3 (H2): skip ratio guard. 임계값 초과 시 exit 1 — 데이터 품질 저하된
+    # 인덱스가 silent 하게 prod 에 배포되지 않도록 방지.
+    SKIP_RATIO_THRESHOLD = 0.05  # 5%
+    total = loaded + skipped
+    if total > 0:
+        skip_ratio = skipped / total
+        print(f"  skip ratio: {skip_ratio:.1%}")
+        if skip_ratio > SKIP_RATIO_THRESHOLD:
+            print(
+                f"❌ skip ratio {skip_ratio:.1%} > {SKIP_RATIO_THRESHOLD:.1%} — build 실패",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+    # 6. pkl 저장 — C2 (H3): tmp + os.replace 로 atomic write.
+    # 서버가 load 중일 때 half-written pkl 을 읽지 않도록 보장.
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     built_at = datetime.now(timezone.utc).isoformat()
     bundle = {
@@ -164,16 +179,24 @@ def build():
         "built_at": built_at,
         "version": "v3-float16",
     }
-    with open(OUTPUT_PATH, "wb") as f:
+    tmp_path = OUTPUT_PATH + ".tmp"
+    with open(tmp_path, "wb") as f:
         pickle.dump(bundle, f)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp_path, OUTPUT_PATH)
 
     sha = hashlib.sha256()
     with open(OUTPUT_PATH, "rb") as f:
         for chunk in iter(lambda: f.read(8192), b""):
             sha.update(chunk)
     hash_path = OUTPUT_PATH + ".sha256"
-    with open(hash_path, "w") as f:
+    tmp_hash = hash_path + ".tmp"
+    with open(tmp_hash, "w") as f:
         f.write(sha.hexdigest())
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp_hash, hash_path)
 
     size_mb = os.path.getsize(OUTPUT_PATH) / (1024 * 1024)
     print(f"\n[build] Done! {OUTPUT_PATH}")

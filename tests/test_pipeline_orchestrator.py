@@ -169,6 +169,11 @@ def test_collect_status_aggregates_counts(monkeypatch):
     monkeypatch.setattr(pipeline_orchestrator, "_count_not_null", fake_count_not_null)
     monkeypatch.setattr(pipeline_orchestrator, "_count_missing", fake_count_missing)
     monkeypatch.setattr(pipeline_orchestrator, "_count_total", fake_count_total)
+    # C1: distinct count 도 stub
+    monkeypatch.setattr(
+        pipeline_orchestrator, "_count_distinct_book_id_in_reasons",
+        lambda sb: 2600,
+    )
 
     status = collect_status(sb=None)
     assert status["with_loan_count"] == 1019
@@ -176,6 +181,7 @@ def test_collect_status_aggregates_counts(monkeypatch):
     assert status["with_rich_description"] == 2678
     assert status["with_v3_vectors"] == 2651
     assert status["with_reasons"] == 37911
+    assert status["with_reasons_distinct_books"] == 2600
     assert status["with_embeddings"] == 8564
 
 
@@ -216,10 +222,17 @@ def test_pending_for_tier1_embedder_is_rich_minus_embeddings():
     assert _pending_for_step("tier1_embedder", status) == 398
 
 
-def test_pending_for_reason_extractor_uses_v3_minus_reasons_approx():
+def test_pending_for_reason_extractor_uses_distinct_book_count():
+    """C1 (H1): row/13 추정 대신 distinct book_id 카운트 사용."""
     from scripts.pipeline_orchestrator import _pending_for_step
-    status = {"with_v3_vectors": 2811, "with_reasons": 37911}
-    # reasons // 13 ≈ 2916 → max(0, 2811 - 2916) = 0 (이미 다 처리됨)
+    # 2811 v3 book 중 2600 book 만 reason 있음 → pending = 211
+    status = {"with_v3_vectors": 2811, "with_reasons_distinct_books": 2600}
+    assert _pending_for_step("reason_extractor", status) == 211
+
+
+def test_pending_for_reason_extractor_clamps_at_zero():
+    from scripts.pipeline_orchestrator import _pending_for_step
+    status = {"with_v3_vectors": 2600, "with_reasons_distinct_books": 2811}
     assert _pending_for_step("reason_extractor", status) == 0
 
 
