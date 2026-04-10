@@ -28,14 +28,13 @@ OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 OUTPUT_PATH = os.path.join(OUTPUT_DIR, "index.pkl")
 PAGE_SIZE_META = 1000
 PAGE_SIZE_VECTOR = 500
-PAGE_SIZE_REASONS = 200  # book_love_reasons 전용 (38K+ rows, timeout 방지)
 # NOTE: recommendation-server 는 scripts/lib 와 별도 패키지.
 # scripts.lib.retry.with_retry 와 의도적으로 독립된 retry 로직 사용.
 # 변경 시 scripts/lib/retry.py 의 SQLSTATE whitelist 와 동기화 필요 없음
 # (이 파일은 read-only fetch 만 하므로 SQLSTATE 분기 불필요).
 MAX_RETRIES = 3
 RETRY_BACKOFF = 10
-PAGE_SLEEP = 1
+PAGE_SLEEP = 0.1  # read-only fetch — rate limit 불필요, 연결 안정성만
 
 
 def _to_np(vec) -> np.ndarray:
@@ -113,7 +112,7 @@ def build(dry_run: bool = False):
     print("[build] Loading reason embeddings...")
     reasons_raw = _fetch_paginated(
         sb, "book_love_reasons", "book_id,reason_embedding",
-        PAGE_SIZE_REASONS,
+        PAGE_SIZE_VECTOR,
         filters={"reason_embedding": ("not.is", "null")})
     reasons_by_book = {}
     for r in reasons_raw:
