@@ -1,6 +1,8 @@
 name: Daily Tier 2 Embedding
 
 on:
+  schedule:
+    - cron: '30 20 * * *'  # 매일 05:30 KST (daily-extract-reasons 이후)
   workflow_dispatch:
 
 env:
