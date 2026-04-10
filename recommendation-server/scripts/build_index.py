@@ -28,6 +28,10 @@ OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 OUTPUT_PATH = os.path.join(OUTPUT_DIR, "index.pkl")
 PAGE_SIZE_META = 1000
 PAGE_SIZE_VECTOR = 500
+# NOTE: recommendation-server 는 scripts/lib 와 별도 패키지.
+# scripts.lib.retry.with_retry 와 의도적으로 독립된 retry 로직 사용.
+# 변경 시 scripts/lib/retry.py 의 SQLSTATE whitelist 와 동기화 필요 없음
+# (이 파일은 read-only fetch 만 하므로 SQLSTATE 분기 불필요).
 MAX_RETRIES = 3
 RETRY_BACKOFF = 10
 PAGE_SLEEP = 1

@@ -41,23 +41,29 @@ MAX_CHARS = 15000  # ~7500 토큰 (한국어 ~2자 = ~1토큰)
 EXCERPT_LIMIT = 300
 
 
+KNOWN_SECTION_MARKERS = frozenset(['[책소개]', '[출판사리뷰]', '[책속으로]'])
+
+
 def parse_section(rich_description, section_name):
     """rich_description에서 특정 섹션 텍스트 추출.
 
     포맷: [책소개]\\n텍스트\\n\\n[출판사리뷰]\\n텍스트\\n\\n[책속으로]\\n텍스트
+
+    section_name 이 KNOWN_SECTION_MARKERS 에 없으면 빈 문자열 반환 (오매칭 방지).
     """
     if not rich_description:
         return ""
 
     marker = f"[{section_name}]"
+    if marker not in KNOWN_SECTION_MARKERS:
+        return ""
     if marker not in rich_description:
         return ""
 
     after = rich_description.split(marker, 1)[1]
 
-    next_markers = ['[책소개]', '[출판사리뷰]', '[책속으로]']
     end = len(after)
-    for m in next_markers:
+    for m in KNOWN_SECTION_MARKERS:
         if m != marker and m in after:
             idx = after.index(m)
             if idx < end:

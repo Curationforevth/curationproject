@@ -28,18 +28,26 @@ def _normalize_for_dedup(title: str) -> str:
     """
     normalized = title
 
+    # 포맷 접두어 제거 (큰 글자책, eBook 등)
+    normalized = re.sub(r"^(?:큰\s*글자(?:책)?|큰글자(?:책)?|eBook|ebook|E-?book)\s*", "", normalized, flags=re.IGNORECASE)
+
     # 괄호 안 에디션/판본/굿즈 정보 제거
     paren_patterns = [
-        r"\s*\(.*?(?:판|에디션|리커버|양장|무선|문고|기념|보너스|수록|클래식|개정|완결|특전|리마스터|초판|복간|표지|디자인|일러스트|컬러|블랙|화이트|골드|실버|미니|빅|대형|포켓|뉴|신판|증보|축약|완역|전면|번역|역|합본|세트).*?\)",
+        r"\s*\(.*?(?:판|에디션|리커버|양장|무선|문고|기념|보너스|수록|클래식|개정|완결|특전|리마스터|초판|복간|표지|디자인|일러스트|컬러|블랙|화이트|골드|실버|미니|빅|대형|포켓|뉴|신판|증보|축약|완역|전면|번역|역|합본|세트|큰글자|큰\s*글자|eBook|ebook).*?\)",
         r"\s*\(\d{4}\)",
         r"\s*\(\s*\)",
     ]
     for pattern in paren_patterns:
         normalized = re.sub(pattern, "", normalized, flags=re.IGNORECASE)
 
-    # 콜론/대시 뒤 부제 제거
-    normalized = re.sub(r"\s*[:：]\s*.+$", "", normalized)
-    normalized = re.sub(r"\s+[-—]\s+.+$", "", normalized)
+    # 콜론/대시 뒤 부제 제거 — 핵심 제목이 너무 짧아지면(3자 이하) 제거하지 않음
+    # 예: "해리 포터: 마법사의 돌" vs "해리 포터: 비밀의 방" → 부제 제거 시 오매칭
+    without_colon = re.sub(r"\s*[:：]\s*.+$", "", normalized)
+    if len(without_colon.strip()) > 3:
+        normalized = without_colon
+    without_dash = re.sub(r"\s+[-—]\s+.+$", "", normalized)
+    if len(without_dash.strip()) > 3:
+        normalized = without_dash
 
     # 공백 정리
     normalized = re.sub(r"\s+", " ", normalized).strip()

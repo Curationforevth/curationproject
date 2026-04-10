@@ -44,12 +44,13 @@ from scripts.lib.data4library_api import (
 from scripts.lib.dedup_checker import DeduplicateChecker
 from scripts.lib.book_filter import is_non_book
 from scripts.lib.books_upsert import upsert_books_rich_merge
+from scripts.lib.state_manager import StateManager
 
 load_dotenv(os.path.join(REPO, ".env"))
 
 
 PAGE_SIZE = 50
-REQUEST_DELAY = 0.5
+REQUEST_DELAY = 0.3  # API 응답 자체가 ~0.4s이므로 실제 간격 ~0.7s
 
 
 KDC_BUCKETS = [
@@ -408,6 +409,17 @@ def main():
         c.filter_and_upsert(rows)
 
     c.report()
+
+    # F5: state_manager ��� 실행 결과 기�� (smart_batch_collector 와 통일)
+    if not args.dry_run:
+        source_type = f"data4library_tier{args.tier}"
+        sm = StateManager(c.sb)
+        sm.upsert_state(
+            source_type=source_type,
+            total_items_found=c.stats.get("fetched_raw", 0),
+            unique_items_saved=c.stats.get("upserted", 0),
+            completed=True,
+        )
 
     # B2: stats.errors 가 있으면 exit 1. cron 이 감지 가능하도록.
     rc = 1 if c.stats.get("errors", 0) > 0 else 0

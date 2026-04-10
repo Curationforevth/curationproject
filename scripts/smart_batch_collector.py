@@ -18,6 +18,7 @@
 import argparse
 import json
 import os
+import re
 import sys
 import time
 
@@ -280,7 +281,9 @@ class SmartBatchCollector:
                 author = row.get("author", "")
                 if author:
                     # "저자1, 저자2 (역할)" → 개별 저자 추출
-                    for a in author.replace(" (지은이)", "").replace(" (옮긴이)", "").split(","):
+                    # 괄호 안 역할 전부 제거 (지은이, 옮긴이, 기획, 편집, 그림 등)
+                    author_clean = re.sub(r"\s*\([^)]*\)", "", author)
+                    for a in author_clean.split(","):
                         a = a.strip()
                         if a and len(a) >= 2:
                             authors.add(a)

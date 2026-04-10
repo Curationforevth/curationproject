@@ -225,14 +225,14 @@ def main():
             continue
 
         try:
-            with_retry(lambda: sb.table("book_v3_vectors").insert(rows).execute())
+            with_retry(lambda: sb.table("book_v3_vectors").upsert(rows, on_conflict="book_id").execute())
             done += len(rows)
             consecutive_errors = 0
         except Exception as e:
-            print(f"  배치 INSERT 실패, 1건씩 재시도: {e}", flush=True)
+            print(f"  배치 UPSERT 실패, 1건씩 재시도: {e}", flush=True)
             for row in rows:
                 try:
-                    with_retry(lambda r=row: sb.table("book_v3_vectors").insert(r).execute())
+                    with_retry(lambda r=row: sb.table("book_v3_vectors").upsert(r, on_conflict="book_id").execute())
                     done += 1
                 except Exception as e2:
                     errors += 1

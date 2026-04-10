@@ -35,6 +35,7 @@ from scripts.lib.pipeline_steps import (
     get_step_by_name,
     build_command,
 )
+from scripts.lib.retry import with_retry
 
 
 # DB 검증 임계값: (post - pre) 가 기대치 * threshold 이상이어야 성공으로 집계
@@ -286,19 +287,19 @@ def print_summary(results: List[StepResult]):
 
 def _count_not_null(sb, table: str, col: str) -> int:
     """Count rows where col IS NOT NULL."""
-    return (
+    return with_retry(lambda: (
         sb.table(table)
         .select("id", count="exact")
         .not_.is_(col, "null")
         .limit(1)
         .execute()
         .count
-    )
+    ))
 
 
 def _count_missing(sb, table: str, have_col: str, missing_col: str) -> int:
     """Count rows where have_col IS NOT NULL AND missing_col IS NULL."""
-    return (
+    return with_retry(lambda: (
         sb.table(table)
         .select("id", count="exact")
         .not_.is_(have_col, "null")
@@ -306,12 +307,12 @@ def _count_missing(sb, table: str, have_col: str, missing_col: str) -> int:
         .limit(1)
         .execute()
         .count
-    )
+    ))
 
 
 def _count_total(sb, table: str, pk: str = "id") -> int:
     """Count all rows in a table. pk = primary-key column to select."""
-    return sb.table(table).select(pk, count="exact").limit(1).execute().count
+    return with_retry(lambda: sb.table(table).select(pk, count="exact").limit(1).execute().count)
 
 
 def _count_distinct_book_id_in_reasons(sb) -> int:
@@ -323,12 +324,12 @@ def _count_distinct_book_id_in_reasons(sb) -> int:
     seen: set = set()
     offset = 0
     while True:
-        res = (
+        res = with_retry(lambda o=offset: (
             sb.table("book_love_reasons")
             .select("book_id")
-            .range(offset, offset + 999)
+            .range(o, o + 999)
             .execute()
-        )
+        ))
         if not res.data:
             break
         for r in res.data:

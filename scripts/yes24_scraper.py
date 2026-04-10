@@ -176,11 +176,10 @@ class Yes24Scraper:
             page_isbn = extract_isbn_from_html(html)
             if isbn_matches(page_isbn, expected_isbn):
                 return html
-            # JSON-LD 없는 경우 첫 번째 결과만 fallback (검증 불가)
-            if page_isbn is None and i == 0:
-                self.stats.setdefault("isbn_unverified", 0)
-                self.stats["isbn_unverified"] += 1
-                return html
+            # JSON-LD 없는 경우 — ISBN 검증 불가이므로 skip (오매칭 방지)
+            if page_isbn is None:
+                self.stats.setdefault("isbn_unverified_skip", 0)
+                self.stats["isbn_unverified_skip"] += 1
             time.sleep(0.3)
         return None
 
