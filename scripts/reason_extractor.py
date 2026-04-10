@@ -516,13 +516,15 @@ class ReasonExtractor:
             batch = books[batch_start:batch_start + BATCH_SIZE]
             batch_ids = [b["id"] for b in batch]
 
-            # 기존 reason 삭제 (IN 쿼리로 배치 삭제)
+            # 기존 reason 삭제 — 삭제 성공한 book 만 재추출 (orphan 방지)
+            deleted_ids = set()
             if not self.dry_run:
                 try:
                     with_retry(lambda ids=batch_ids: self.sb.table("book_love_reasons")
                         .delete()
                         .in_("book_id", ids)
                         .execute())
+                    deleted_ids = set(batch_ids)
                     self.stats["deleted"] += len(batch_ids)
                 except Exception:
                     # 배치 실패 시 1건씩
@@ -532,12 +534,22 @@ class ReasonExtractor:
                                 .delete()
                                 .eq("book_id", b)
                                 .execute())
+                            deleted_ids.add(bid)
                             self.stats["deleted"] += 1
                         except Exception as e:
                             print(f"  ✗ 삭제 실패 {bid[:8]}: {e}")
 
+                # 삭제 실패한 book 은 재추출에서 제외 (delete 없이 insert 하면 중복)
+                if deleted_ids != set(batch_ids):
+                    skipped = len(batch_ids) - len(deleted_ids)
+                    print(f"  ⚠ 삭제 실패 {skipped}건 → 재추출 건너뜀")
+                    batch = [b for b in batch if b["id"] in deleted_ids]
+            else:
+                deleted_ids = set(batch_ids)
+
             # 재추출 + 저장
-            self._process_batch(batch)
+            if batch:
+                self._process_batch(batch)
             done = min(batch_start + BATCH_SIZE, len(books))
             print(f"  ... {done}/{len(books)}권 처리 완료")
             time.sleep(1)  # 배치 간 connection 안정화

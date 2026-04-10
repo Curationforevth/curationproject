@@ -100,9 +100,10 @@ def test_is_adult_general_rejects_children_and_youth():
     assert is_adult_general({"addition_symbol": "83810"}) is False
 
 
-def test_is_adult_general_treats_missing_as_pass():
-    assert is_adult_general({"addition_symbol": ""}) is True
-    assert is_adult_general({}) is True
+def test_is_adult_general_rejects_missing_symbol():
+    """F4: 빈 addition_symbol 은 성인 일반 여부 확인 불가 → False."""
+    assert is_adult_general({"addition_symbol": ""}) is False
+    assert is_adult_general({}) is False
 
 
 # ----- monthly keywords parsing -----
