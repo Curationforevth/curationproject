@@ -1,5 +1,7 @@
 # Pipeline Audit Fixes Implementation Plan
 
+> **Status (2026-04-10):** Phase A~E **완료 + 머지** (PR #12~#16). BLOCKER 8건 + HIGH 21건 = 29건 전체 수정. 228 tests passing. Phase F (MEDIUM 6건) / G (LOW) / H (smoke) 는 별도 task.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 2026-04-09 pipeline audit 에서 발견된 70개 이슈 중 correctness/데이터 손실 영향이 있는 항목을 우선순위 순으로 수정한다.
