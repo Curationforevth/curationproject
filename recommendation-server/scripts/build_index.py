@@ -27,14 +27,14 @@ from config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, EMBEDDING_DIMENSIONS
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 OUTPUT_PATH = os.path.join(OUTPUT_DIR, "index.pkl")
 PAGE_SIZE_META = 1000
-PAGE_SIZE_VECTOR = 500
+PAGE_SIZE_VECTOR = 1000
 # NOTE: recommendation-server 는 scripts/lib 와 별도 패키지.
 # scripts.lib.retry.with_retry 와 의도적으로 독립된 retry 로직 사용.
 # 변경 시 scripts/lib/retry.py 의 SQLSTATE whitelist 와 동기화 필요 없음
 # (이 파일은 read-only fetch 만 하므로 SQLSTATE 분기 불필요).
 MAX_RETRIES = 3
 RETRY_BACKOFF = 10
-PAGE_SLEEP = 0.1  # read-only fetch — rate limit 불필요, 연결 안정성만
+PAGE_SLEEP = 0  # read-only fetch — sleep 불필요
 
 
 def _to_np(vec) -> np.ndarray:
@@ -99,56 +99,83 @@ def build(dry_run: bool = False, incremental: bool = False):
         else:
             print("  no built_at in existing index — running full rebuild")
 
-    # 1. books meta
-    print("[build] Loading books meta...")
-    books_raw = _fetch_paginated(sb, "books", "id,title,author,cover_url", PAGE_SIZE_META)
-    books_meta = {}
-    for b in books_raw:
-        books_meta[b["id"]] = {
-            "title": b["title"], "author": b["author"],
-            "cover_url": b.get("cover_url"),
-        }
-    print(f"  → {len(books_meta)} books")
+    # 1~4. 데이터 로드 — 2단계 병렬 (Supabase free tier connection 제한 고려)
+    # Group A (가벼움): books meta + genre embeddings — 동시 fetch
+    # Group B (무거움): v3 vectors + reason embeddings — 동시 fetch
+    import concurrent.futures
 
-    # 2. genre embeddings
-    print("[build] Loading genre embeddings...")
-    genres_raw = _fetch_paginated(sb, "genre_embeddings", "id,embedding", PAGE_SIZE_VECTOR)
-    genre_embs = {}
-    for g in genres_raw:
-        emb = _to_np(g["embedding"])
-        assert emb.shape[0] == EMBEDDING_DIMENSIONS, \
-            f"genre dim mismatch: {emb.shape[0]} != {EMBEDDING_DIMENSIONS}"
-        genre_embs[g["id"]] = emb
-    print(f"  → {len(genre_embs)} genres")
+    def _fetch_books_meta_task():
+        client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        print("[build] Loading books meta...", flush=True)
+        raw = _fetch_paginated(client, "books", "id,title,author,cover_url", PAGE_SIZE_META)
+        meta = {}
+        for b in raw:
+            meta[b["id"]] = {
+                "title": b["title"], "author": b["author"],
+                "cover_url": b.get("cover_url"),
+            }
+        print(f"  → {len(meta)} books", flush=True)
+        return meta
 
-    # 3. v3 vectors
-    print("[build] Loading v3 vectors...")
-    v3_raw = _fetch_paginated(
-        sb, "book_v3_vectors", "book_id,desc_embedding,l1_genre_id,l2_genre_id",
-        PAGE_SIZE_VECTOR, order_col="book_id")
-    v3_map = {}
-    for v in v3_raw:
-        v3_map[v["book_id"]] = v
-    print(f"  → {len(v3_map)} v3 vectors")
+    def _fetch_genres_task():
+        client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        print("[build] Loading genre embeddings...", flush=True)
+        raw = _fetch_paginated(client, "genre_embeddings", "id,embedding", PAGE_SIZE_VECTOR)
+        embs = {}
+        for g in raw:
+            emb = _to_np(g["embedding"])
+            assert emb.shape[0] == EMBEDDING_DIMENSIONS
+            embs[g["id"]] = emb
+        print(f"  → {len(embs)} genres", flush=True)
+        return embs
 
-    # 4. reason embeddings
-    print("[build] Loading reason embeddings...")
-    reasons_raw = _fetch_paginated(
-        sb, "book_love_reasons", "book_id,reason_embedding",
-        PAGE_SIZE_VECTOR,
-        filters={"reason_embedding": ("not.is", "null")})
-    reasons_by_book = {}
-    for r in reasons_raw:
-        if r.get("reason_embedding") is not None:
-            bid = r["book_id"]
-            emb = _to_np(r["reason_embedding"])
-            assert emb.shape[0] == EMBEDDING_DIMENSIONS, \
-                f"reason dim mismatch: {emb.shape[0]} != {EMBEDDING_DIMENSIONS}"
-            if bid not in reasons_by_book:
-                reasons_by_book[bid] = []
-            reasons_by_book[bid].append(emb)
+    def _fetch_v3_task():
+        client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        print("[build] Loading v3 vectors...", flush=True)
+        raw = _fetch_paginated(
+            client, "book_v3_vectors", "book_id,desc_embedding,l1_genre_id,l2_genre_id",
+            PAGE_SIZE_VECTOR, order_col="book_id")
+        v3 = {v["book_id"]: v for v in raw}
+        print(f"  → {len(v3)} v3 vectors", flush=True)
+        return v3
+
+    def _fetch_reasons_task():
+        client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        print("[build] Loading reason embeddings...", flush=True)
+        raw = _fetch_paginated(
+            client, "book_love_reasons", "book_id,reason_embedding",
+            PAGE_SIZE_VECTOR,
+            filters={"reason_embedding": ("not.is", "null")})
+        by_book = {}
+        for r in raw:
+            if r.get("reason_embedding") is not None:
+                bid = r["book_id"]
+                emb = _to_np(r["reason_embedding"])
+                assert emb.shape[0] == EMBEDDING_DIMENSIONS
+                if bid not in by_book:
+                    by_book[bid] = []
+                by_book[bid].append(emb)
+        total = sum(len(v) for v in by_book.values())
+        print(f"  → {total} reasons across {len(by_book)} books", flush=True)
+        return by_book
+
+    # Group A: 가벼운 테이블 2개 동시
+    print("[build] Group A: books + genres (parallel)...", flush=True)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+        f_meta = ex.submit(_fetch_books_meta_task)
+        f_genres = ex.submit(_fetch_genres_task)
+        books_meta = f_meta.result()
+        genre_embs = f_genres.result()
+
+    # Group B: 무거운 테이블 2개 동시
+    print("[build] Group B: v3 + reasons (parallel)...", flush=True)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+        f_v3 = ex.submit(_fetch_v3_task)
+        f_reasons = ex.submit(_fetch_reasons_task)
+        v3_map = f_v3.result()
+        reasons_by_book = f_reasons.result()
+
     total_reasons = sum(len(v) for v in reasons_by_book.values())
-    print(f"  → {total_reasons} reasons across {len(reasons_by_book)} books")
 
     # 5. VectorIndex 구축 (float16)
     print("[build] Building VectorIndex (float16)...")
