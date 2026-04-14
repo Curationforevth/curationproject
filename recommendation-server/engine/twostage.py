@@ -3,6 +3,11 @@ from __future__ import annotations
 
 import numpy as np
 
+from engine.index import VectorIndex
+from config import (W_REASON, W_DESC, W_L1, W_L2, W_FB_DESC,
+                    REASON_WEIGHT_WITH_FB, REASON_WEIGHT_WITHOUT_FB,
+                    FB_REASON_WEIGHT)
+
 
 def stage1_hybrid(
     liked_books: dict,
@@ -81,3 +86,130 @@ def stage1_hybrid(
 
     top_idx = np.argsort(combined)[::-1][:top_n]
     return [bid_order[i] for i in top_idx if combined[i] > -900.0]
+
+
+def batch_score_prestacked(
+    index: VectorIndex,
+    liked_books: dict,
+    fb_data: dict,
+    candidate_ids: list,
+    prestacked_reasons: dict,          # {bid: (n_reasons, dim) float16}
+    w_reason: float = W_REASON,
+    w_desc: float = W_DESC,
+    w_l1: float = W_L1,
+    w_l2: float = W_L2,
+    w_fb_desc: float = W_FB_DESC,
+) -> dict:
+    """Stage 2 정밀 스코어링.
+
+    _score_one()과 동일한 알고리즘이지만, prestacked reason 배열을 사용해
+    np.stack() 오버헤드를 제거한다.  최대 오차 < 0.01 (float16 양자화 기인).
+    """
+    good_ids = [bid for bid, d in liked_books.items() if d["rating"] == "good"]
+    bad_ids = [bid for bid, d in liked_books.items() if d["rating"] == "bad"]
+
+    if not good_ids and not bad_ids:
+        return {}
+
+    # 좋아요 책 벡터를 미리 수집
+    good_books = {bid: index.get_book(bid) for bid in good_ids}
+    good_books = {bid: bv for bid, bv in good_books.items() if bv is not None}
+
+    scores: dict = {}
+
+    for cid in candidate_ids:
+        cand = index.get_book(cid)
+        if cand is None:
+            continue
+
+        # ── 1. reason_score (per-candidate 루프, prestacked 사용) ──────────
+        # cand_reasons: (n_cand_reasons, dim) float32
+        if cid in prestacked_reasons and prestacked_reasons[cid].shape[0] > 0:
+            cand_reasons_f32 = prestacked_reasons[cid].astype(np.float32)
+        elif cand.reasons:
+            cand_reasons_f32 = np.stack(cand.reasons).astype(np.float32)
+        else:
+            cand_reasons_f32 = None
+
+        weighted_maxsims = []
+
+        for bid in good_ids:
+            bv = good_books.get(bid)
+            if bv is None:
+                continue
+            fb = fb_data.get(bid)
+
+            if cand_reasons_f32 is not None and bv.reasons:
+                # q_reasons @ cand_reasons.T → (n_q, n_c) → max per query row
+                q_reasons_f32 = np.stack(bv.reasons).astype(np.float32)
+                sims = q_reasons_f32 @ cand_reasons_f32.T          # (n_q, n_c)
+                r_sim = float(sims.max(axis=1).mean())
+            else:
+                r_sim = 0.0
+
+            if fb and not fb["is_dislike"]:
+                if cand_reasons_f32 is not None:
+                    fb_sim = float((cand_reasons_f32 @ fb["emb"].astype(np.float32)).max())
+                else:
+                    fb_sim = 0.0
+                weighted_maxsims.append(FB_REASON_WEIGHT * fb_sim + REASON_WEIGHT_WITH_FB * r_sim)
+            else:
+                weighted_maxsims.append(REASON_WEIGHT_WITHOUT_FB * r_sim)
+
+        for bid in bad_ids:
+            bv = index.get_book(bid)
+            if bv is None:
+                continue
+            fb = fb_data.get(bid)
+
+            if cand_reasons_f32 is not None and bv.reasons:
+                q_reasons_f32 = np.stack(bv.reasons).astype(np.float32)
+                sims = q_reasons_f32 @ cand_reasons_f32.T
+                r_sim = float(sims.max(axis=1).mean())
+            else:
+                r_sim = 0.0
+
+            if fb and fb["is_dislike"]:
+                if cand_reasons_f32 is not None:
+                    fb_sim = float((cand_reasons_f32 @ fb["emb"].astype(np.float32)).max())
+                else:
+                    fb_sim = 0.0
+                weighted_maxsims.append(-(FB_REASON_WEIGHT * fb_sim + REASON_WEIGHT_WITH_FB * r_sim))
+            else:
+                weighted_maxsims.append(-REASON_WEIGHT_WITHOUT_FB * r_sim)
+
+        reason_score = float(np.mean(weighted_maxsims)) if weighted_maxsims else 0.0
+
+        # ── 2. desc_score ─────────────────────────────────────────────────
+        cand_desc = cand.desc.astype(np.float32)
+        good_descs = [good_books[bid].desc.astype(np.float32) for bid in good_ids if bid in good_books]
+        desc_score = float(max(float(np.dot(d, cand_desc)) for d in good_descs)) if good_descs else 0.0
+
+        # ── 3. l1_score ───────────────────────────────────────────────────
+        good_l1s = [good_books[bid].l1.astype(np.float32) for bid in good_ids if bid in good_books]
+        cand_l1 = cand.l1.astype(np.float32)
+        l1_score = float(max(float(np.dot(l, cand_l1)) for l in good_l1s)) if good_l1s else 0.0
+
+        # ── 4. l2_score ───────────────────────────────────────────────────
+        good_l2s = [good_books[bid].l2.astype(np.float32) for bid in good_ids if bid in good_books]
+        cand_l2 = cand.l2.astype(np.float32)
+        l2_score = float(max(float(np.dot(l, cand_l2)) for l in good_l2s)) if good_l2s else 0.0
+
+        # ── 5. fb_desc_score ──────────────────────────────────────────────
+        fb_desc_vals = []
+        for bid, fb in fb_data.items():
+            if liked_books.get(bid, {}).get("rating") == "neutral":
+                continue
+            sign = -1.0 if fb["is_dislike"] else 1.0
+            fb_desc_vals.append(sign * float(np.dot(fb["emb"].astype(np.float32), cand_desc)))
+        fb_desc_score = float(np.mean(fb_desc_vals)) if fb_desc_vals else 0.0
+
+        scores[cid] = (
+            w_reason * reason_score
+            + w_desc * desc_score
+            + w_l1 * l1_score
+            + w_l2 * l2_score
+            + w_fb_desc * fb_desc_score
+        )
+
+    return scores

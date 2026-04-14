@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
-from engine.twostage import stage1_hybrid
+from engine.twostage import stage1_hybrid, batch_score_prestacked
+from engine.scorer import _score_one
 
 
 def _norm(v):
@@ -61,3 +62,81 @@ class TestStage1Hybrid:
         desc_mat, agg_mat, bid_order = stage1_data
         candidates = stage1_hybrid({}, {}, desc_mat, agg_mat, bid_order, top_n=3)
         assert candidates == []
+
+
+# ---------------------------------------------------------------------------
+# TestBatchScorePrestacked
+# ---------------------------------------------------------------------------
+
+def _make_prestacked(index):
+    """small_index의 reason 리스트를 float16 prestacked dict으로 변환."""
+    result = {}
+    for bid in index.book_ids:
+        bv = index.get_book(bid)
+        if bv and bv.reasons:
+            result[bid] = np.stack(bv.reasons).astype(np.float16)
+        else:
+            result[bid] = np.zeros((1, index.dim), dtype=np.float16)
+    return result
+
+
+class TestBatchScorePrestacked:
+
+    def test_matches_original_scorer(self, small_index):
+        """batch_score_prestacked 결과가 _score_one과 동일해야 한다 (max diff < 0.01)."""
+        liked = {
+            "novel1": {"rating": "good"},
+            "econ1": {"rating": "bad"},
+        }
+        fb_data = {
+            "novel1": {
+                "emb": _norm([1, 0, 0, 0, 0.7, 0.3, 0, 0]).astype(np.float32),
+                "is_dislike": False,
+            }
+        }
+        candidate_ids = [bid for bid in small_index.book_ids if bid not in liked]
+        prestacked = _make_prestacked(small_index)
+
+        batch_scores = batch_score_prestacked(
+            small_index, liked, fb_data, candidate_ids, prestacked
+        )
+        original_scores = {
+            cid: _score_one(small_index, liked, fb_data, cid)
+            for cid in candidate_ids
+        }
+
+        assert set(batch_scores.keys()) == set(original_scores.keys())
+        for cid in candidate_ids:
+            diff = abs(batch_scores[cid] - original_scores[cid])
+            assert diff < 0.01, (
+                f"{cid}: batch={batch_scores[cid]:.6f} original={original_scores[cid]:.6f} diff={diff:.6f}"
+            )
+
+    def test_excludes_missing_books(self, small_index):
+        """인덱스에 없는 candidate는 결과에서 제외된다."""
+        liked = {"novel1": {"rating": "good"}}
+        prestacked = _make_prestacked(small_index)
+        candidate_ids = ["novel2", "NONEXISTENT_BOOK"]
+
+        scores = batch_score_prestacked(
+            small_index, liked, {}, candidate_ids, prestacked
+        )
+
+        assert "novel2" in scores
+        assert "NONEXISTENT_BOOK" not in scores
+
+    def test_handles_bad_ratings(self, small_index):
+        """bad 평점 책과 유사한 후보의 점수는 good과 유사한 후보보다 낮아야 한다."""
+        liked = {
+            "novel1": {"rating": "good"},
+            "econ1": {"rating": "bad"},
+        }
+        prestacked = _make_prestacked(small_index)
+        candidate_ids = ["novel2", "econ2", "sci1"]
+
+        scores = batch_score_prestacked(
+            small_index, liked, {}, candidate_ids, prestacked
+        )
+
+        # novel과 유사한 novel2가 econ과 유사한 econ2보다 높아야 함
+        assert scores["novel2"] > scores["econ2"]
