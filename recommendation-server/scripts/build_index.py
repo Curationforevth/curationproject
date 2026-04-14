@@ -159,6 +159,33 @@ def build(dry_run: bool = False):
     index.build_desc_matrix()
     print(f"  → {loaded} books loaded, {skipped} skipped")
 
+    # 5b. v4 프리컴퓨팅 데이터 구성
+    print("[build] Building v4 prestacked data...")
+    bid_order = list(index._books.keys())
+
+    prestacked_f16 = {}
+    for bid in bid_order:
+        bv = index.get_book(bid)
+        if bv.reasons:
+            prestacked_f16[bid] = np.stack(bv.reasons).astype(np.float16)
+        else:
+            prestacked_f16[bid] = np.empty((0, EMBEDDING_DIMENSIONS), dtype=np.float16)
+
+    desc_matrix_f16 = np.stack([index.get_book(bid).desc for bid in bid_order]).astype(np.float16)
+
+    agg_reason_f16_list = []
+    for bid in bid_order:
+        bv = index.get_book(bid)
+        if bv.reasons:
+            mean_vec = np.mean(np.stack(bv.reasons).astype(np.float32), axis=0)
+            norm = np.linalg.norm(mean_vec)
+            agg_reason_f16_list.append(
+                (mean_vec / norm).astype(np.float16) if norm > 0 else mean_vec.astype(np.float16))
+        else:
+            agg_reason_f16_list.append(np.zeros(EMBEDDING_DIMENSIONS, dtype=np.float16))
+    agg_reason_matrix_f16 = np.stack(agg_reason_f16_list)
+    print(f"  → desc_matrix: {desc_matrix_f16.shape}, agg_reason_matrix: {agg_reason_matrix_f16.shape}")
+
     # C3 (H2): skip ratio guard. 임계값 초과 시 exit 1 — 데이터 품질 저하된
     # 인덱스가 silent 하게 prod 에 배포되지 않도록 방지.
     SKIP_RATIO_THRESHOLD = 0.05  # 5%
@@ -187,7 +214,11 @@ def build(dry_run: bool = False):
         "index": index,
         "meta": books_meta,
         "built_at": built_at,
-        "version": "v3-float16",
+        "version": "v4-prestacked",
+        "prestacked_reasons_f16": prestacked_f16,
+        "desc_matrix_f16": desc_matrix_f16,
+        "agg_reason_matrix_f16": agg_reason_matrix_f16,
+        "bid_order": bid_order,
     }
     tmp_path = OUTPUT_PATH + ".tmp"
     with open(tmp_path, "wb") as f:
@@ -214,7 +245,7 @@ def build(dry_run: bool = False):
     print(f"  books: {loaded}")
     print(f"  reasons: {total_reasons}")
     print(f"  built_at: {built_at}")
-    print(f"  version: v3-float16")
+    print(f"  version: v4-prestacked")
     print(f"  sha256: {sha.hexdigest()}")
 
 

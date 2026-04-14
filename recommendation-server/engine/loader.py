@@ -10,7 +10,7 @@ import os
 import pickle
 import numpy as np
 
-EXPECTED_VERSION = "v3-float16"
+EXPECTED_VERSIONS = {"v3-float16", "v4-prestacked"}
 DEFAULT_PKL_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "index.pkl")
 
 
@@ -37,10 +37,19 @@ _to_np = to_np
 
 
 def load_index(pkl_path: str = DEFAULT_PKL_PATH):
-    """pkl 번들에서 VectorIndex + books_meta + built_at 로드.
+    """pkl 번들에서 VectorIndex + books_meta + built_at + v4 프리컴퓨팅 데이터 로드.
 
     Returns:
-        tuple: (VectorIndex, books_meta dict, built_at str)
+        tuple: (
+            VectorIndex,
+            books_meta dict,
+            built_at str,
+            prestacked_reasons_f16,   # v4: dict[bid, np.ndarray(N,D,f16)] | None
+            desc_matrix_f16,          # v4: np.ndarray(B,D,f16) | None
+            agg_reason_matrix_f16,    # v4: np.ndarray(B,D,f16) | None
+            bid_order,                # v4: list[str] | None
+        )
+        v3 번들은 마지막 4개가 None.
     """
     if not os.path.exists(pkl_path):
         raise FileNotFoundError(f"Index pkl not found: {pkl_path}")
@@ -51,9 +60,25 @@ def load_index(pkl_path: str = DEFAULT_PKL_PATH):
         bundle = pickle.load(f)
 
     version = bundle.get("version", "")
-    if version != EXPECTED_VERSION:
+    if version not in EXPECTED_VERSIONS:
         raise ValueError(
-            f"Index version mismatch: expected '{EXPECTED_VERSION}', got '{version}'"
+            f"Index version mismatch: expected one of {EXPECTED_VERSIONS!r}, got '{version}'"
         )
 
-    return bundle["index"], bundle["meta"], bundle["built_at"]
+    index = bundle["index"]
+    meta = bundle["meta"]
+    built_at = bundle["built_at"]
+
+    if version == "v4-prestacked":
+        return (
+            index,
+            meta,
+            built_at,
+            bundle["prestacked_reasons_f16"],
+            bundle["desc_matrix_f16"],
+            bundle["agg_reason_matrix_f16"],
+            bundle["bid_order"],
+        )
+    else:
+        # v3-float16 — backward compat
+        return index, meta, built_at, None, None, None, None
