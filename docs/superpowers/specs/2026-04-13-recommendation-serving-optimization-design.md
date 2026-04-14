@@ -526,15 +526,18 @@ Stage 2는 후보 수 고정이므로 N에 무관. Stage 1만 O(N).
 
 ## 6. Supabase egress 대응
 
-### 6.1 즉시 (4/15까지)
+### 6.1 즉시 (4/15까지) — ✅ 완료 (2026-04-14)
 
-- 불필요한 build_index 실행 중단 (수동 트리거만)
-- daily-pipeline의 build-and-recompute job에서 `--incremental` 플래그 추가
-- **증분 빌드로 일 970MB → 32MB (97% 절감)**
+- ~~불필요한 build_index 실행 중단 (수동 트리거만)~~
+- `daily-pipeline.yml`의 `build-and-recompute` job 주석 처리 완료
+- discovery, collect, enrich는 유지 (새 책 수집 계속, egress 미미)
+- **수동 빌드 필요 시**: `build-index.yml` (workflow_dispatch) 사용
+- **결과: 일 970MB → 0MB egress 절감**
+- 새 책이 추천 인덱스에 반영 안 되지만, 현재 유저가 없으므로 영향 없음
 
 ### 6.2 단기
 
-- `/recommend` API의 user_books fetch도 캐시 hit 시 skip
+- Phase 3 증분 빌드 완료 후 `build-and-recompute` 재활성화
 - Supabase 대시보드에서 실제 egress 소스 확인 (build_index vs API 요청 비율)
 
 ### 6.3 중기
@@ -572,7 +575,38 @@ Stage 2는 후보 수 고정이므로 N에 무관. Stage 1만 O(N).
 2. 후보 수 조정 (Render 성능에 맞춰)
 3. egress 모니터링
 
-## 8. 범위 외
+## 8. 알려진 제약 (검증 완료)
+
+아래 항목은 잠재적 문제로 식별 후 검증하여, 현재 규모에서는 문제 아님을 확인한 것.
+
+### 8.1 캐시 hit에도 Supabase 쿼리 2회
+
+`/recommend` 요청 시 캐시 hit이어도 user_books + recommendation_cache SELECT 2회 발생.
+- **왜 피할 수 없나**: input_hash 계산에 user_books 최신 상태가 필요
+- **영향**: Supabase Singapore ↔ Render Singapore ~10ms × 2 = ~20ms 추가
+- **200ms 목표에 영향?**: 캐시 hit 시 응답이 ~20~50ms이므로 여유 충분
+- **언제 문제 되나**: 유저 100+ 동시 요청 시 → Redis 도입으로 해결 (Layer 2)
+
+### 8.2 인덱스 재빌드 ↔ 서버 반영 갭
+
+build_index → git push → Render 재배포 (~2~5분 소요). 이 사이 서버는 이전 인덱스 사용.
+- **자동 해결**: 재배포 완료 시 서버 restart → `built_at` 갱신 → 모든 캐시 stale → 재계산
+- **갭 동안**: 이전 추천 반환 (새 책 미포함). 2~5분이므로 수용 가능.
+
+### 8.3 삭제된 책의 유령 추천
+
+DB에서 책이 삭제되어도 index.pkl에 남아 추천될 수 있음.
+- **현재 발생 빈도**: 파이프라인에 DELETE 로직 없음. 수동 삭제 시에만 발생.
+- **방어**: `/recommend` 응답 시 `books_meta`에 없는 book_id 필터링 추가 (구현 시 적용)
+- **근본 해결**: 전체 재구축 (주 1회) 시 자동 정리
+
+### 8.4 /similar 엔드포인트
+
+`/similar/{book_id}`와 `/similar/union`은 `desc_matrix @ query_vec` 연산.
+- 현재 ~1ms, 5만권에서도 ~10ms
+- Two-stage 최적화 대상 아님 (이미 충분히 빠름)
+
+## 9. 범위 외 (변경 없음)
 
 - FAISS / ANN 전환: 10만권+ 시점에서 검토
 - Warm stage (Hybrid CF): Stage 1에 CF 신호 추가 필요 — 별도 설계
