@@ -38,6 +38,12 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           DATA4LIBRARY_API_KEY: ${{ secrets.DATA4LIBRARY_API_KEY }}
         run: python3 scripts/data4library_discovery_collector.py --tier 1
+      - name: Backfill genre (알라딘 → genre NULL 책)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          ALADIN_TTB_KEY: ${{ secrets.ALADIN_TTB_KEY }}
+        run: python3 scripts/backfill_genre.py --limit 300
 
   # ── 수집: 알라딘 + 보강 + Tier 1 임베딩 ────
   collect:

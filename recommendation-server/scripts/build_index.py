@@ -155,17 +155,22 @@ def build(dry_run: bool = False, incremental: bool = False):
     index = VectorIndex(dim=EMBEDDING_DIMENSIONS, dtype=np.float16)
     loaded = 0
     skipped = 0
+    skip_reasons = {"no_books_meta": 0, "no_genre": 0, "no_desc": 0}
     for bid, v3 in v3_map.items():
         if bid not in books_meta:
             skipped += 1
+            skip_reasons["no_books_meta"] += 1
             continue
         l1_id, l2_id = v3.get("l1_genre_id"), v3.get("l2_genre_id")
-        if not l1_id or not l2_id or l1_id not in genre_embs or l2_id not in genre_embs:
-            skipped += 1
-            continue
+        # l1/l2가 NULL이거나 genre_embs에 없으면 영벡터로 대체
+        # (H10_no_l1에서 L1/L2 가중치 0이므로 영벡터 사용해도 스코어 영향 없음)
+        zero_vec = np.zeros(EMBEDDING_DIMENSIONS, dtype=np.float32)
+        l1_emb = genre_embs.get(l1_id, zero_vec) if l1_id else zero_vec
+        l2_emb = genre_embs.get(l2_id, zero_vec) if l2_id else zero_vec
         desc_emb = v3.get("desc_embedding")
         if not desc_emb:
             skipped += 1
+            skip_reasons["no_desc"] += 1
             continue
         desc_np = _to_np(desc_emb)
         assert desc_np.shape[0] == EMBEDDING_DIMENSIONS, \
@@ -174,13 +179,14 @@ def build(dry_run: bool = False, incremental: bool = False):
             bid,
             reasons=reasons_by_book.get(bid, []),
             desc=desc_np,
-            l1=genre_embs[l1_id],
-            l2=genre_embs[l2_id],
+            l1=l1_emb,
+            l2=l2_emb,
         )
         loaded += 1
 
     index.build_desc_matrix()
     print(f"  → {loaded} books loaded, {skipped} skipped")
+    print(f"  skip breakdown: {skip_reasons}")
 
     # 5b. v4 프리컴퓨팅 데이터 구성
     print("[build] Building v4 prestacked data...")

@@ -63,29 +63,25 @@
 유저 → 피드백 입력 → Supabase DB (user_books.rating, emotion_tags, review_text)
 
 [MVP - Phase 1, 백그라운드 — GitHub Actions 자동화]
-매일 KST 03:00 (daily-collect):
-  → 알라딘 배치 수집 (베스트셀러/신간/저자/키워드 → books 테이블)
-  → 색상 추출 + 폰트 배정 (cover → dominant_colors, spine_font)
-  → Tier 1 임베딩 생성 (title+author+genre+description → book_embeddings)
-2시간마다 (daily-scrape):
-  → YES24 상세 수집 80권/회 (책소개/출판사리뷰/책속으로 → rich_description)
-매일 KST 06:30 (daily-embed-t2):
-  → 정보나루 키워드/연관도서 수집 300권 (usageAnalysisList → library_keywords, related_isbns)
-  → Tier 2 임베딩 생성 (rich_description + library_keywords 기반 → book_embeddings 업그레이드)
-매일 KST 07:00 (daily-taste-recompute):
-  → 전체 유저 취향 벡터 재계산 (가중 평균 또는 K-means 자동 전환)
-  → 추천 신뢰도 스코어 갱신
 
-매일 KST 05:00 (daily-extract-reasons, Phase 2+ 추천 엔진 v2):
-  → book_love_reasons가 없는 신규 책 조회
-  → LLM으로 "좋아할 이유" 5~8개 추출 (title+genre+description+rich_description+library_keywords)
-  → OpenAI text-embedding-3-large로 각 이유 임베딩 (2000차원, Matryoshka 축소)
-  → book_love_reasons에 저장 (source='llm_extracted')
+매일 KST 03:00 (daily-pipeline.yml — 3개 병렬 job + 1개 순차 job):
+  [병렬] discovery:
+    → 정보나루 대출 순위 수집 (data4library_discovery_collector.py)
+    → 장르 보강: genre NULL 책을 알라딘 API로 보강 (backfill_genre.py)
+  [병렬] collect:
+    → 알라딘 배치 수집 (smart_batch_collector.py → books 테이블)
+    → 색상 추출 + 폰트 배정 (batch_enricher.py)
+    → Tier 1 임베딩 생성 (tier1_embedder.py)
+  [병렬] enrich:
+    → v3 벡터 생성 (generate_book_v3_vectors.py → desc_embedding + l1/l2 장르)
+    → reason 추출 (v3_reason_extract.py → book_love_reasons)
+    → Tier 2 임베딩 (tier2_embedder.py)
+  [순차] build-and-recompute (위 3개 완료 후):
+    → 추천 인덱스 빌드 (build_index.py --incremental)
+    → 취향 벡터 재계산 (taste_recomputer.py)
 
-매일 KST 07:30 (daily-enrich-reasons, Phase 2+ 추천 엔진 v2):
-  → 최근 24시간 유저 피드백의 taste_reasons 조회
-  → 각 reason이 책의 기존 book_love_reasons와 유사도 < 0.7인지 확인
-  → 2명+ 유저가 같은 책에서 비슷한 새 이유 언급 시 추가 (source='user_feedback')
+6시간마다 (daily-scrape.yml):
+  → YES24 상세 수집 240권/회 (책소개/출판사리뷰/책속으로 → rich_description)
 
 실시간 (유저 피드백 제출 시):
   → RPC: recompute_taste_vector_immediate → 즉시 취향 벡터 갱신
@@ -541,16 +537,16 @@ Supabase PostgreSQL에서 직접 실행 가능한 저수준 함수들.
   │   → 색상 추출: colorthief로 표지 dominant color 추출
   │   → 폰트 배정: 장르 키워드 매칭으로 책등 폰트 자동 배정
   │   → YES24 스크래핑: 책소개 + 출판사리뷰 + 책속으로 → rich_description
-  │   → 색상/폰트: daily-collect (KST 03:00) 내 자동 실행
-  │   → YES24: daily-scrape (2시간마다 80권) 자동 실행
+  │   → 색상/폰트: daily-pipeline collect job (KST 03:00) 내 자동 실행
+  │   → YES24: daily-scrape (6시간마다 240권) 자동 실행
   │   → 스크립트: scripts/batch_enricher.py, scripts/yes24_scraper.py
   │
   ├─ 3. 책 임베딩 생성기 ✅ 구현 완료 + 자동화
   │   → Tier 1: title + author + genre + description → 기본 임베딩
   │   → Tier 2: rich_description(YES24) 기반 강화 임베딩
   │   → OpenAI text-embedding-3-small (1536차원)
-  │   → Tier 1: daily-collect 내 자동 실행 (KST 03:00)
-  │   → Tier 2: daily-embed-t2 자동 실행 (KST 06:30)
+  │   → Tier 1: daily-pipeline collect job 내 자동 실행 (KST 03:00)
+  │   → Tier 2: daily-pipeline enrich job 내 자동 실행 (KST 03:00)
   │   → 스크립트: scripts/tier1_embedder.py, scripts/tier2_embedder.py
   │
   ├─ 4. 유저 취향 벡터 갱신기
@@ -574,26 +570,28 @@ Supabase PostgreSQL에서 직접 실행 가능한 저수준 함수들.
 ### 자동화 현황
 
 ```
-[자동 — GitHub Actions, 매일 KST 03:00 (daily-collect)]
-1. smart_batch_collector.py --daily-target 1000  (알라딘 수집)
-2. batch_enricher.py --limit 500                  (색상 추출 + 폰트 배정)
-3. tier1_embedder.py                              (Tier 1 임베딩 생성)
+[자동 — GitHub Actions, 매일 KST 03:00 (daily-pipeline.yml)]
+  [병렬] discovery job:
+    1. data4library_discovery_collector.py --tier 1    (정보나루 대출 순위 수집)
+    2. backfill_genre.py --limit 300                   (genre NULL 책 알라딘 보강)
+  [병렬] collect job:
+    1. smart_batch_collector.py --daily-target 200     (알라딘 수집)
+    2. batch_enricher.py --limit 500                   (색상 추출 + 폰트 배정)
+    3. tier1_embedder.py                               (Tier 1 임베딩 생성)
+  [병렬] enrich job:
+    1. generate_book_v3_vectors.py                     (v3 desc + l1/l2 장르 벡터)
+    2. v3_reason_extract.py --limit 200                (LLM reason 추출 + 임베딩)
+    3. tier2_embedder.py                               (Tier 2 임베딩 생성)
+  [순차] build-and-recompute job (위 3개 완료 후):
+    1. build_index.py --incremental                    (추천 인덱스 빌드)
+    2. taste_recomputer.py --limit 500                 (취향 벡터 재계산)
 
-[자동 — GitHub Actions, 2시간마다 (daily-scrape)]
-1. yes24_scraper.py --limit 80                    (YES24 rich_description 수집)
+[자동 — GitHub Actions, 6시간마다 (daily-scrape.yml)]
+  1. yes24_scraper.py --limit 240                      (YES24 rich_description 수집)
 
-[자동 — GitHub Actions, 매일 KST 05:00 (daily-extract-reasons, Phase 2+)]
-1. extract_reasons.py                              ("좋아할 이유" LLM 추출 + embedding-3-large 임베딩)
-
-[자동 — GitHub Actions, 매일 KST 06:30 (daily-embed-t2)]
-1. tier2_embedder.py --limit 500                   (Tier 2 임베딩 생성)
-
-[자동 — GitHub Actions, 매일 KST 07:30 (daily-enrich-reasons, Phase 2+)]
-1. enrich_reasons.py                               (유저 피드백 기반 이유 보강)
-
-[수동 — PM이 Claude Code로 실행 (Phase 2~3)]
-1. 유저 취향 벡터 갱신
-2. 취향 요약 & 추천 사유 생성
+[수동 — workflow_dispatch]
+  - build-index.yml                                    (인덱스 수동 빌드)
+  - daily-collect.yml, daily-embed-t2.yml 등           (개별 step 수동 실행)
 ```
 
 ---
@@ -636,12 +634,12 @@ recommendation-server/
 
 ```
 [책 임베딩 — 2-Tier 파이프라인]
-Tier 1 (기본, daily-collect KST 03:00):
+Tier 1 (기본, daily-pipeline collect job KST 03:00):
 → books.title + author + genre + description
 → OpenAI text-embedding-3-small API 호출
 → book_embeddings (tier=1)
 
-Tier 2 (강화, daily-embed-t2 KST 06:30):
+Tier 2 (강화, daily-pipeline enrich job KST 03:00):
 → books.rich_description (YES24 책소개/출판사리뷰/책속으로)
 → title + author + genre + description + 책소개 + 발췌 조합
 → OpenAI text-embedding-3-small API 호출
