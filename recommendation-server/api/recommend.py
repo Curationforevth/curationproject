@@ -5,7 +5,7 @@ from auth import verify_jwt
 from models import RecommendResponse, BookScore
 from engine.scorer import recommend_scores
 from engine.utils import to_np
-from config import DEFAULT_RECOMMEND_LIMIT, get_supabase
+from config import DEFAULT_RECOMMEND_LIMIT, STAGE1_TOP_N, get_supabase
 
 router = APIRouter()
 
@@ -52,12 +52,31 @@ async def get_recommendations(
             has_feedback = True
             fb_data[bid] = {"emb": to_np(fb_emb), "is_dislike": rating == "bad"}
 
-    scores = recommend_scores(index, liked_books, fb_data)
+    prestacked = request.app.state.prestacked_reasons
+    if prestacked is not None:
+        # v4 two-stage
+        from engine.twostage import stage1_hybrid, batch_score_prestacked
+        candidates = stage1_hybrid(
+            liked_books, fb_data,
+            request.app.state.desc_matrix_f16,
+            request.app.state.agg_reason_matrix_f16,
+            request.app.state.bid_order,
+            top_n=STAGE1_TOP_N,
+        )
+        scores = batch_score_prestacked(
+            index, liked_books, fb_data, candidates, prestacked)
+    else:
+        # v3 fallback: brute-force scoring
+        scores = recommend_scores(index, liked_books, fb_data)
+
     sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:limit]
 
     recs = []
     for bid, score in sorted_scores:
-        meta = books_meta.get(bid, {})
+        meta = books_meta.get(bid)
+        if meta is None:
+            # ghost book defense: book in index but not in meta — skip
+            continue
         recs.append(BookScore(
             book_id=bid, score=round(score, 4),
             title=meta.get("title", ""), author=meta.get("author", ""),

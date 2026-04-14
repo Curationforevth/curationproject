@@ -10,11 +10,16 @@ from api.feedback import router as feedback_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from engine.loader import load_index
-    index, books_meta, built_at = load_index()
+    index, books_meta, built_at, prestacked, desc_mat, agg_mat, bid_order = load_index()
     app.state.index = index
     app.state.books_meta = books_meta
     app.state.built_at = built_at
-    print(f"[main] Server ready. {len(index.book_ids)} books in index. Built at {built_at}")
+    app.state.prestacked_reasons = prestacked
+    app.state.desc_matrix_f16 = desc_mat
+    app.state.agg_reason_matrix_f16 = agg_mat
+    app.state.bid_order = bid_order
+    v4 = prestacked is not None
+    print(f"[main] Server ready. {len(index.book_ids)} books. v4={v4}. Built at {built_at}")
     yield
 
 

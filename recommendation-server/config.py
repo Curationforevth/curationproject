@@ -28,6 +28,10 @@ FB_REASON_WEIGHT = 3.0
 DEFAULT_RECOMMEND_LIMIT = 10
 DEFAULT_SIMILAR_LIMIT = 10
 
+# Two-stage 추천 파라미터
+STAGE1_TOP_N = 700
+CACHE_TOP_N = 50
+
 _sb_client = None
 
 
