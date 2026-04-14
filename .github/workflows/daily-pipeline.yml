@@ -98,35 +98,39 @@ jobs:
         run: python3 scripts/tier2_embedder.py
 
   # ── 마무리: 인덱스 빌드 + 취향 재계산 (모두 완료 후) ──
-  build-and-recompute:
-    needs: [discovery, collect, enrich]
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          lfs: true
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - run: pip install -r scripts/requirements.txt
-      - name: Build recommendation index
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: |
-          cd recommendation-server
-          python3 scripts/build_index.py
-      - name: Commit index.pkl
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add recommendation-server/data/index.pkl
-          git diff --cached --quiet || git commit -m "chore: rebuild index.pkl ($(date -u '+%Y-%m-%d %H:%M UTC'))"
-          git push
-      - name: Taste vector recomputation
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: python3 scripts/taste_recomputer.py --limit 500
+  # NOTE: 2026-04-14 비활성화 — Supabase egress 절감 (일 970MB).
+  # build_index가 매번 전체 DB를 읽으므로 egress 폭발 원인.
+  # 증분 빌드 구현 후 재활성화 예정.
+  # 수동 빌드 필요 시 build-index.yml (workflow_dispatch) 사용.
+  # build-and-recompute:
+  #   needs: [discovery, collect, enrich]
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 15
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #       with:
+  #         lfs: true
+  #     - uses: actions/setup-python@v5
+  #       with:
+  #         python-version: '3.11'
+  #     - run: pip install -r scripts/requirements.txt
+  #     - name: Build recommendation index
+  #       env:
+  #         SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  #         SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+  #         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  #       run: |
+  #         cd recommendation-server
+  #         python3 scripts/build_index.py
+  #     - name: Commit index.pkl
+  #       run: |
+  #         git config user.name "github-actions[bot]"
+  #         git config user.email "github-actions[bot]@users.noreply.github.com"
+  #         git add recommendation-server/data/index.pkl
+  #         git diff --cached --quiet || git commit -m "chore: rebuild index.pkl ($(date -u '+%Y-%m-%d %H:%M UTC'))"
+  #         git push
+  #     - name: Taste vector recomputation
+  #       env:
+  #         SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  #         SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+  #       run: python3 scripts/taste_recomputer.py --limit 500
