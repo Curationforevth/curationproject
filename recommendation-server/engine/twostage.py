@@ -198,15 +198,21 @@ def batch_score_prestacked(
         good_descs = [good_books[bid].desc.astype(np.float32) for bid in good_ids if bid in good_books]
         desc_score = float(max(float(np.dot(d, cand_desc)) for d in good_descs)) if good_descs else 0.0
 
-        # ── 3. l1_score ───────────────────────────────────────────────────
-        good_l1s = [good_books[bid].l1.astype(np.float32) for bid in good_ids if bid in good_books]
-        cand_l1 = cand.l1.astype(np.float32)
-        l1_score = float(max(float(np.dot(l, cand_l1)) for l in good_l1s)) if good_l1s else 0.0
+        # ── 3. l1_score (w_l1=0이면 skip) ────────────────────────────────
+        if w_l1 != 0:
+            good_l1s = [good_books[bid].l1.astype(np.float32) for bid in good_ids if bid in good_books]
+            cand_l1 = cand.l1.astype(np.float32)
+            l1_score = float(max(float(np.dot(l, cand_l1)) for l in good_l1s)) if good_l1s else 0.0
+        else:
+            l1_score = 0.0
 
-        # ── 4. l2_score ───────────────────────────────────────────────────
-        good_l2s = [good_books[bid].l2.astype(np.float32) for bid in good_ids if bid in good_books]
-        cand_l2 = cand.l2.astype(np.float32)
-        l2_score = float(max(float(np.dot(l, cand_l2)) for l in good_l2s)) if good_l2s else 0.0
+        # ── 4. l2_score (w_l2=0이면 skip) ────────────────────────────────
+        if w_l2 != 0:
+            good_l2s = [good_books[bid].l2.astype(np.float32) for bid in good_ids if bid in good_books]
+            cand_l2 = cand.l2.astype(np.float32)
+            l2_score = float(max(float(np.dot(l, cand_l2)) for l in good_l2s)) if good_l2s else 0.0
+        else:
+            l2_score = 0.0
 
         # ── 5. fb_desc_score ──────────────────────────────────────────────
         fb_desc_vals = []
