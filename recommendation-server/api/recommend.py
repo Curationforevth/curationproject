@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from auth import verify_jwt
 from models import RecommendResponse, BookScore
 from engine.scorer import recommend_scores
 from engine.twostage import stage1_hybrid, batch_score_prestacked
 from engine.utils import to_np
-from config import DEFAULT_RECOMMEND_LIMIT, STAGE1_TOP_N, get_supabase
+from engine.cache import compute_input_hash, load_cache, save_cache_if_current
+from config import DEFAULT_RECOMMEND_LIMIT, STAGE1_TOP_N, CACHE_TOP_N, get_supabase
 
 router = APIRouter()
 
@@ -15,6 +16,7 @@ router = APIRouter()
 async def get_recommendations(
     user_id: str,
     request: Request,
+    background_tasks: BackgroundTasks,
     limit: int = Query(DEFAULT_RECOMMEND_LIMIT, ge=1, le=50),
     current_user: str = Depends(verify_jwt),
 ):
@@ -35,8 +37,33 @@ async def get_recommendations(
             meta={"total_liked": 0, "total_disliked": 0, "has_feedback": False},
         )
 
-    liked_books = {}
-    fb_data = {}
+    # -----------------------------------------------------------------------
+    # 캐시 확인
+    # -----------------------------------------------------------------------
+    input_hash = compute_input_hash(ub_res.data)
+    cache = load_cache(user_id)
+    if (
+        cache
+        and cache.get("input_hash") == input_hash
+        and cache.get("computed_at", "") > (getattr(request.app.state, "built_at", None) or "")
+    ):
+        cached_recs = cache["recommendations"][:limit]
+        recs = [BookScore(**r) for r in cached_recs]
+        return RecommendResponse(
+            user_id=user_id, recommendations=recs,
+            meta={
+                "total_liked": cache.get("good_count", 0),
+                "total_disliked": cache.get("bad_count", 0),
+                "has_feedback": cache.get("has_feedback", False),
+                "from_cache": True,
+            },
+        )
+
+    # -----------------------------------------------------------------------
+    # 온디맨드 계산
+    # -----------------------------------------------------------------------
+    liked_books: dict = {}
+    fb_data: dict = {}
     total_liked = total_disliked = 0
     has_feedback = False
 
@@ -69,22 +96,36 @@ async def get_recommendations(
         # v3 fallback: brute-force scoring
         scores = recommend_scores(index, liked_books, fb_data)
 
-    sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:limit]
+    sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:CACHE_TOP_N]
 
     recs = []
+    recs_for_cache: list[dict] = []
     for bid, score in sorted_scores:
         meta = books_meta.get(bid)
         if meta is None:
             # ghost book defense: book in index but not in meta — skip
             continue
-        recs.append(BookScore(
+        book = BookScore(
             book_id=bid, score=round(score, 4),
             title=meta.get("title", ""), author=meta.get("author", ""),
             cover_url=meta.get("cover_url"),
-        ))
+        )
+        recs.append(book)
+        recs_for_cache.append(book.dict())
+
+    # 백그라운드에서 캐시 저장
+    background_tasks.add_task(
+        save_cache_if_current,
+        user_id,
+        recs_for_cache,
+        input_hash,
+        total_liked,
+        total_disliked,
+        has_feedback,
+    )
 
     return RecommendResponse(
-        user_id=user_id, recommendations=recs,
+        user_id=user_id, recommendations=recs[:limit],
         meta={"total_liked": total_liked, "total_disliked": total_disliked,
               "has_feedback": has_feedback},
     )
