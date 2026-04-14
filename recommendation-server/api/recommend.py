@@ -42,22 +42,36 @@ async def get_recommendations(
     # -----------------------------------------------------------------------
     input_hash = compute_input_hash(ub_res.data)
     cache = load_cache(user_id)
-    if (
-        cache
-        and cache.get("input_hash") == input_hash
-        and cache.get("computed_at", "") > (getattr(request.app.state, "built_at", None) or "")
-    ):
-        cached_recs = cache["recommendations"][:limit]
-        recs = [BookScore(**r) for r in cached_recs]
-        return RecommendResponse(
-            user_id=user_id, recommendations=recs,
-            meta={
-                "total_liked": cache.get("good_count", 0),
-                "total_disliked": cache.get("bad_count", 0),
-                "has_feedback": cache.get("has_feedback", False),
-                "from_cache": True,
-            },
-        )
+
+    if cache:
+        # 캐시 히트: hash 일치 + 인덱스 빌드 이후 계산된 것
+        if (cache.get("input_hash") == input_hash
+                and cache.get("computed_at", "") > (getattr(request.app.state, "built_at", None) or "")):
+            cached_recs = cache["recommendations"][:limit]
+            recs = [BookScore(**r) for r in cached_recs]
+            return RecommendResponse(
+                user_id=user_id, recommendations=recs,
+                meta={
+                    "total_liked": cache.get("good_count", 0),
+                    "total_disliked": cache.get("bad_count", 0),
+                    "has_feedback": cache.get("has_feedback", False),
+                    "from_cache": True,
+                },
+            )
+
+        # C3: 백그라운드 재계산 진행 중이면 stale 캐시라도 반환 (중복 계산 방지)
+        if cache.get("computing") and cache.get("recommendations"):
+            cached_recs = cache["recommendations"][:limit]
+            recs = [BookScore(**r) for r in cached_recs]
+            return RecommendResponse(
+                user_id=user_id, recommendations=recs,
+                meta={
+                    "total_liked": cache.get("good_count", 0),
+                    "total_disliked": cache.get("bad_count", 0),
+                    "has_feedback": cache.get("has_feedback", False),
+                    "from_cache": True, "stale": True,
+                },
+            )
 
     # -----------------------------------------------------------------------
     # 온디맨드 계산

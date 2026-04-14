@@ -87,10 +87,10 @@ def build(dry_run: bool = False, incremental: bool = False):
             v3_changed = _fetch_paginated(
                 sb, "book_v3_vectors", "book_id", PAGE_SIZE_VECTOR,
                 order_col="book_id",
-                filters={"updated_at": ("gte", last_built_at)})
+                filters={"updated_at": ("gt", last_built_at)})
             reasons_changed = _fetch_paginated(
                 sb, "book_love_reasons", "book_id", PAGE_SIZE_VECTOR,
-                filters={"updated_at": ("gte", last_built_at)})
+                filters={"updated_at": ("gt", last_built_at)})
             if len(v3_changed) == 0 and len(reasons_changed) == 0:
                 print("No changes — skipping rebuild")
                 return

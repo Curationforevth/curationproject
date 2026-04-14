@@ -94,13 +94,16 @@ def save_cache_if_current(
         bad_count:       싫어요 수
         has_feedback:    피드백 임베딩 보유 여부
     """
-    # 현재 DB의 input_hash 재확인 (computing 중 피드백 발생 방지)
+    # 현재 DB 상태 확인 — 이미 더 최신 결과가 있으면 skip
     current = load_cache(user_id)
-    if current and current.get("computing") and current.get("input_hash") != input_hash:
-        logger.info(
-            "save_cache_if_current: hash mismatch for user %s — skipping stale write", user_id
-        )
-        return
+    if current:
+        current_hash = current.get("input_hash", "")
+        # __computing__ 은 재계산 진행 중 — 덮어써도 됨
+        if current_hash != "__computing__" and current_hash != input_hash:
+            logger.info(
+                "save_cache_if_current: hash mismatch for user %s — skipping stale write", user_id
+            )
+            return
 
     row = {
         "user_id": user_id,
@@ -141,6 +144,12 @@ def recompute_recommendations(user_id: str, app_state) -> None:
     from engine.utils import to_np
 
     sb = get_supabase()
+
+    # C2: 이미 computing 중이면 skip
+    existing = load_cache(user_id)
+    if existing and existing.get("computing"):
+        logger.info("recompute: already computing for %s — skipping", user_id)
+        return
 
     # computing 플래그 설정
     try:
