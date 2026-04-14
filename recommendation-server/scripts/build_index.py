@@ -73,8 +73,31 @@ def _fetch_paginated(sb, table: str, select: str, page_size: int,
     return all_rows
 
 
-def build(dry_run: bool = False):
+def build(dry_run: bool = False, incremental: bool = False):
     sb = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+
+    # Incremental check: skip full rebuild if no changes since last build
+    if incremental and os.path.exists(OUTPUT_PATH):
+        print("[build] Incremental mode — checking for changes since last build...")
+        with open(OUTPUT_PATH, "rb") as f:
+            bundle = pickle.load(f)
+        last_built_at = bundle.get("built_at", "")
+        if last_built_at:
+            print(f"  last_built_at: {last_built_at}")
+            v3_changed = _fetch_paginated(
+                sb, "book_v3_vectors", "book_id", PAGE_SIZE_VECTOR,
+                order_col="book_id",
+                filters={"updated_at": ("gte", last_built_at)})
+            reasons_changed = _fetch_paginated(
+                sb, "book_love_reasons", "book_id", PAGE_SIZE_VECTOR,
+                filters={"updated_at": ("gte", last_built_at)})
+            if len(v3_changed) == 0 and len(reasons_changed) == 0:
+                print("No changes — skipping rebuild")
+                return
+            else:
+                print(f"Changes detected (v3_vectors: {len(v3_changed)}, love_reasons: {len(reasons_changed)}) — running full rebuild")
+        else:
+            print("  no built_at in existing index — running full rebuild")
 
     # 1. books meta
     print("[build] Loading books meta...")
@@ -254,5 +277,7 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--dry-run", action="store_true",
                    help="DB에서 읽기만 하고 index.pkl 저장 안 함")
+    p.add_argument("--incremental", action="store_true",
+                   help="변경된 row가 없으면 rebuild 건너뜀 (updated_at 기반)")
     args = p.parse_args()
-    build(dry_run=args.dry_run)
+    build(dry_run=args.dry_run, incremental=args.incremental)
