@@ -2,7 +2,7 @@ name: Daily Scrape (YES24 Rich Descriptions)
 
 on:
   schedule:
-    - cron: '7 */2 * * *' # 2시간마다 (매 :07분)
+    - cron: '7 */6 * * *' # 6시간마다 (매 :07분) — GH Actions 2000분/월 한도 관리
   workflow_dispatch:
     inputs:
       limit:
@@ -32,7 +32,7 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: python scripts/yes24_scraper.py --limit ${{ github.event.inputs.limit || '80' }}
+        run: python scripts/yes24_scraper.py --limit ${{ github.event.inputs.limit || '240' }}
 
       - name: Show status
         if: always()
