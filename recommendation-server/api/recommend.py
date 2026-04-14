@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from auth import verify_jwt
 from models import RecommendResponse, BookScore
 from engine.scorer import recommend_scores
+from engine.twostage import stage1_hybrid, batch_score_prestacked
 from engine.utils import to_np
 from config import DEFAULT_RECOMMEND_LIMIT, STAGE1_TOP_N, get_supabase
 
@@ -55,7 +56,6 @@ async def get_recommendations(
     prestacked = request.app.state.prestacked_reasons
     if prestacked is not None:
         # v4 two-stage
-        from engine.twostage import stage1_hybrid, batch_score_prestacked
         candidates = stage1_hybrid(
             liked_books, fb_data,
             request.app.state.desc_matrix_f16,

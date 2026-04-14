@@ -139,10 +139,16 @@ def batch_score_prestacked(
                 continue
             fb = fb_data.get(bid)
 
-            if cand_reasons_f32 is not None and bv.reasons:
-                # q_reasons @ cand_reasons.T → (n_q, n_c) → max per query row
+            # query reasons: prestacked 우선, fallback으로 np.stack
+            if bid in prestacked_reasons and prestacked_reasons[bid].shape[0] > 0:
+                q_reasons_f32 = prestacked_reasons[bid].astype(np.float32)
+            elif bv.reasons:
                 q_reasons_f32 = np.stack(bv.reasons).astype(np.float32)
-                sims = q_reasons_f32 @ cand_reasons_f32.T          # (n_q, n_c)
+            else:
+                q_reasons_f32 = None
+
+            if cand_reasons_f32 is not None and q_reasons_f32 is not None:
+                sims = q_reasons_f32 @ cand_reasons_f32.T
                 r_sim = float(sims.max(axis=1).mean())
             else:
                 r_sim = 0.0
@@ -162,8 +168,15 @@ def batch_score_prestacked(
                 continue
             fb = fb_data.get(bid)
 
-            if cand_reasons_f32 is not None and bv.reasons:
+            # query reasons: prestacked 우선
+            if bid in prestacked_reasons and prestacked_reasons[bid].shape[0] > 0:
+                q_reasons_f32 = prestacked_reasons[bid].astype(np.float32)
+            elif bv.reasons:
                 q_reasons_f32 = np.stack(bv.reasons).astype(np.float32)
+            else:
+                q_reasons_f32 = None
+
+            if cand_reasons_f32 is not None and q_reasons_f32 is not None:
                 sims = q_reasons_f32 @ cand_reasons_f32.T
                 r_sim = float(sims.max(axis=1).mean())
             else:

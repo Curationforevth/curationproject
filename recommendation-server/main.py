@@ -42,5 +42,5 @@ async def health(request: Request):
         "books_loaded": len(index.book_ids) if index else 0,
         "total_reasons": total_reasons,
         "index_built_at": built_at,
-        "version": "v3-float16",
+        "version": "v4-prestacked" if getattr(request.app.state, "prestacked_reasons", None) is not None else "v3-float16",
     }
