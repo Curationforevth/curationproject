@@ -13,11 +13,13 @@ OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
 EMBEDDING_MODEL = "text-embedding-3-large"
 EMBEDDING_DIMENSIONS = 2000
 
-# v3 스코어링 가중치 (스펙 섹션 4.1)
-W_REASON = 1.0
-W_DESC = 0.5
-W_L1 = 3.0
-W_L2 = 1.0
+# v3 스코어링 가중치 — H10_no_l1 (스펙 섹션 5.2)
+# L1/L2는 binary처럼 작동 (cosine 1.0/0.3 양극화)하여 가중치 효과 없음.
+# 18 페르소나 + 50 랜덤 검증에서 이 가중치가 최선으로 확인됨.
+W_REASON = 2.0
+W_DESC = 3.0
+W_L1 = 0.0
+W_L2 = 0.0
 W_FB_DESC = 2.0
 
 # 피드백 있는 책의 reason 가중치 감소 (피드백이 주 신호)
