@@ -147,7 +147,7 @@ jobs:
       - name: Push pending migrations
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-        run: supabase db push --password "${{ secrets.SUPABASE_DB_PASSWORD }}" --yes
+        run: supabase db push --password "${{ secrets.SUPABASE_DB_PASSWORD }}" --include-all < /dev/null
 ```
 
 - [ ] **Step 2: lint / syntax 검증**
@@ -446,17 +446,26 @@ DROP POLICY IF EXISTS home_cache_read_own ON home_section_cache;
 CREATE POLICY home_cache_read_own ON home_section_cache FOR SELECT USING (auth.uid() = user_id);
 ```
 
-- [ ] **Step 13: 로컬 SQL syntax 체크 (psql parser)**
+- [ ] **Step 13: 파일 존재 + 기본 문법 sanity**
 
-Run (로컬에 psql 설치된 경우):
 ```bash
-for f in supabase/migrations/20260415_phase1b_0*.sql supabase/migrations/20260415_phase1b_10*.sql supabase/migrations/20260415_phase1b_11*.sql; do
-  echo "=== $f ==="
-  psql -c "\set ON_ERROR_STOP 1" -f "$f" --dry-run 2>&1 || true
+ls -la supabase/migrations/20260415_phase1b_*.sql | wc -l
+# Expected: 12 (migrations 00-11)
+
+# 간단 brace balance 체크
+for f in supabase/migrations/20260415_phase1b_0*.sql supabase/migrations/20260415_phase1b_10_*.sql supabase/migrations/20260415_phase1b_11_*.sql; do
+  python3 -c "
+import sys
+content = open('$f').read()
+# 세미콜론 존재 + BEGIN/END 균형 러프 체크
+assert content.count(';') > 0, f'no statements in $f'
+assert content.count('BEGIN') == content.count('END'), f'BEGIN/END mismatch in $f'
+print('ok: $f')
+" || exit 1
 done
 ```
 
-실제 apply는 main merge 시 workflow 자동 수행. 여기선 문법만 체크.
+실제 SQL 검증은 main merge 시 apply-migrations workflow 가 수행.
 
 - [ ] **Step 14: Commit**
 
@@ -1238,8 +1247,8 @@ def test_tier_below_2_returns_empty(monkeypatch):
 
 ```python
     # Phase 1B — User Tier 2 체크. Tier 0/1 은 빈 배열 반환 (Flutter 하위 호환)
-    us_res = sb.table("user_state").select("current_tier").eq("user_id", user_id).maybe_single().execute()
-    current_tier = (us_res.data or {}).get("current_tier", 0)
+    us_res = sb.table("user_state").select("current_tier").eq("user_id", user_id).limit(1).execute()
+    current_tier = (us_res.data[0]["current_tier"] if us_res.data else 0)
     if current_tier < 2:
         return RecommendResponse(
             user_id=user_id,
@@ -1578,6 +1587,7 @@ Expected: ImportError
 + recommendation_stage 1 (+ fallback_curation 1)
 """
 from __future__ import annotations
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
@@ -1769,9 +1779,9 @@ async def get_home(
 
     us_res = sb.table("user_state").select(
         "current_tier,total_likes,top_authors,top_l1s,updated_at"
-    ).eq("user_id", user_id).maybe_single().execute()
+    ).eq("user_id", user_id).limit(1).execute()
 
-    us = us_res.data or {
+    us = (us_res.data[0] if us_res.data else None) or {
         "current_tier": 0, "total_likes": 0,
         "top_authors": [], "top_l1s": [], "updated_at": "",
     }
@@ -1781,8 +1791,8 @@ async def get_home(
     top_l1s = [l["l1"] for l in (us.get("top_l1s") or [])]
 
     # stage
-    stage_res = sb.table("recommendation_stage").select("current_stage").eq("id", 1).maybe_single().execute()
-    stage = (stage_res.data or {}).get("current_stage", 0)
+    stage_res = sb.table("recommendation_stage").select("current_stage").eq("id", 1).limit(1).execute()
+    stage = (stage_res.data[0]["current_stage"] if stage_res.data else 0)
 
     # home_section_cache 확인
     hour_bucket = current_hour_bucket()
@@ -1818,8 +1828,8 @@ async def get_home(
         ).in_("curation_id", theme_ids).execute()
         cache_rows = cache_res.data or []
 
-    now_iso = __import__("datetime").datetime.now(
-        __import__("datetime").timezone.utc).isoformat()
+    now = datetime.now(timezone.utc)
+    now_iso = now.isoformat()
     curation_cache_by_id = {
         r["curation_id"]: r["book_ids"]
         for r in cache_rows
@@ -1829,9 +1839,10 @@ async def get_home(
     fb_res = sb.table("fallback_curation").select("book_id").order("rank").limit(30).execute()
     fallback_books = fb_res.data or []
 
+    seven_days_ago = (now - timedelta(days=7)).isoformat()
     uch_res = sb.table("user_curation_history").select("curation_id").eq(
         "user_id", user_id
-    ).gte("shown_at", "NOW() - INTERVAL '7 days'").execute()
+    ).gte("shown_at", seven_days_ago).execute()
     recent_curation_ids = {r["curation_id"] for r in (uch_res.data or [])}
 
     # Tier 2 라면 recommend_core 호출
