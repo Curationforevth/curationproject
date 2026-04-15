@@ -36,6 +36,22 @@ async def get_recommendations(
             meta={"total_liked": 0, "total_disliked": 0, "has_feedback": False},
         )
 
+    # Phase 1B — User Tier 2 체크. Tier 0/1 은 빈 배열 반환 (Flutter 하위 호환)
+    us_res = sb.table("user_state").select("current_tier").eq("user_id", user_id).limit(1).execute()
+    current_tier = (us_res.data[0]["current_tier"] if us_res.data else 0)
+    if current_tier < 2:
+        return RecommendResponse(
+            user_id=user_id,
+            recommendations=[],
+            meta={
+                "total_liked": sum(1 for r in ub_res.data if r.get("rating") == "good"),
+                "total_disliked": sum(1 for r in ub_res.data if r.get("rating") == "bad"),
+                "has_feedback": any(r.get("feedback_embedding") for r in ub_res.data),
+                "tier": current_tier,
+                "reason": "insufficient_likes",
+            },
+        )
+
     # -----------------------------------------------------------------------
     # 캐시 확인
     # -----------------------------------------------------------------------
