@@ -26,6 +26,32 @@ async def get_recommendations(
     books_meta = request.app.state.books_meta
 
     sb = get_supabase()
+
+    # Phase 1B — Tier 체크 먼저. Tier 0/1 은 feedback_embedding 조회 생략 (I1)
+    us_res = sb.table("user_state").select("current_tier").eq("user_id", user_id).limit(1).execute()
+    current_tier = (us_res.data[0]["current_tier"] if us_res.data else 0)
+    if current_tier < 2:
+        # rating 만 조회 — feedback_embedding 불필요
+        ub_res = sb.table("user_books").select("rating").eq("user_id", user_id).execute()
+        data = ub_res.data or []
+        if not data:
+            return RecommendResponse(
+                user_id=user_id, recommendations=[],
+                meta={"total_liked": 0, "total_disliked": 0, "has_feedback": False},
+            )
+        return RecommendResponse(
+            user_id=user_id,
+            recommendations=[],
+            meta={
+                "total_liked": sum(1 for r in data if r.get("rating") == "good"),
+                "total_disliked": sum(1 for r in data if r.get("rating") == "bad"),
+                "has_feedback": False,  # Tier 0/1 에선 어차피 사용 안 하므로 False
+                "tier": current_tier,
+                "reason": "insufficient_likes",
+            },
+        )
+
+    # Tier 2 — feedback_embedding 포함 full fetch
     ub_res = sb.table("user_books").select(
         "book_id,rating,feedback_embedding"
     ).eq("user_id", user_id).execute()
@@ -34,22 +60,6 @@ async def get_recommendations(
         return RecommendResponse(
             user_id=user_id, recommendations=[],
             meta={"total_liked": 0, "total_disliked": 0, "has_feedback": False},
-        )
-
-    # Phase 1B — User Tier 2 체크. Tier 0/1 은 빈 배열 반환 (Flutter 하위 호환)
-    us_res = sb.table("user_state").select("current_tier").eq("user_id", user_id).limit(1).execute()
-    current_tier = (us_res.data[0]["current_tier"] if us_res.data else 0)
-    if current_tier < 2:
-        return RecommendResponse(
-            user_id=user_id,
-            recommendations=[],
-            meta={
-                "total_liked": sum(1 for r in ub_res.data if r.get("rating") == "good"),
-                "total_disliked": sum(1 for r in ub_res.data if r.get("rating") == "bad"),
-                "has_feedback": any(r.get("feedback_embedding") for r in ub_res.data),
-                "tier": current_tier,
-                "reason": "insufficient_likes",
-            },
         )
 
     # -----------------------------------------------------------------------
