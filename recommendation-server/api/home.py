@@ -330,9 +330,14 @@ def _log_impressions_and_history(user_id: str, sections: list[dict], stage: int)
     sb = get_supabase()
     imp_rows = []
     uch_rows = []
+    SOURCE_MAP = {
+        "personal_recommend": "home_recommend",
+        "similar": "similar",
+        "curation": "curation",
+        "trending": "home_recommend",
+    }
     for sec in sections:
-        source = "home_recommend" if sec["type"] in ("personal_recommend", "similar") else \
-                 "curation" if sec["type"] == "curation" else "home_recommend"
+        source = SOURCE_MAP.get(sec["type"], "home_recommend")
         curation_id = sec.get("curation_id")
         for pos, book in enumerate(sec.get("books", [])):
             imp_rows.append({
