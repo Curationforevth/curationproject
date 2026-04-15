@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS curation_themes (
   shown_count INT DEFAULT 0,
   click_count INT DEFAULT 0,
   click_rate FLOAT GENERATED ALWAYS AS (
-    COALESCE(click_count::float / NULLIF(shown_count, 0), 0.0)
+    CASE WHEN shown_count > 0 THEN click_count::float / shown_count ELSE 0 END
   ) STORED
 );
 
