@@ -44,6 +44,7 @@ async def health(request: Request):
         "status": "ok",
         "version": ver,
         "books_loaded": len(getattr(state, "bid_order", []) or []),
+        "total_reasons": sum(len(r) for r in (getattr(state, "prestacked_reasons", {}) or {}).values()) if getattr(state, "prestacked_reasons", None) else 0,
         "index_built_at": getattr(state, "built_at", None),
         "memory_mb": mem_mb,
         "cache_hits": getattr(state, "cache_hits", 0),
