@@ -18,6 +18,7 @@ from engine.tier import (
 )
 from engine.curation import (
     filter_by_personalization, apply_recent_discount, weighted_sample_one,
+    RECENT_CURATION_WINDOW_DAYS,
 )
 from engine.home_cache import (
     current_hour_bucket, compute_home_input_hash,
@@ -263,7 +264,7 @@ async def get_home(
     fb_res = sb.table("fallback_curation").select("book_id").order("rank").limit(30).execute()
     fallback_books = fb_res.data or []
 
-    seven_days_ago = (now - timedelta(days=7)).isoformat()
+    seven_days_ago = (now - timedelta(days=RECENT_CURATION_WINDOW_DAYS)).isoformat()
     uch_res = sb.table("user_curation_history").select("curation_id").eq(
         "user_id", user_id
     ).gte("shown_at", seven_days_ago).execute()

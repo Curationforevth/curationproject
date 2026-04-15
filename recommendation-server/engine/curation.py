@@ -8,6 +8,8 @@ from __future__ import annotations
 import random
 from typing import Optional
 
+RECENT_CURATION_WINDOW_DAYS = 7
+
 
 def filter_by_personalization(
     themes: list[dict],
