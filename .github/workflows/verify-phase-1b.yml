@@ -1,0 +1,42 @@
+name: Verify Phase 1B
+
+on: workflow_dispatch
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - run: pip install -r recommendation-server/requirements.txt
+      - run: cd recommendation-server && pytest tests/ -v
+
+  db-state:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check pg_cron jobs registered
+        env:
+          PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          sudo apt-get install -y postgresql-client
+          EXPECTED="refresh-curation-cache aggregate-co-occurrence refresh-user-top-taste refresh-fallback-curation deactivate-curations check-stage-transition cleanup-user-curation-history cleanup-home-section-cache"
+          REGISTERED=$(psql "$DB_URL" -tAc "SELECT jobname FROM cron.job")
+          for j in $EXPECTED; do
+            if ! echo "$REGISTERED" | grep -q "^$j$"; then
+              echo "❌ Missing cron job: $j"
+              exit 1
+            fi
+            echo "✅ $j"
+          done
+
+      - name: Check impression.curation_id population
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          CNT=$(psql "$DB_URL" -tAc "SELECT COUNT(*) FROM recommendation_impressions WHERE curation_id IS NOT NULL")
+          echo "impressions with curation_id: $CNT"
