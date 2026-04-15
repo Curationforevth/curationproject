@@ -6,6 +6,7 @@ from api.recommend import router as recommend_router
 from api.similar import router as similar_router
 from api.feedback import router as feedback_router
 from api.home import router as home_router
+from api.curation import router as curation_router
 
 
 @asynccontextmanager
@@ -29,6 +30,7 @@ app.include_router(recommend_router)
 app.include_router(similar_router)
 app.include_router(feedback_router)
 app.include_router(home_router)
+app.include_router(curation_router)
 
 
 @app.get("/health")
