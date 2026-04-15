@@ -12,3 +12,8 @@ CREATE INDEX IF NOT EXISTS idx_uch_user_recent
 ALTER TABLE user_curation_history ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS uch_read_own ON user_curation_history;
 CREATE POLICY uch_read_own ON user_curation_history FOR SELECT USING (auth.uid() = user_id);
+
+-- INSERT/UPDATE/DELETE 는 service_role 만 (실제 쓰기 경로)
+DROP POLICY IF EXISTS uch_service_write ON user_curation_history;
+CREATE POLICY uch_service_write ON user_curation_history
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
