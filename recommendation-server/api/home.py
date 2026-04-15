@@ -219,6 +219,11 @@ async def get_home(
     cache = load_home_cache(user_id)
 
     if cache and cache.get("input_hash") == input_hash:
+        # cache hit path도 impression + history 로깅 (스펙 §7.3 CTR 정확성)
+        background_tasks.add_task(
+            _log_impressions_and_history,
+            user_id, cache["sections"], stage,
+        )
         return {
             "user_id": user_id, "tier": tier, "stage": stage,
             "sections": cache["sections"],

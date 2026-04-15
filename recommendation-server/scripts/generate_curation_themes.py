@@ -22,6 +22,25 @@ MIN_AUTHOR_BOOKS = 3
 MIN_KEYWORD_BOOKS = 5
 
 
+def _fetch_all(sb, table, select, filter_fn=None, batch_size=1000):
+    """Paginated fetch (all rows) via range()."""
+    rows = []
+    start = 0
+    while True:
+        q = sb.table(table).select(select)
+        if filter_fn:
+            q = filter_fn(q)
+        res = q.range(start, start + batch_size - 1).execute()
+        data = res.data or []
+        if not data:
+            break
+        rows.extend(data)
+        if len(data) < batch_size:
+            break
+        start += batch_size
+    return rows
+
+
 def _upsert_theme(sb, *, theme_key, theme_type, title, description, parameters,
                   personalization, target_l1=None, target_author=None, target_keyword=None,
                   priority=1.0):
@@ -46,9 +65,11 @@ def generate_genre_combo(sb) -> int:
     # books WHERE l1 IS NOT NULL AND l2 IS NOT NULL GROUP BY l1,l2 HAVING COUNT>=10
     # supabase-py 는 raw SQL 실행 불가 → RPC 또는 전체 fetch 후 in-memory aggregation
     # 여기선 전체 fetch (활성 ~9K rows).
-    res = sb.table("books").select("l1,l2").not_.is_("l1", "null").not_.is_("l2", "null").execute()
+    rows = _fetch_all(sb, "books", "l1,l2",
+                      lambda q: q.not_.is_("l1", "null").not_.is_("l2", "null"))
+    print(f"  fetched {len(rows)} books")
     from collections import Counter
-    counts = Counter((r["l1"], r["l2"]) for r in (res.data or []))
+    counts = Counter((r["l1"], r["l2"]) for r in rows)
     created = 0
     for (l1, l2), cnt in counts.items():
         if cnt < MIN_GENRE_BOOKS:
@@ -71,9 +92,11 @@ def generate_genre_combo(sb) -> int:
 
 
 def generate_author(sb) -> int:
-    res = sb.table("books").select("author").not_.is_("author", "null").execute()
+    rows = _fetch_all(sb, "books", "author",
+                      lambda q: q.not_.is_("author", "null"))
+    print(f"  fetched {len(rows)} books")
     from collections import Counter
-    counts = Counter(r["author"] for r in (res.data or []))
+    counts = Counter(r["author"] for r in rows)
     created = 0
     for author, cnt in counts.items():
         if cnt < MIN_AUTHOR_BOOKS:
@@ -97,10 +120,12 @@ def generate_author(sb) -> int:
 
 def generate_keyword(sb) -> int:
     # library_keywords TEXT[] → pg 배열 unnest 필요. in-memory.
-    res = sb.table("books").select("library_keywords").not_.is_("library_keywords", "null").execute()
+    rows = _fetch_all(sb, "books", "library_keywords",
+                      lambda q: q.not_.is_("library_keywords", "null"))
+    print(f"  fetched {len(rows)} books")
     from collections import Counter
     counts: Counter = Counter()
-    for r in (res.data or []):
+    for r in rows:
         for kw in (r.get("library_keywords") or []):
             counts[kw] += 1
     created = 0
@@ -115,8 +140,8 @@ def generate_keyword(sb) -> int:
                 title=kw,
                 description=f"{kw} 관련 책들",
                 parameters={"keyword": kw},
-                personalization="by_keyword",
-                target_keyword=kw,
+                personalization="general",  # Phase 1B: by_keyword 매칭 미구현 → general 로 노출 (Phase 2 이월)
+                target_keyword=kw,  # 유지 (Phase 2 대비)
             )
             created += 1
         except Exception as e:
