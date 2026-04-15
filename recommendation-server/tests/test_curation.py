@@ -41,8 +41,8 @@ def test_weighted_sample_one_respects_priority():
     import random
     random.seed(42)
     themes = [
-        {"id": 1, "priority": 0.01, "click_rate": 0.01},
-        {"id": 2, "priority": 100.0, "click_rate": 0.01},
+        {"id": 1, "priority": 0.01, "click_rate": 0.01, "shown_count": 100},
+        {"id": 2, "priority": 100.0, "click_rate": 0.01, "shown_count": 100},
     ]
     counts = {1: 0, 2: 0}
     for _ in range(100):

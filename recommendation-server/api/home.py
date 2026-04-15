@@ -240,7 +240,7 @@ async def get_home(
 
     themes_res = sb.table("curation_themes").select(
         "id,theme_type,title,description,personalization,"
-        "target_l1,target_author,target_keyword,priority,click_rate"
+        "target_l1,target_author,target_keyword,priority,click_rate,shown_count"
     ).eq("is_active", True).execute()
     active_themes = themes_res.data or []
 

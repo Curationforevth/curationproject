@@ -53,7 +53,7 @@ def weighted_sample_one(themes: list[dict]) -> Optional[dict]:
     weights: list[float] = []
     for t in themes:
         w = t.get("priority", 1.0)
-        if t.get("click_rate", 0.0) > 0.05:
+        if t.get("click_rate", 0.0) > 0.05 and t.get("shown_count", 0) >= 20:
             w *= 1.5
         if t.get("personalization") in ("by_l1", "by_author", "by_keyword"):
             w *= 2.0
