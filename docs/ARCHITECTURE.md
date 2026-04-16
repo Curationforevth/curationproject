@@ -460,12 +460,12 @@ MVP에서는 Supabase 클라이언트 SDK로 직접 DB 호출. 별도 API 서버
 | API | 용도 | 한도 | 비고 |
 |-----|------|------|------|
 | **카카오 책 검색 API** (메인) | 유저 실시간 검색 | 넉넉 | 인증 간편, 표지 양호, description 비교적 풍부 |
-| **정보나루 API** (메인 배치) | 인기대출 도서 수집 (온보딩/fallback용), 키워드/관련도서 | 무제한 | 공공도서관 실제 대출 데이터, loan_count 기준 정렬 |
-| **알라딘 API** (보완) | 메타데이터 보강, 한국 도서 보완 | 일 5,000회 | sales_point 참고용 |
+| **정보나루 API** (메인 배치) | 인기대출 도서 수집, usageAnalysisList 후처리로 loan_count/loan_count_12mo 통일 | 무제한 | 공공도서관 실제 대출 데이터. loan_count=누적, loan_count_12mo=최근 12개월 |
+| **알라딘 API** (보완) | Bestseller/ItemNew 로 신간 커버 (정보나루 6~12개월 지연 보완), 메타데이터 보강 | 일 5,000회 | sales_point 기반. fallback_curation 에서 정보나루 top 20에 없는 신간 10권 보완 |
 
 > - 유저의 실시간 검색은 카카오 API로 처리
-> - 온보딩/fallback 책 풀은 정보나루 인기대출(loan_count) 기준, 제목 중복 제거
-> - 알라딘은 메타데이터 보강용으로 활용
+> - 온보딩/fallback 책 풀은 **Strategy C (2026-04-16)**: 정보나루 `loan_count_12mo` top 20 (DISTINCT ON title) + 알라딘 `sales_point` top 10 = 30권. 상세 `docs/superpowers/specs/2026-04-16-data4library-aladin-hybrid-collection.md`
+> - 큐레이션 내부 랭킹: 혼합 점수 `loan_count_12mo*2 + loan_count*1 + sales_point*0.5`
 > - 검색 결과 중 유저가 선택한 책만 `books` 테이블에 저장
 
 #### 서재 CRUD

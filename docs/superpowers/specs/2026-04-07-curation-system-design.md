@@ -1,7 +1,8 @@
 # 큐레이션 시스템 설계 (자동 생성 + 개인화)
 
 > 2026-04-07 | Eden
-> 관련 spec: `2026-04-07-recommendation-algorithm-design.md`, `2026-04-07-data-collection-design.md`
+> **업데이트 2026-04-16**: Tier 0 "화제의 책" 섹션 (fallback_curation) 이 Strategy C 로 변경됨 — 정보나루 + 알라딘 혼합. 큐레이션 내부 랭킹도 loan_count 단일 → 혼합 점수 (`loan_count_12mo*2 + loan_count*1 + sales_point*0.5`) 로 변경. 상세: `2026-04-16-data4library-aladin-hybrid-collection.md`
+> 관련 spec: `2026-04-07-recommendation-algorithm-design.md`, `2026-04-07-data-collection-design.md`, `2026-04-16-data4library-aladin-hybrid-collection.md`
 
 ## 1. 배경
 

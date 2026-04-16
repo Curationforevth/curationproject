@@ -450,7 +450,7 @@ Flutter "더보기" 탭용.
 | `refresh_curation_cache_all` | `5 * * * *` (hourly) | theme.selection_query 실행 → curation_cache upsert |
 | `aggregate_co_occurrence` | `0 17 * * *` (daily 02:00 KST) | user_books like 페어 full rebuild |
 | `refresh_user_top_taste_all` | `15 17 * * *` (daily 02:15) | 활성 유저 top_authors/top_l1s 갱신 (safety net, trigger 보완) |
-| `refresh_fallback_curation` | `30 17 * * *` (daily 02:30) | books top 30 by loan_count → fallback_curation |
+| `refresh_fallback_curation` | `30 17 * * *` (daily 02:30) | **Strategy C (2026-04-16 업데이트)**: 정보나루 loan_count_12mo top 20 + 알라딘 sales_point top 10 = fallback_curation 30권. 상세: `2026-04-16-data4library-aladin-hybrid-collection.md` |
 | `deactivate_curations` | `45 17 * * *` (daily 02:45) | 30일 노출 0 / 90일 click_rate<0.5% → is_active=FALSE |
 | `check_stage_transition` | `0 18 * * *` (daily 03:00) | 활성 유저 + co_pair 체크 → promote/rollback |
 | `cleanup_user_curation_history` | `0 20 1 * *` (monthly 1st) | 30일 초과 삭제 |
