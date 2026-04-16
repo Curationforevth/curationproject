@@ -23,9 +23,17 @@
 
 - [ ] GitHub Actions → Generate Curation Themes → workflow_dispatch (1회)
 - [ ] GitHub Actions → Generate Cluster Themes → workflow_dispatch (1회)
-- [ ] Supabase SQL Editor:
+
+- [ ] **loan_count 통일 backfill (신규 — 2026-04-16 추가)**
+  - 목적: 기존 2,700권의 loan_count 를 usageAnalysisList 기준으로 통일 + loan_count_12mo 채우기
+  - 실행: `python3 scripts/backfill_loan_count_unify.py`
+  - 소요: ~15분 (정보나루 API 2,700 호출)
+  - 사전조건: 20260416_loan_count_hybrid.sql migration 적용 완료
+  - 상세: `docs/superpowers/specs/2026-04-16-data4library-aladin-hybrid-collection.md`
+
+- [ ] Supabase SQL Editor (backfill 이후):
   ```sql
-  SELECT refresh_fallback_curation();
+  SELECT refresh_fallback_curation();   -- Strategy C: 정보나루 20 + 알라딘 10
   SELECT refresh_curation_cache_all();
   ```
 

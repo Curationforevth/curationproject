@@ -1,6 +1,7 @@
 # 도서 수집 & 임베딩 파이프라인 설계
 
 > 작성일: 2026-03-20
+> **업데이트 2026-04-16**: loan_count 소스 통일 + 알라딘 혼합 전략 도입. 상세는 `2026-04-16-data4library-aladin-hybrid-collection.md` 참조. 아래 본문 중 "SalesPoint 기준" 관련 내용은 섹션 8의 업데이트로 대체됨.
 > 상태: 설계 확정, 구현 대기
 > 리뷰: 스펙 리뷰 통과 (Critical/Important 이슈 반영 완료)
 
@@ -282,10 +283,14 @@ Daily Batch는 매일 반복 실행되므로, 상태 추적 방식 명확화:
 
 ### Stage 1 — 출시 전~초기 (현재)
 
-- **수집 기준**: 알라딘 SalesPoint (시장 판매량 = 수요 프록시)
+- **수집 기준** (업데이트 2026-04-16):
+  - 메인 발견: **정보나루 loanItemSrch/recommandList/srchBooks** (실제 독서 데이터)
+  - 정합성: 모든 신규 ISBN 은 **usageAnalysisList** 후처리로 `loan_count` (누적) + `loan_count_12mo` (최근) 통일 저장
+  - 보완: **알라딘 Bestseller/ItemNew** — 완전 초기 신간 커버 (정보나루 6~12개월 지연)
+  - fallback_curation 랭킹은 두 소스 Strategy C 로 혼합 (상세: `2026-04-16-data4library-aladin-hybrid-collection.md`)
 - Seed Layer 1회 + Daily Batch 매일 자동
-- 목표: ~90,000권 DB + Tier 1 임베딩 100% 커버
-- Tier 2 강화: SalesPoint 상위부터 점진적 처리
+- 목표: ~20,000권 DB + Tier 1 임베딩 100% 커버
+- Tier 2 강화: `loan_count_12mo` 상위부터 점진적 처리 (실제 최근 독서 기준)
 
 ### Stage 2 — 유저 데이터 축적 후
 

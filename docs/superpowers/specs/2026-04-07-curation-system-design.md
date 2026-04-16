@@ -214,7 +214,7 @@ def select_curations_for_user(user_id, n_sections=4):
 ### 6.2 Tier별 섹션 구성
 
 **Tier 0 (0~2권)** — 4 섹션:
-1. 화제의 책 (loan_count top, 제목 dedup, 항상 노출)
+1. 화제의 책 (fallback_curation — Strategy C: 정보나루 loan_count_12mo top 20 + 알라딘 sales_point top 10 보완, 제목 dedup, 항상 노출. 상세: `2026-04-16-data4library-aladin-hybrid-collection.md`)
 2. 동적 큐레이션 1 (general 중 가중 랜덤)
 3. 동적 큐레이션 2 (다른 type)
 4. 카테고리 탐색 (장르 트리, 정적)

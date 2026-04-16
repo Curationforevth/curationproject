@@ -255,9 +255,13 @@ Supabase Auth와 연동. 추가 프로필 정보 저장.
 | page_count | int | 페이지 수 (책등 너비 계산용) |
 | description | text | 줄거리/설명 |
 | genre | text | 장르 |
-| source | text | 'aladin' or 'kakao' |
+| source | text | 'aladin' / 'kakao' / 'data4library' |
 | source_id | text | 외부 API의 고유 ID |
-| sales_point | int | 알라딘 판매지수 (Tier 2 강화 우선순위) |
+| sales_point | int | 알라딘 판매지수 (판매 기반, 신간 빠르게 반영) |
+| loan_count | int | 정보나루 usageAnalysisList.book.loanCnt (누적 전체 대출수, 스테디셀러 지표) |
+| loan_count_12mo | int | 정보나루 loanHistory 최근 12개월 합 (최근 독서 트렌드) |
+| loan_count_source | text | 'usageAnalysisList' / 'loanItemSrch' / null (추적용) |
+| loan_count_updated_at | timestamptz | loan_count 마지막 갱신 시점 |
 | rich_description | text | YES24 상세 텍스트 (책소개/출판사리뷰/책속으로) |
 | library_keywords | text[] | 정보나루 키워드 (예: {"인생","성장","자아찾기"}) |
 | related_isbns | jsonb | 함께 빌린 책 ISBN (예: {"co_loan": ["978..."]}) |
