@@ -20,9 +20,18 @@ load_dotenv(os.path.join(REPO, ".env"))
 
 
 def rank_books_by_loan_count(books: list[dict]) -> list[dict]:
-    """Sort by loan_count desc, drop rows with null loan_count."""
+    """Sort by loan_count desc, drop rows with null loan_count, dedup by title."""
     valid = [b for b in books if b.get("loan_count") is not None]
-    return sorted(valid, key=lambda b: b["loan_count"], reverse=True)
+    valid.sort(key=lambda b: b["loan_count"], reverse=True)
+    seen_titles: set[str] = set()
+    deduped = []
+    for b in valid:
+        title = (b.get("title") or "").strip()
+        if title in seen_titles:
+            continue
+        seen_titles.add(title)
+        deduped.append(b)
+    return deduped
 
 
 def build_fallback_rows(ranked: list[dict], limit: int = 30) -> list[dict]:

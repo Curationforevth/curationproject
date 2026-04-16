@@ -214,7 +214,7 @@ def select_curations_for_user(user_id, n_sections=4):
 ### 6.2 Tier별 섹션 구성
 
 **Tier 0 (0~2권)** — 4 섹션:
-1. 화제의 책 (sales_point top, 항상 노출)
+1. 화제의 책 (loan_count top, 제목 dedup, 항상 노출)
 2. 동적 큐레이션 1 (general 중 가중 랜덤)
 3. 동적 큐레이션 2 (다른 type)
 4. 카테고리 탐색 (장르 트리, 정적)
