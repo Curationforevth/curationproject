@@ -11,10 +11,15 @@ cover_url 가 임의로 덮어쓰이는 문제를 방지한다.
       * 숫자:   더 큰 쪽 (loan_count, sales_point 최신값 우선)
       * None/빈값: 반대쪽이 non-empty 면 반대쪽 채택
   - source 는 새 값이 우선 (최근 수집 소스 추적)
+
+Strategy C 추가 (2026-04-16):
+  - `update_loan_count_by_book_id()`: 동일 작품 다른 ISBN 발견 시 기존 row 의
+    loan_count / loan_count_12mo 만 갱신. ISBN/title/cover 등 불변 → 재임베딩 회피.
 """
 from __future__ import annotations
 
-from typing import Any
+from datetime import datetime, timezone
+from typing import Any, Optional
 
 from .retry import with_retry
 
@@ -115,3 +120,33 @@ def upsert_books_rich_merge(sb, rows: list[dict], chunk_size: int = 200) -> int:
         total += len(merged_chunk)
 
     return total
+
+
+def update_loan_count_by_book_id(
+    sb, book_id: str, loan_count: int, loan_count_12mo: int,
+    source: str = "usageAnalysisList",
+    extra: Optional[dict] = None,
+):
+    """Strategy C: 기존 book_id 의 loan_count/loan_count_12mo 만 UPDATE.
+
+    ISBN/title/cover_url/author/description 등 기타 필드는 건드리지 않음.
+    → book_embeddings, book_love_reasons, rich_description 재생성 불필요.
+
+    Args:
+        book_id: 대상 row 의 UUID
+        loan_count: usageAnalysisList.book.loanCnt (누적 전체)
+        loan_count_12mo: sum(loanHistory.loanCnt) 최근 12개월
+        source: loan_count_source 추적값 (기본 'usageAnalysisList')
+        extra: 함께 업데이트할 추가 필드 (예: library_keywords, related_isbns)
+    """
+    payload = {
+        "loan_count": loan_count,
+        "loan_count_12mo": loan_count_12mo,
+        "loan_count_source": source,
+        "loan_count_updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if extra:
+        payload.update(extra)
+
+    with_retry(lambda: sb.table("books")
+               .update(payload).eq("id", book_id).execute())

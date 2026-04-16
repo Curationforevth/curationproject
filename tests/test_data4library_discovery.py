@@ -59,7 +59,8 @@ def test_sanitize_for_upsert_maps_columns():
     assert row["publisher"] == "창비"
     assert row["cover_url"] == "http://example.com/cover.jpg"
     assert row["loan_count"] == 3699
-    assert row["sales_point"] == 3699
+    # Strategy C (2026-04-16): sales_point 는 알라딘 전용 — sanitize 가 건드리지 않음
+    assert "sales_point" not in row
     assert "isbn13" not in row
     assert "kdc" not in row
     assert "addition_symbol" not in row

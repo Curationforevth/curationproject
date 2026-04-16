@@ -191,3 +191,85 @@ def test_build_monthly_keywords_params():
     assert p["authKey"] == "abc"
     assert p["month"] == "2026-03"
     assert p["format"] == "json"
+
+
+# ── Strategy C (2026-04-16) — parse_usage_analysis ──
+
+from scripts.lib.data4library_api import parse_usage_analysis
+
+
+def test_parse_usage_analysis_full_response():
+    response = {
+        "response": {
+            "book": {
+                "bookname": "소년이 온다",
+                "isbn13": "9788936434120",
+                "loanCnt": 215566,
+            },
+            "loanHistory": [
+                {"loan": {"month": "2025년 04월", "loanCnt": 2749}},
+                {"loan": {"month": "2025년 05월", "loanCnt": 2331}},
+                {"loan": {"month": "2025년 06월", "loanCnt": 2141}},
+            ],
+            "keywords": [
+                {"keyword": {"word": "광주", "weight": 0.9}},
+                {"keyword": {"word": "5월", "weight": 0.8}},
+            ],
+            "coLoanBooks": [
+                {"book": {"isbn13": "9788954682152", "bookname": "작별하지 않는다"}},
+                {"book": {"isbn13": "9788936433598", "bookname": "채식주의자"}},
+            ],
+        }
+    }
+    u = parse_usage_analysis(response)
+    assert u["loan_count"] == 215566
+    assert u["loan_count_12mo"] == 2749 + 2331 + 2141
+    assert u["library_keywords"] == ["광주", "5월"]
+    assert u["co_loan_isbns"] == ["9788954682152", "9788936433598"]
+    assert u["is_empty"] is False
+
+
+def test_parse_usage_analysis_empty_response():
+    u = parse_usage_analysis(None)
+    assert u["loan_count"] == 0
+    assert u["loan_count_12mo"] == 0
+    assert u["library_keywords"] == []
+    assert u["co_loan_isbns"] == []
+    assert u["is_empty"] is True
+
+
+def test_parse_usage_analysis_missing_fields():
+    response = {"response": {}}
+    u = parse_usage_analysis(response)
+    assert u["loan_count"] == 0
+    assert u["loan_count_12mo"] == 0
+    assert u["is_empty"] is True
+
+
+def test_parse_usage_analysis_malformed_loan_history():
+    response = {
+        "response": {
+            "book": {"loanCnt": "1000"},
+            "loanHistory": [
+                {"loan": {"loanCnt": "abc"}},         # non-int ignored
+                {"loan": {"loanCnt": "500"}},         # str parsed
+                {},                                    # empty dict ignored
+                None,                                  # None ignored
+                {"loan": None},                        # nested None ignored
+            ],
+        }
+    }
+    u = parse_usage_analysis(response)
+    assert u["loan_count"] == 1000
+    assert u["loan_count_12mo"] == 500  # only the valid one
+
+
+def test_parse_usage_analysis_co_loan_cap():
+    response = {
+        "response": {
+            "book": {"loanCnt": 1},
+            "coLoanBooks": [{"book": {"isbn13": f"isbn-{i}"}} for i in range(100)],
+        }
+    }
+    u = parse_usage_analysis(response)
+    assert len(u["co_loan_isbns"]) == 50  # CO_LOAN_CAP

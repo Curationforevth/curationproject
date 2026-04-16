@@ -5,19 +5,34 @@
 ISBN 중복은 DB의 unique constraint로 처리되지만,
 "1984" vs "1984 (특별판)"처럼 ISBN이 다른 동일 작품은 여기서 잡는다.
 
-사용법:
+사용법 (legacy):
     checker = DeduplicateChecker(supabase_client)
-    checker.load_title_index()  # 초기화 시 1회 호출
-
-    # 수집 루프 내에서:
-    if checker.is_title_duplicate(title, author):
+    checker.load_title_index()
+    if checker.is_title_duplicate(title, author, isbn):
         print("에디션 중복 → 스킵")
+
+사용법 (Strategy C, 2026-04-16):
+    action, existing_book_id = checker.check(title, author, isbn, loan_count)
+    if action == DedupAction.NEW:
+        # 신규 INSERT
+    elif action == DedupAction.UPDATE_LOAN_COUNT:
+        # 기존 existing_book_id 의 loan_count 만 업데이트
+    else:  # SKIP
+        # 동일 작품에 낮은 loan_count → 버림
 """
 
 import re
 from collections import defaultdict
+from enum import Enum
+from typing import Optional
 
 from .title_cleaner import clean_title
+
+
+class DedupAction(Enum):
+    NEW = "new"                    # 신규 ISBN — INSERT
+    SKIP = "skip"                  # 동일 작품 + 낮은 loan_count — 버림
+    UPDATE_LOAN_COUNT = "update"   # 동일 작품 + 높은 loan_count — 기존 row loan_count UPDATE
 
 
 def _normalize_for_dedup(title: str) -> str:
@@ -70,22 +85,25 @@ class DeduplicateChecker:
 
     DB의 기존 제목을 정규화해서 in-memory 인덱스로 보유.
     새 도서 수집 시 정규화된 제목+저자로 기존 도서 존재 여부 확인.
+
+    title_index 자료구조 (2026-04-16 업데이트):
+      (정규화_제목, 정규화_저자) → [{'isbn', 'book_id', 'loan_count'}, ...]
     """
 
     def __init__(self, supabase_client):
         self.sb = supabase_client
-        # (정규화 제목, 정규화 저자) → [isbn, ...]
+        # (정규화 제목, 정규화 저자) → [{'isbn', 'book_id', 'loan_count'}, ...]
         self.title_index = defaultdict(list)
 
     def load_title_index(self):
-        """DB에서 기존 제목+저자 인덱스 구축"""
+        """DB에서 기존 제목+저자 인덱스 구축 (id, loan_count 도 함께 저장)."""
         offset = 0
         page_size = 1000
         count = 0
 
         while True:
             result = self.sb.table("books").select(
-                "isbn, title, author"
+                "id, isbn, title, author, loan_count"
             ).range(offset, offset + page_size - 1).execute()
 
             if not result.data:
@@ -96,10 +114,14 @@ class DeduplicateChecker:
                 # DB raw title 에도 clean_title 을 먼저 적용한다.
                 title = clean_title(row.get("title", "") or "")
                 author = row.get("author", "")
-                isbn = row.get("isbn", "")
+                isbn = row.get("isbn", "") or ""
 
                 key = (_normalize_for_dedup(title), _normalize_author(author))
-                self.title_index[key].append(isbn)
+                self.title_index[key].append({
+                    "isbn": isbn,
+                    "book_id": row.get("id"),
+                    "loan_count": row.get("loan_count") or 0,
+                })
                 count += 1
 
             if len(result.data) < page_size:
@@ -110,13 +132,12 @@ class DeduplicateChecker:
 
     def is_title_duplicate(self, title: str, author: str, isbn: str = "") -> bool:
         """
-        새 도서가 기존 도서의 에디션 중복인지 확인
+        새 도서가 기존 도서의 에디션 중복인지 확인 (legacy API, 호환용 유지).
 
         Returns:
             True: 동일 작품이 이미 DB에 있음 → 스킵 권장
-            False: 새 작품 → 수집 진행
+            False: 새 작품 또는 같은 ISBN → 수집 진행 (upsert 로 갱신)
         """
-        # B3: load_title_index 와 동일한 normalization 경로
         key = (_normalize_for_dedup(clean_title(title or "")), _normalize_author(author))
         existing = self.title_index.get(key, [])
 
@@ -124,13 +145,62 @@ class DeduplicateChecker:
             return False
 
         # 같은 ISBN이면 중복이 아니라 업데이트 (upsert 대상)
-        if isbn and isbn in existing:
-            return False
+        if isbn:
+            for e in existing:
+                if e.get("isbn") == isbn:
+                    return False
 
         # 다른 ISBN으로 이미 존재 → 에디션 중복
         return True
 
-    def register(self, title: str, author: str, isbn: str):
-        """수집 완료 후 인덱스에 추가 (세션 내 중복 방지)"""
+    def check(
+        self, title: str, author: str, isbn: str, loan_count: int
+    ) -> tuple[DedupAction, Optional[str]]:
+        """동일 작품 판정 + loan_count 기반 action 결정 (Strategy C, 2026-04-16).
+
+        Returns:
+            (DedupAction.NEW, None)              — 신규 ISBN, INSERT 대상
+            (DedupAction.SKIP, None)             — 동일 작품이 더 높은 loan_count 로 있음
+            (DedupAction.UPDATE_LOAN_COUNT, book_id) — 동일 작품인데 새 loan_count 가 더 큼
+        """
+        key = (
+            _normalize_for_dedup(clean_title(title or "")),
+            _normalize_author(author or ""),
+        )
+        existing = self.title_index.get(key, [])
+
+        if not existing:
+            return (DedupAction.NEW, None)
+
+        # 같은 ISBN 이면 upsert_books_rich_merge 가 자체적으로 loan_count merge 처리
+        if isbn:
+            for e in existing:
+                if e.get("isbn") == isbn:
+                    return (DedupAction.NEW, None)
+
+        # 다른 ISBN — 최고 loan_count 에디션과 비교
+        best = max(existing, key=lambda e: e.get("loan_count") or 0)
+        best_lc = best.get("loan_count") or 0
+        if loan_count > best_lc:
+            return (DedupAction.UPDATE_LOAN_COUNT, best.get("book_id"))
+        return (DedupAction.SKIP, None)
+
+    def register(
+        self, title: str, author: str, isbn: str,
+        book_id: Optional[str] = None, loan_count: Optional[int] = None,
+    ):
+        """수집 완료 후 인덱스에 추가 (세션 내 중복 방지)."""
         key = (_normalize_for_dedup(clean_title(title or "")), _normalize_author(author))
-        self.title_index[key].append(isbn)
+        self.title_index[key].append({
+            "isbn": isbn or "",
+            "book_id": book_id,
+            "loan_count": loan_count or 0,
+        })
+
+    def update_loan_count(self, book_id: str, loan_count: int):
+        """세션 내 loan_count 갱신 (UPDATE_LOAN_COUNT 분기 후 호출)."""
+        for entries in self.title_index.values():
+            for e in entries:
+                if e.get("book_id") == book_id:
+                    e["loan_count"] = loan_count
+                    return
