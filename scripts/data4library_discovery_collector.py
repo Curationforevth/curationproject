@@ -178,6 +178,7 @@ class DiscoveryCollector:
             "filtered_isbn_dup": 0,
             "filtered_edition_dup": 0,
             "usage_api_errors": 0,
+            "skipped_usage_fail": 0,
             "updated_existing_loan_count": 0,
             "upserted": 0,
             "errors": 0,
@@ -354,11 +355,23 @@ class DiscoveryCollector:
             author = extract_first_author(r.get("author_raw"))
             isbn = r["isbn13"]
 
-            # usageAnalysisList — 정확한 loan_count 확보
-            usage = None if self.dry_run else self._fetch_accurate_loan_count(isbn)
-            accurate_loan_count = (usage or {}).get("loan_count") or r.get("loan_count") or 0
-            accurate_loan_12mo = (usage or {}).get("loan_count_12mo") or 0
-            time.sleep(REQUEST_DELAY)
+            # usageAnalysisList — 정확한 loan_count 확보. Strategy C 원칙상
+            # loan_count 는 usageAnalysisList 누적값으로만 통일한다. loanItemSrch
+            # 기간값은 dedup 비교/저장에 쓰지 않는다 (소스 오염 방지).
+            if self.dry_run:
+                # dry-run: API 호출 없이 loanItemSrch 추정값으로 흐름만 검증
+                usage = None
+                accurate_loan_count = r.get("loan_count") or 0
+                accurate_loan_12mo = 0
+            else:
+                usage = self._fetch_accurate_loan_count(isbn)
+                time.sleep(REQUEST_DELAY)
+                if usage is None:
+                    # usageAnalysisList 실패 → 이 row 스킵 (다음 run 에서 재시도).
+                    self.stats["skipped_usage_fail"] += 1
+                    continue
+                accurate_loan_count = usage.get("loan_count") or 0  # 0 도 유효한 누적값
+                accurate_loan_12mo = usage.get("loan_count_12mo") or 0
 
             # dedup 판정
             action, existing_book_id = self.dedup.check(

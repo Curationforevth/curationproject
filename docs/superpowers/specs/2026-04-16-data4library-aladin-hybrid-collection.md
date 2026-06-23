@@ -183,6 +183,12 @@ $$ LANGUAGE plpgsql;
 
 ## 6. 큐레이션 내부 랭킹 (genre_combo / keyword / cluster)
 
+> ⚠️ **상태: Phase 2 이월 (미구현)**. 현재 `refresh_curation_cache_all()`
+> (migration `20260415_phase1b_12_functions_curation.sql`) 은 아직
+> `ORDER BY loan_count DESC NULLS LAST` 를 사용한다. 아래 혼합 점수는
+> 출시 후 30일 CTR 데이터를 보고 적용한다. fallback_curation (§5) 만 Strategy C
+> 혼합이 적용된 상태.
+
 기존: `ORDER BY loan_count DESC NULLS LAST`
 
 신규: 혼합 점수
@@ -353,6 +359,10 @@ for row in rows:
     # SKIP 은 no-op
 ```
 
+**usageAnalysisList 실패 시**: `usage is None` 이면 해당 row 를 **스킵** (다음 run 재시도).
+loanItemSrch 기간값으로 폴백하면 loan_count 소스가 오염되므로 절대 폴백하지 않는다.
+또한 `usage['loan_count']` 가 0 이어도 0 은 유효한 누적값이므로 그대로 쓴다 (falsy 폴백 금지).
+
 `sanitize_for_upsert()` 에서 `sales_point: parsed.get('loan_count') or 0` 덮어쓰기 **버그 제거**.
 
 ### 7.6 `scripts/backfill_loan_count_unify.py` (신규)
@@ -408,19 +418,21 @@ BEGIN
       SELECT DISTINCT ON (title) id, title, loan_count_12mo, loan_count
       FROM books
       WHERE loan_count_12mo IS NOT NULL
+        AND title IS NOT NULL
       ORDER BY title, loan_count_12mo DESC NULLS LAST
     ),
     d4l_top AS (
-      SELECT id, loan_count_12mo AS sort_val, loan_count, 1 AS priority
+      SELECT id, title, loan_count_12mo AS sort_val, loan_count, 1 AS priority
       FROM d4l ORDER BY loan_count_12mo DESC LIMIT 20
     ),
+    -- NOT EXISTS 사용. NOT IN + NULL title 조합은 전체 조건을 UNKNOWN 으로
+    -- 만들어 알라딘 보완분이 통째로 빠지는 함정이 있어 회피.
     aladin_new AS (
       SELECT b.id, b.sales_point AS sort_val, b.loan_count, 2 AS priority
       FROM books b
-      LEFT JOIN (
-        SELECT d.id, b2.title FROM d4l_top d JOIN books b2 ON b2.id = d.id
-      ) dt ON dt.title = b.title
-      WHERE b.sales_point IS NOT NULL AND b.sales_point > 0 AND dt.id IS NULL
+      WHERE b.sales_point IS NOT NULL AND b.sales_point > 0
+        AND b.title IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM d4l_top dt WHERE dt.title = b.title)
       ORDER BY b.sales_point DESC LIMIT 10
     ),
     combined AS (

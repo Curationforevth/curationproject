@@ -253,3 +253,68 @@ def test_fetch_tier2_seeds_from_db_empty_when_no_books():
 
     seeds = c.fetch_tier2_seeds_from_db(top_n=10)
     assert seeds == []
+
+
+# ============================================================
+# Strategy C: usageAnalysisList 실패 시 row 스킵 (loanItemSrch 기간값 폴백 금지)
+# ============================================================
+
+def test_filter_and_upsert_skips_row_when_usage_fails():
+    """usageAnalysisList 실패(None) 시 loanItemSrch 기간값으로 폴백하지 않고
+    해당 row 를 스킵한다 (loan_count 소스 오염 방지)."""
+    from scripts.data4library_discovery_collector import DiscoveryCollector
+
+    c = DiscoveryCollector(dry_run=False)
+    c._sb = MagicMock()
+    c._dedup = MagicMock()  # property 가 DB 로딩 없이 이걸 반환
+    c._api_key = "x"
+
+    rows = [{
+        "isbn13": "9788936434120",
+        "title": "소년이 온다",
+        "author_raw": "지은이: 한강",
+        "addition_symbol": "03810",  # 성인 단행본
+        "class_name": "",
+        "loan_count": 100,  # loanItemSrch 기간값 — 저장되면 안 됨
+    }]
+
+    with patch.object(c, "_fetch_accurate_loan_count", return_value=None), \
+         patch("scripts.data4library_discovery_collector.time.sleep"):
+        upserted = c.filter_and_upsert(rows)
+
+    assert upserted == 0
+    assert c.stats["skipped_usage_fail"] == 1
+    # usage 실패 시 dedup 비교/upsert 경로로 진입하지 않는다
+    c.dedup.check.assert_not_called()
+
+
+def test_filter_and_upsert_uses_usage_loan_count_not_loanitem():
+    """usageAnalysisList 성공 시 그 누적값을 dedup 에 넘긴다 (loanItemSrch 값 아님)."""
+    from scripts.data4library_discovery_collector import DiscoveryCollector
+    from scripts.lib.dedup_checker import DedupAction
+
+    c = DiscoveryCollector(dry_run=False)
+    c._sb = MagicMock()
+    c._dedup = MagicMock()
+    c._dedup.check.return_value = (DedupAction.SKIP, None)  # 비교 후 스킵 처리
+    c._api_key = "x"
+
+    rows = [{
+        "isbn13": "9788936434120",
+        "title": "소년이 온다",
+        "author_raw": "지은이: 한강",
+        "addition_symbol": "03810",
+        "class_name": "",
+        "loan_count": 100,  # loanItemSrch 기간값
+    }]
+
+    usage = {"loan_count": 5000, "loan_count_12mo": 300,
+             "library_keywords": [], "co_loan_isbns": []}
+    with patch.object(c, "_fetch_accurate_loan_count", return_value=usage), \
+         patch("scripts.data4library_discovery_collector.time.sleep"):
+        c.filter_and_upsert(rows)
+
+    # check 에 넘어간 loan_count 는 usageAnalysisList 누적값(5000)이어야 함
+    args, kwargs = c.dedup.check.call_args
+    assert 5000 in args  # (title, author, isbn, 5000)
+    assert 100 not in args  # loanItemSrch 기간값은 쓰이지 않음
