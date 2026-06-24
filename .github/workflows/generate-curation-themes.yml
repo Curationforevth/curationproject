@@ -19,3 +19,6 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # config.py가 import 시점에 OPENAI_API_KEY를 필수로 요구하므로 (이 스크립트는
+          # OpenAI를 직접 쓰진 않지만) cluster-themes 워크플로우와 동일하게 전달.
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
