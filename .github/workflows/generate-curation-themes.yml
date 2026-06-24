@@ -1,0 +1,21 @@
+name: Generate Curation Themes
+
+on:
+  schedule:
+    - cron: '30 19 * * 1'  # Mon 04:30 KST
+  workflow_dispatch:
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - run: pip install -r recommendation-server/requirements.txt
+      - run: cd recommendation-server && python scripts/generate_curation_themes.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

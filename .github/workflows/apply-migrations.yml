@@ -1,0 +1,56 @@
+name: Apply Migrations
+
+on:
+  push:
+    branches: [main]
+    paths: ['supabase/migrations/**']
+  workflow_dispatch:
+    inputs:
+      first_run:
+        description: 'Bootstrap: register existing migrations as applied without executing'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false', 'true']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apply-migrations
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link Supabase project
+        run: supabase link --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+
+      - name: Bootstrap existing migrations (first-run only)
+        if: ${{ github.event.inputs.first_run == 'true' }}
+        run: |
+          shopt -s nullglob
+          files=(supabase/migrations/*.sql)
+          if (( ${#files[@]} == 0 )); then
+            echo "No migrations to bootstrap."
+            exit 0
+          fi
+          for f in "${files[@]}"; do
+            base=$(basename "$f" .sql)
+            version=$(echo "$base" | awk -F_ '{print $1}')
+            echo "Repairing $version as applied..."
+            supabase migration repair --status applied "$version" --password "$SUPABASE_DB_PASSWORD"
+          done
+
+      - name: Push pending migrations
+        run: supabase db push --password "$SUPABASE_DB_PASSWORD" --include-all < /dev/null

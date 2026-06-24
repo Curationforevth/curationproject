@@ -3,11 +3,10 @@ from __future__ import annotations
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from auth import verify_jwt
 from models import RecommendResponse, BookScore
-from engine.scorer import recommend_scores
-from engine.twostage import stage1_hybrid, batch_score_prestacked
+from engine.recommend_core import compute_scored_books
 from engine.utils import to_np
 from engine.cache import compute_input_hash, load_cache, save_cache_if_current
-from config import DEFAULT_RECOMMEND_LIMIT, STAGE1_TOP_N, CACHE_TOP_N, get_supabase
+from config import DEFAULT_RECOMMEND_LIMIT, get_supabase
 
 router = APIRouter()
 
@@ -27,6 +26,32 @@ async def get_recommendations(
     books_meta = request.app.state.books_meta
 
     sb = get_supabase()
+
+    # Phase 1B — Tier 체크 먼저. Tier 0/1 은 feedback_embedding 조회 생략 (I1)
+    us_res = sb.table("user_state").select("current_tier").eq("user_id", user_id).limit(1).execute()
+    current_tier = (us_res.data[0]["current_tier"] if us_res.data else 0)
+    if current_tier < 2:
+        # rating 만 조회 — feedback_embedding 불필요
+        ub_res = sb.table("user_books").select("rating").eq("user_id", user_id).execute()
+        data = ub_res.data or []
+        if not data:
+            return RecommendResponse(
+                user_id=user_id, recommendations=[],
+                meta={"total_liked": 0, "total_disliked": 0, "has_feedback": False},
+            )
+        return RecommendResponse(
+            user_id=user_id,
+            recommendations=[],
+            meta={
+                "total_liked": sum(1 for r in data if r.get("rating") == "good"),
+                "total_disliked": sum(1 for r in data if r.get("rating") == "bad"),
+                "has_feedback": False,  # Tier 0/1 에선 어차피 사용 안 하므로 False
+                "tier": current_tier,
+                "reason": "insufficient_likes",
+            },
+        )
+
+    # Tier 2 — feedback_embedding 포함 full fetch
     ub_res = sb.table("user_books").select(
         "book_id,rating,feedback_embedding"
     ).eq("user_id", user_id).execute()
@@ -94,23 +119,15 @@ async def get_recommendations(
             has_feedback = True
             fb_data[bid] = {"emb": to_np(fb_emb), "is_dislike": rating == "bad"}
 
-    prestacked = request.app.state.prestacked_reasons
-    if prestacked is not None:
-        # v4 two-stage
-        candidates = stage1_hybrid(
-            liked_books, fb_data,
-            request.app.state.desc_matrix_f16,
-            request.app.state.agg_reason_matrix_f16,
-            request.app.state.bid_order,
-            top_n=STAGE1_TOP_N,
-        )
-        scores = batch_score_prestacked(
-            index, liked_books, fb_data, candidates, prestacked)
-    else:
-        # v3 fallback: brute-force scoring
-        scores = recommend_scores(index, liked_books, fb_data)
-
-    sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:CACHE_TOP_N]
+    sorted_scores = compute_scored_books(
+        index=index,
+        liked_books=liked_books,
+        fb_data=fb_data,
+        prestacked_reasons=request.app.state.prestacked_reasons,
+        desc_matrix_f16=request.app.state.desc_matrix_f16,
+        agg_reason_matrix_f16=request.app.state.agg_reason_matrix_f16,
+        bid_order=request.app.state.bid_order,
+    )
 
     recs = []
     recs_for_cache: list[dict] = []

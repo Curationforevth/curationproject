@@ -36,43 +36,25 @@ except ImportError:
 #  exit 0 으로 끝나는 사고가 있었음. 반드시 실제 retry 가 돌아야 한다.)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from lib.retry import with_retry  # noqa: E402
+from lib.data4library_api import (  # noqa: E402
+    fetch_usage_analysis as _fetch_usage_analysis,
+    parse_usage_analysis,
+)
 
 
-CO_LOAN_CAP = 50
 REQUEST_DELAY = 0.5
 
 
-# --- 순수 함수 (테스트 가능) ---
+# --- 순수 함수 (테스트 가능, legacy 호환) ---
 
 def parse_keywords(response):
-    """API 응답에서 키워드 리스트 추출."""
-    if not response:
-        return []
-    try:
-        keywords = response.get("response", {}).get("keywords", [])
-        return [
-            kw["keyword"]["word"]
-            for kw in keywords
-            if kw.get("keyword", {}).get("word")
-        ]
-    except (KeyError, TypeError):
-        return []
+    """API 응답에서 키워드 리스트 추출 (legacy helper — parse_usage_analysis 권장)."""
+    return parse_usage_analysis(response).get("library_keywords", [])
 
 
 def parse_co_loan_books(response):
-    """API 응답에서 함께 빌린 책 ISBN 리스트 추출. 최대 50개."""
-    if not response:
-        return []
-    try:
-        books = response.get("response", {}).get("coLoanBooks", [])
-        isbns = [
-            b["book"]["isbn13"]
-            for b in books
-            if b.get("book", {}).get("isbn13")
-        ]
-        return isbns[:CO_LOAN_CAP]
-    except (KeyError, TypeError):
-        return []
+    """API 응답에서 함께 빌린 책 ISBN 리스트 추출 (legacy helper)."""
+    return parse_usage_analysis(response).get("co_loan_isbns", [])
 
 
 # --- 수집기 클래스 ---
@@ -90,7 +72,8 @@ class Data4LibraryCollector:
         self._api_key = None  # lazy init — --status에서는 불필요
         self.stats = {
             "processed": 0, "keywords_found": 0,
-            "co_loan_found": 0, "empty": 0, "errors": 0,
+            "co_loan_found": 0, "loan_count_updated": 0,
+            "empty": 0, "errors": 0,
         }
 
     @property
@@ -126,34 +109,33 @@ class Data4LibraryCollector:
         return all_books[:limit]
 
     def fetch_usage(self, isbn):
-        """usageAnalysisList API 호출 → (keywords, co_loan_isbns)."""
-        url = f"{self.API_BASE}/usageAnalysisList"
-        params = {
-            "authKey": self.api_key,
-            "isbn13": isbn,
-            "format": "json",
-        }
+        """usageAnalysisList API 호출 → parsed dict (loan_count 포함).
+
+        Returns parse_usage_analysis dict:
+          loan_count, loan_count_12mo, library_keywords, co_loan_isbns, is_empty
+        """
         try:
-            r = requests.get(url, params=params, timeout=15)
-            r.raise_for_status()
-            if not r.text.strip():
-                # D3 (I5): 빈 body 는 transient 로 간주 → 예외로 raise.
-                # 정상적인 "데이터 없음" 은 JSON 빈 배열로 내려옴.
-                # return [], [] 하면 library_keywords=[] 로 영구 persist 돼
-                # 다음 런에서 재시도 대상에서 빠진다.
-                raise RuntimeError(f"빈 응답 body (transient 의심, isbn={isbn})")
-            data = r.json()
-            keywords = parse_keywords(data)
-            co_loan = parse_co_loan_books(data)
-            return keywords, co_loan
+            raw = _fetch_usage_analysis(self.api_key, isbn, timeout=15.0)
+            return parse_usage_analysis(raw)
         except Exception as e:
             raise RuntimeError(f"API 호출 실패 ({isbn}): {e}")
 
-    def _save(self, book_id, keywords, co_loan_isbns):
-        """books 테이블에 키워드 + 연관도서 저장."""
+    def _save(self, book_id, usage):
+        """books 테이블에 Strategy C 필드 일괄 저장.
+
+        usage = parse_usage_analysis 결과 dict.
+        """
         if self.dry_run:
             return
-        update = {"library_keywords": keywords if keywords else []}
+        from datetime import datetime, timezone
+        update = {
+            "library_keywords": usage.get("library_keywords") or [],
+            "loan_count": usage.get("loan_count") or 0,
+            "loan_count_12mo": usage.get("loan_count_12mo") or 0,
+            "loan_count_source": "usageAnalysisList",
+            "loan_count_updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        co_loan_isbns = usage.get("co_loan_isbns") or []
         if co_loan_isbns:
             update["related_isbns"] = {"co_loan": co_loan_isbns}
         with_retry(lambda: (
@@ -177,22 +159,27 @@ class Data4LibraryCollector:
         for i, book in enumerate(books):
             isbn = book["isbn"]
             try:
-                keywords, co_loan = self.fetch_usage(isbn)
+                usage = self.fetch_usage(isbn)
 
-                self._save(book["id"], keywords, co_loan)
+                self._save(book["id"], usage)
 
                 self.stats["processed"] += 1
+                keywords = usage.get("library_keywords") or []
+                co_loan = usage.get("co_loan_isbns") or []
+                loan_count = usage.get("loan_count") or 0
                 if keywords:
                     self.stats["keywords_found"] += 1
                 if co_loan:
                     self.stats["co_loan_found"] += 1
-                if not keywords and not co_loan:
+                if loan_count > 0:
+                    self.stats["loan_count_updated"] += 1
+                if usage.get("is_empty"):
                     self.stats["empty"] += 1
 
                 if self.stats["processed"] % 50 == 0 or self.stats["processed"] <= 3:
                     prefix = "(dry-run) " if self.dry_run else ""
                     print(f"  {prefix}{self.stats['processed']}/{len(books)}: "
-                          f"kw={len(keywords)} co={len(co_loan)}")
+                          f"kw={len(keywords)} co={len(co_loan)} lc={loan_count}")
 
             except Exception as e:
                 self.stats["errors"] += 1
@@ -214,6 +201,7 @@ class Data4LibraryCollector:
         print(f"  처리 완료: {s['processed']}권")
         print(f"  키워드 있음: {s['keywords_found']}권")
         print(f"  연관도서 있음: {s['co_loan_found']}권")
+        print(f"  loan_count 수집: {s['loan_count_updated']}권")
         print(f"  데이터 없음: {s['empty']}권")
         print(f"  에러: {s['errors']}건")
         print(f"{'=' * 50}")

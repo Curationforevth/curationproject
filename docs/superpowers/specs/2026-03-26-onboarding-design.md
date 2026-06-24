@@ -37,7 +37,9 @@ Welcome → 책 선택 → 첫 피드백 → 서재 완성
 - 프로그레스 바: "2/5" (최소 5권 권장, 강제 아님)
 - 탭 = 즉시 "읽음" 체크 (상태 선택 없음, 가볍게)
 - 하단 검색바: 직접 검색도 가능
-- 데이터 소스: books 테이블에서 sales_point 높은 순, 커버 이미지 있는 책
+- 데이터 소스: `fallback_curation` 테이블 (Strategy C — 정보나루 loan_count_12mo top 20 + 알라딘 sales_point top 10 보완)
+- 자세한 혼합 전략은 `docs/superpowers/specs/2026-04-16-data4library-aladin-hybrid-collection.md` 참조
+- 표지 이미지 있는 책만, 제목 기준 중복 제거
 - 0권이어도 "건너뛰기"로 진행 가능
 
 ---

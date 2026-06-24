@@ -1,8 +1,8 @@
 # 일일 파이프라인 — 단계별 독립 job, 가능한 병렬 실행.
 #
 # 의존성 구조:
-#   [병렬] discovery, collect, enrich  ← 각각 독립적으로 실행 가능
-#   [순차] build-and-recompute ← 위 3개 완료 후
+#   [병렬] discovery, collect, enrich, refresh-loan-count  ← 각각 독립적으로 실행 가능
+#   [순차] build-and-recompute ← discovery, collect, enrich 완료 후
 #
 # enrich는 이미 DB에 있는 rich_description 보유 책을 처리하므로
 # discovery/collect 완료를 기다릴 필요 없음.
@@ -102,6 +102,23 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: python3 scripts/tier2_embedder.py
+
+  # ── 대출 수 갱신: 기존 책 loan_count 순환 갱신 ──────
+  refresh-loan-count:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r scripts/requirements.txt
+      - name: Refresh loan_count (oldest 200)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          DATA4LIBRARY_API_KEY: ${{ secrets.DATA4LIBRARY_API_KEY }}
+        run: python3 scripts/refresh_loan_count.py --limit 200
 
   # ── 마무리: 인덱스 빌드 + 취향 재계산 (모두 완료 후) ──
   build-and-recompute:

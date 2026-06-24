@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import os
+import psutil
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from api.recommend import router as recommend_router
 from api.similar import router as similar_router
 from api.feedback import router as feedback_router
+from api.home import router as home_router
+from api.curation import router as curation_router
 
 
 @asynccontextmanager
@@ -27,20 +31,22 @@ app = FastAPI(title="Curation Recommendation Server", lifespan=lifespan)
 app.include_router(recommend_router)
 app.include_router(similar_router)
 app.include_router(feedback_router)
+app.include_router(home_router)
+app.include_router(curation_router)
 
 
 @app.get("/health")
 async def health(request: Request):
-    index = getattr(request.app.state, "index", None)
-    total_reasons = 0
-    if index:
-        for bv in index._books.values():
-            total_reasons += len(bv.reasons)
-    built_at = getattr(request.app.state, "built_at", "")
+    state = request.app.state
+    ver = "v4-prestacked" if getattr(state, "prestacked_reasons", None) else "v3-float16"
+    mem_mb = psutil.Process(os.getpid()).memory_info().rss // (1024 * 1024)
     return {
         "status": "ok",
-        "books_loaded": len(index.book_ids) if index else 0,
-        "total_reasons": total_reasons,
-        "index_built_at": built_at,
-        "version": "v4-prestacked" if getattr(request.app.state, "prestacked_reasons", None) is not None else "v3-float16",
+        "version": ver,
+        "books_loaded": len(getattr(state, "bid_order", []) or []),
+        "total_reasons": sum(len(r) for r in (getattr(state, "prestacked_reasons", {}) or {}).values()) if getattr(state, "prestacked_reasons", None) else 0,
+        "index_built_at": getattr(state, "built_at", None),
+        "memory_mb": mem_mb,
+        "cache_hits": getattr(state, "cache_hits", 0),
+        "cache_misses": getattr(state, "cache_misses", 0),
     }

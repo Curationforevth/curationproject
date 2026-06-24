@@ -12,7 +12,10 @@ from unittest.mock import MagicMock, patch
 
 
 def test_fetch_usage_raises_on_empty_body():
-    """D3 (I5): 빈 body 는 transient 로 raise — library_keywords=[] 영구 persist 방지."""
+    """D3 (I5): 빈 body 는 transient 로 raise — library_keywords=[] 영구 persist 방지.
+
+    Strategy C (2026-04-16): fetch_usage 는 lib.data4library_api.fetch_usage_analysis 위임.
+    """
     import data4library_collector
     import pytest
     with patch.object(data4library_collector, "create_client", return_value=MagicMock()):
@@ -23,8 +26,8 @@ def test_fetch_usage_raises_on_empty_body():
         fake_resp.text = ""
         fake_resp.raise_for_status = MagicMock()
 
-        with patch("data4library_collector.requests.get", return_value=fake_resp):
-            with pytest.raises(RuntimeError, match="transient"):
+        with patch("lib.data4library_api.requests.get", return_value=fake_resp):
+            with pytest.raises(RuntimeError, match="API 호출 실패"):
                 c.fetch_usage("9781234567890")
 
 
@@ -53,7 +56,8 @@ def test_parse_keywords_empty_or_malformed():
 
 
 def test_parse_co_loan_books_caps_at_50():
-    from data4library_collector import parse_co_loan_books, CO_LOAN_CAP
+    from data4library_collector import parse_co_loan_books
+    from lib.data4library_api import CO_LOAN_CAP
     response = {"response": {"coLoanBooks": [
         {"book": {"isbn13": f"978{i:010d}"}}
         for i in range(100)
@@ -95,15 +99,24 @@ def test_run_returns_one_on_errors():
 
 
 def test_run_returns_zero_on_success():
+    """Strategy C (2026-04-16): fetch_usage 가 parse_usage_analysis dict 반환."""
     import data4library_collector
     with patch.object(data4library_collector, "create_client", return_value=MagicMock()):
         c = data4library_collector.Data4LibraryCollector(dry_run=True)
         books = [{"id": "b1", "isbn": "9781234567890"}]
+        fake_usage = {
+            "loan_count": 1000,
+            "loan_count_12mo": 300,
+            "library_keywords": ["사랑"],
+            "co_loan_isbns": ["9789999999999"],
+            "is_empty": False,
+        }
         with patch.object(c, "fetch_books_needing_collection", return_value=books):
-            with patch.object(c, "fetch_usage", return_value=(["사랑"], ["9789999999999"])):
+            with patch.object(c, "fetch_usage", return_value=fake_usage):
                 with patch("time.sleep"):
                     rc = c.run(limit=1)
     assert rc == 0
     assert c.stats["processed"] == 1
     assert c.stats["keywords_found"] == 1
     assert c.stats["co_loan_found"] == 1
+    assert c.stats["loan_count_updated"] == 1
