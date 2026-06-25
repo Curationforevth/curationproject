@@ -10,6 +10,10 @@ from api.feedback import router as feedback_router
 from api.home import router as home_router
 from api.curation import router as curation_router
 
+# 배포 검증용 코드 리비전 마커. /health 로 어떤 코드가 라이브인지 관측한다
+# (feedback 게이트 해제 + home similar fix 가 포함된 이미지인지 확인용).
+CODE_REV = "goal1-feedback-similar-20260625"
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -43,6 +47,7 @@ async def health(request: Request):
     return {
         "status": "ok",
         "version": ver,
+        "code_rev": CODE_REV,
         "books_loaded": len(getattr(state, "bid_order", []) or []),
         "total_reasons": sum(len(r) for r in (getattr(state, "prestacked_reasons", {}) or {}).values()) if getattr(state, "prestacked_reasons", None) else 0,
         "index_built_at": getattr(state, "built_at", None),
