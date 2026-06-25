@@ -16,13 +16,17 @@ from datetime import datetime, timezone
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import numpy as np
+import requests
 from supabase import create_client
 from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 from engine.index import VectorIndex
-from config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, EMBEDDING_DIMENSIONS
+from config import (
+    SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, EMBEDDING_DIMENSIONS,
+    OPENAI_API_KEY, EMBEDDING_MODEL,
+)
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 OUTPUT_PATH = os.path.join(OUTPUT_DIR, "index.pkl")
@@ -35,6 +39,7 @@ PAGE_SIZE_VECTOR = 1000
 MAX_RETRIES = 3
 RETRY_BACKOFF = 10
 PAGE_SLEEP = 0  # read-only fetch — sleep 불필요
+EMBED_BATCH = 128  # build 시점 reason 텍스트 배치 임베딩 크기
 
 
 def _to_np(vec) -> np.ndarray:
@@ -43,6 +48,41 @@ def _to_np(vec) -> np.ndarray:
     a = np.array(vec, dtype=np.float32)
     norm = np.linalg.norm(a)
     return a / norm if norm > 0 else a
+
+
+def _embed_batch(texts: list[str]) -> list[list[float]]:
+    """OpenAI 임베딩 배치 호출 (build 시점 reason 텍스트 임베딩).
+
+    Supabase 의 reason_embedding 은 free-tier(500MB) 위해 비워둠(NULL). reason
+    벡터를 Supabase 에 327MB 로 다시 저장하는 대신, build 시점에 텍스트를 임베딩해
+    index.pkl 에만 싣는다 → 재빌드가 reason(제품 #1 차별점)을 잃지 않는다.
+    api/feedback.py:_embed_text 와 동일 모델/차원(text-embedding-3-large, 2000d).
+    """
+    out: list[list[float]] = []
+    for i in range(0, len(texts), EMBED_BATCH):
+        chunk = texts[i:i + EMBED_BATCH]
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                resp = requests.post(
+                    "https://api.openai.com/v1/embeddings",
+                    headers={"Authorization": f"Bearer {OPENAI_API_KEY}",
+                             "Content-Type": "application/json"},
+                    json={"model": EMBEDDING_MODEL, "input": chunk,
+                          "dimensions": EMBEDDING_DIMENSIONS},
+                    timeout=60,
+                )
+                resp.raise_for_status()
+                out.extend(d["embedding"] for d in resp.json()["data"])
+                break
+            except Exception as e:
+                print(f"  [embed retry {attempt}/{MAX_RETRIES}] {e}", flush=True)
+                if attempt == MAX_RETRIES:
+                    raise
+                time.sleep(RETRY_BACKOFF * attempt)
+        if (i // EMBED_BATCH) % 10 == 0:
+            done = min(i + EMBED_BATCH, len(texts))
+            print(f"  [build] embedded reasons {done}/{len(texts)}", flush=True)
+    return out
 
 
 def _fetch_paginated(sb, table: str, select: str, page_size: int,
@@ -141,22 +181,35 @@ def build(dry_run: bool = False, incremental: bool = False):
 
     def _fetch_reasons_task():
         client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-        print("[build] Loading reason embeddings...", flush=True)
+        print("[build] Loading reason TEXT (build-time embedding)...", flush=True)
+        # Supabase 의 reason_embedding 은 free-tier(500MB) 위해 NULL. reason 텍스트만
+        # 읽어 build 시점에 임베딩한다 → 벡터는 pkl 에만 존재, 재빌드가 reason(제품 #1
+        # 차별점)을 잃지 않는다. (과거: build 가 NULL reason_embedding 을 읽어 재빌드
+        # 시 reason 0 이 되는 무음 소실 버그.)
         raw = _fetch_paginated(
-            client, "book_love_reasons", "book_id,reason_embedding",
-            PAGE_SIZE_VECTOR,
-            filters={"reason_embedding": ("not.is", "null")})
-        by_book = {}
-        for r in raw:
-            if r.get("reason_embedding") is not None:
-                bid = r["book_id"]
-                emb = _to_np(r["reason_embedding"])
-                assert emb.shape[0] == EMBEDDING_DIMENSIONS
-                if bid not in by_book:
-                    by_book[bid] = []
-                by_book[bid].append(emb)
+            client, "book_love_reasons", "book_id,reason", PAGE_SIZE_VECTOR)
+        pairs = [(r["book_id"], r["reason"]) for r in raw
+                 if r.get("reason") and r["reason"].strip()]
+        if not pairs:
+            print("  → 0 reason texts found", flush=True)
+            return {}
+        if dry_run:
+            # dry-run 은 비용 회피 — 경로 검증용으로 일부만 임베딩
+            sample = pairs[:50]
+            print(f"  [dry-run] {len(pairs)} reason texts found; "
+                  f"embedding sample {len(sample)} to verify path", flush=True)
+            pairs = sample
+        texts = [t for _, t in pairs]
+        print(f"  [build] embedding {len(texts)} reason texts...", flush=True)
+        embs = _embed_batch(texts)
+        by_book: dict = {}
+        for (bid, _), emb in zip(pairs, embs):
+            arr = _to_np(emb)
+            assert arr.shape[0] == EMBEDDING_DIMENSIONS
+            by_book.setdefault(bid, []).append(arr)
         total = sum(len(v) for v in by_book.values())
-        print(f"  → {total} reasons across {len(by_book)} books", flush=True)
+        print(f"  → {total} reasons across {len(by_book)} books "
+              f"(build-time embedded)", flush=True)
         return by_book
 
     # Group A: 가벼운 테이블 2개 동시
@@ -176,6 +229,14 @@ def build(dry_run: bool = False, incremental: bool = False):
         reasons_by_book = f_reasons.result()
 
     total_reasons = sum(len(v) for v in reasons_by_book.values())
+
+    # reason 무음 소실 가드: reason 은 제품 #1 차별점(W_REASON). 실빌드에서 0 이면
+    # (임베딩 실패/텍스트 누락) 중단해 reason 없는 인덱스가 prod 에 배포되지 않게 한다.
+    if not dry_run and total_reasons == 0:
+        print("❌ reason 0개 — build 중단(무음 reason 소실 방지). "
+              "book_love_reasons.reason 텍스트 + OPENAI 임베딩 경로 확인.",
+              file=sys.stderr)
+        sys.exit(1)
 
     # 5. VectorIndex 구축 (float16)
     print("[build] Building VectorIndex (float16)...")
