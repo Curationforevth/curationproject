@@ -140,7 +140,7 @@ def recompute_recommendations(user_id: str, app_state) -> None:
     """
     from config import STAGE1_TOP_N
     from engine.twostage import stage1_hybrid, batch_score_prestacked
-    from engine.scorer import recommend_scores
+    from engine.scorer import recommend_scores_two_stage
     from engine.utils import to_np
 
     sb = get_supabase()
@@ -210,7 +210,8 @@ def recompute_recommendations(user_id: str, app_state) -> None:
             scores = batch_score_prestacked(
                 app_state.index, liked_books, fb_data, candidates, prestacked)
         else:
-            scores = recommend_scores(app_state.index, liked_books, fb_data)
+            scores = recommend_scores_two_stage(
+                app_state.index, liked_books, fb_data, top_n=STAGE1_TOP_N)
 
         sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:CACHE_TOP_N]
 

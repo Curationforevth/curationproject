@@ -46,6 +46,10 @@ async def submit_feedback(
         "rating": req.rating,
         "review_text": req.review_text,
         "emotion_tags": req.emotion_tags,
+        # status 미지정 시 신규행이 기본값 'wishlist' 로 들어가는데, rating 이 있으면
+        # user_books_wishlist_no_rating 제약(status<>'wishlist' OR rating IS NULL) 위반
+        # → 500. 평가=읽음으로 보고 'finished' 로 둔다.
+        "status": "finished",
     }
     if fb_embedding:
         row["feedback_embedding"] = fb_embedding
