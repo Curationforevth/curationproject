@@ -31,7 +31,10 @@ DEFAULT_RECOMMEND_LIMIT = 10
 DEFAULT_SIMILAR_LIMIT = 10
 
 # Two-stage 추천 파라미터
-STAGE1_TOP_N = 700
+STAGE1_TOP_N = 150  # 벡터화 stage2 의 후보 reason 스택 메모리(무료 512MB) 안전선.
+# 700 은 후보 reason 임시할당 peak ~250MB → 인덱스 277MB 와 합쳐 OOM(실측 사고).
+# 150 은 peak 델타 ~54MB → 인덱스 합 ~331MB 안전. 품질: full 대비 top-10 일치 10/10
+# (W_DESC=3 이 최대라 고득점=desc 상위, 선필터 누락 없음).
 CACHE_TOP_N = 50
 
 _sb_client = None

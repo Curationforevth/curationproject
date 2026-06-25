@@ -6,7 +6,6 @@
 + recommendation_stage 1 (+ fallback_curation 1)
 """
 from __future__ import annotations
-import asyncio
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
@@ -25,8 +24,7 @@ from engine.home_cache import (
     current_hour_bucket, compute_home_input_hash,
     load_home_cache, save_home_cache_if_current,
 )
-from engine.recommend_core import compute_scored_books
-from engine.utils import to_np
+from engine.cache import load_cache, compute_input_hash, recompute_recommendations
 
 router = APIRouter()
 
@@ -275,31 +273,24 @@ async def get_home(
     ).gte("shown_at", seven_days_ago).execute()
     recent_curation_ids = {r["curation_id"] for r in (uch_res.data or [])}
 
-    # Tier 2 라면 recommend_core 호출
+    # Tier 2 — personal_recommend 는 미리 계산된 recommendation_cache 에서 가져온다.
+    # 요청경로에서 스코어링하지 않는다(무료 단일 CPU ~70s). 캐시가 없거나 stale
+    # (좋아요 변경) 이거나 계산 중이면 백그라운드 재계산을 트리거하고 이번 응답엔
+    # personal_recommend 를 비운다(trending/curation 으로 fallback). 다음 로드에서 채워짐.
     recommend_scored = None
+    recs_pending = False  # Tier2 추천이 아직 준비 안 됨(백그라운드 계산중)
     if tier == 2:
-        liked_books: dict = {}
-        fb_data: dict = {}
-        for ub in user_books:
-            bid = ub["book_id"]
-            liked_books[bid] = {"rating": ub.get("rating", "neutral")}
-            fb_emb = ub.get("feedback_embedding")
-            if fb_emb:
-                fb_data[bid] = {"emb": to_np(fb_emb), "is_dislike": ub.get("rating") == "bad"}
-        try:
-            # CPU 무거운 스코어링은 스레드로 offload (단일워커 /health 블로킹 방지).
-            recommend_scored = await asyncio.to_thread(
-                compute_scored_books,
-                index=request.app.state.index,
-                liked_books=liked_books, fb_data=fb_data,
-                prestacked_reasons=request.app.state.prestacked_reasons,
-                desc_matrix_f16=request.app.state.desc_matrix_f16,
-                agg_reason_matrix_f16=request.app.state.agg_reason_matrix_f16,
-                bid_order=request.app.state.bid_order,
-            )
-        except Exception as e:
-            print(f"recommend_scored failed for {user_id}: {e}")
+        rec_cache = load_cache(user_id)
+        ub_hash = compute_input_hash(user_books)
+        if (rec_cache and not rec_cache.get("computing")
+                and rec_cache.get("recommendations")
+                and rec_cache.get("input_hash") == ub_hash):
+            recommend_scored = [(r["book_id"], r.get("score", 0.0))
+                                for r in rec_cache["recommendations"]]
+        else:
+            background_tasks.add_task(recompute_recommendations, user_id, request.app.state)
             recommend_scored = []
+            recs_pending = True
 
     sections = assemble_sections_for_user(
         tier=tier, stage=stage, total_likes=total_likes,
@@ -315,10 +306,14 @@ async def get_home(
     )
 
     # BackgroundTasks: cache write + impression INSERT + user_curation_history
-    background_tasks.add_task(
-        save_home_cache_if_current,
-        user_id, sections, tier, stage, input_hash,
-    )
+    # Tier2 추천이 아직 준비 안 된(비어있는) 응답은 캐시하지 않는다 — 캐시하면 백그라운드
+    # 재계산이 끝나도 같은 hour_bucket 동안 빈 personal_recommend 가 노출된다. 미저장 시
+    # 다음 /home 이 재조립하여 준비된 추천을 즉시 반영한다.
+    if not recs_pending:
+        background_tasks.add_task(
+            save_home_cache_if_current,
+            user_id, sections, tier, stage, input_hash,
+        )
     background_tasks.add_task(
         _log_impressions_and_history,
         user_id, sections, stage,

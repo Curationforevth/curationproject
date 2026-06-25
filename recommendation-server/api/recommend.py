@@ -1,13 +1,9 @@
 from __future__ import annotations
 
-import asyncio
-
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from auth import verify_jwt
 from models import RecommendResponse, BookScore
-from engine.recommend_core import compute_scored_books
-from engine.utils import to_np
-from engine.cache import compute_input_hash, load_cache, save_cache_if_current
+from engine.cache import compute_input_hash, load_cache, recompute_recommendations
 from config import DEFAULT_RECOMMEND_LIMIT, get_supabase
 
 router = APIRouter()
@@ -101,68 +97,30 @@ async def get_recommendations(
             )
 
     # -----------------------------------------------------------------------
-    # 온디맨드 계산
+    # 캐시 미스 — 요청경로에서 스코어링하지 않는다.
+    #
+    # 무료티어 단일 CPU 에선 전체 스코어링이 ~70s 라(로컬 3.9s 의 ~18배) 요청을
+    # 막으면 사실상 타임아웃. 대신 백그라운드 재계산을 트리거하고 즉시 반환한다
+    # (stale 캐시 있으면 그것, 없으면 빈 결과 + computing). 다음 호출에서 캐시
+    # 히트로 빠르게 받는다. 재계산은 recompute_recommendations 가 two-stage 로 수행.
     # -----------------------------------------------------------------------
-    liked_books: dict = {}
-    fb_data: dict = {}
-    total_liked = total_disliked = 0
-    has_feedback = False
+    total_liked = sum(1 for ub in ub_res.data if ub.get("rating") == "good")
+    total_disliked = sum(1 for ub in ub_res.data if ub.get("rating") == "bad")
+    has_feedback = any(ub.get("feedback_embedding") for ub in ub_res.data)
 
-    for ub in ub_res.data:
-        bid = ub["book_id"]
-        rating = ub.get("rating", "neutral")
-        liked_books[bid] = {"rating": rating}
-        if rating == "good":
-            total_liked += 1
-        elif rating == "bad":
-            total_disliked += 1
-        fb_emb = ub.get("feedback_embedding")
-        if fb_emb:
-            has_feedback = True
-            fb_data[bid] = {"emb": to_np(fb_emb), "is_dislike": rating == "bad"}
+    background_tasks.add_task(recompute_recommendations, user_id, request.app.state)
 
-    # CPU 무거운 스코어링은 스레드로 offload — 단일워커 이벤트루프(=/health)를
-    # 블로킹하지 않도록. (numpy 가 matmul 중 GIL 해제 → /health 응답 유지 →
-    # Render health-check timeout 으로 인한 재시작 방지.)
-    sorted_scores = await asyncio.to_thread(
-        compute_scored_books,
-        index=index,
-        liked_books=liked_books,
-        fb_data=fb_data,
-        prestacked_reasons=request.app.state.prestacked_reasons,
-        desc_matrix_f16=request.app.state.desc_matrix_f16,
-        agg_reason_matrix_f16=request.app.state.agg_reason_matrix_f16,
-        bid_order=request.app.state.bid_order,
-    )
-
-    recs = []
-    recs_for_cache: list[dict] = []
-    for bid, score in sorted_scores:
-        meta = books_meta.get(bid)
-        if meta is None:
-            # ghost book defense: book in index but not in meta — skip
-            continue
-        book = BookScore(
-            book_id=bid, score=round(score, 4),
-            title=meta.get("title", ""), author=meta.get("author", ""),
-            cover_url=meta.get("cover_url"),
+    if cache and cache.get("recommendations"):
+        recs = [BookScore(**r) for r in cache["recommendations"][:limit]]
+        return RecommendResponse(
+            user_id=user_id, recommendations=recs,
+            meta={"total_liked": total_liked, "total_disliked": total_disliked,
+                  "has_feedback": has_feedback,
+                  "from_cache": True, "stale": True, "computing": True},
         )
-        recs.append(book)
-        recs_for_cache.append(book.dict())
-
-    # 백그라운드에서 캐시 저장
-    background_tasks.add_task(
-        save_cache_if_current,
-        user_id,
-        recs_for_cache,
-        input_hash,
-        total_liked,
-        total_disliked,
-        has_feedback,
-    )
 
     return RecommendResponse(
-        user_id=user_id, recommendations=recs[:limit],
+        user_id=user_id, recommendations=[],
         meta={"total_liked": total_liked, "total_disliked": total_disliked,
-              "has_feedback": has_feedback},
+              "has_feedback": has_feedback, "computing": True},
     )

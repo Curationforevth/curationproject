@@ -127,7 +127,11 @@ def recommend_scores_two_stage(index: VectorIndex, liked_books: dict,
 
     if index._desc_matrix is None:
         index.build_desc_matrix()
-    M = index._desc_matrix.astype(np.float32)          # (N, D)
+    # _desc_matrix 는 이미 f32(빌드 시 dtype). 매 호출 .astype 복사(~21MB)는 낭비 +
+    # 무료 512MB 에서 peak 메모리만 키운다 → f32 면 그대로 쓰고 아니면만 변환.
+    M = index._desc_matrix
+    if M.dtype != np.float32:
+        M = M.astype(np.float32)                       # (N, D)
     bid_to_idx = index._desc_bid_to_idx
     order = index._desc_bid_order
 
