@@ -17,13 +17,29 @@ on:
   # 항상 사람이 수동 트리거(미검증 인덱스 자동배포 방지 + 무료 유지).
   schedule:
     - cron: '0 18 * * *'  # 매일 03:00 KST — 축적 jobs 만 자동
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: '실행 규모 (small=소량 검증 / full=평소 prod 규모)'
+        type: choice
+        options: [full, small]
+        default: full
 
 permissions:
   contents: write
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # mode=small (workflow_dispatch) 일 때만 소량. schedule 및 full 은 아래 'else' 값
+  # = 기존 prod 규모 그대로(동작 불변). small 은 실제 Actions 환경 end-to-end 검증용.
+  GENRE_LIMIT: ${{ github.event.inputs.mode == 'small' && '5' || '300' }}
+  COLLECT_TARGET: ${{ github.event.inputs.mode == 'small' && '3' || '200' }}
+  ENRICH_LIMIT: ${{ github.event.inputs.mode == 'small' && '5' || '500' }}
+  TIER1_LIMIT: ${{ github.event.inputs.mode == 'small' && '3' || '0' }}
+  V3_LIMIT: ${{ github.event.inputs.mode == 'small' && '3' || '99999' }}
+  REASON_LIMIT: ${{ github.event.inputs.mode == 'small' && '3' || '200' }}
+  TIER2_LIMIT: ${{ github.event.inputs.mode == 'small' && '3' || '0' }}
+  LOAN_LIMIT: ${{ github.event.inputs.mode == 'small' && '5' || '200' }}
 
 jobs:
   # ── 수집: 정보나루 ──────────────────────────
@@ -47,7 +63,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           ALADIN_TTB_KEY: ${{ secrets.ALADIN_TTB_KEY }}
-        run: python3 scripts/backfill_genre.py --limit 300
+        run: python3 scripts/backfill_genre.py --limit $GENRE_LIMIT
 
   # ── 수집: 알라딘 + 보강 + Tier 1 임베딩 ────
   collect:
@@ -64,19 +80,19 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           ALADIN_TTB_KEY: ${{ secrets.ALADIN_TTB_KEY }}
-        run: python scripts/smart_batch_collector.py --phase item_list --daily-target 200
+        run: python scripts/smart_batch_collector.py --phase item_list --daily-target $COLLECT_TARGET
       - name: Batch enricher (color + font)
         continue-on-error: true
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: python scripts/batch_enricher.py --limit 500
+        run: python scripts/batch_enricher.py --limit $ENRICH_LIMIT
       - name: Tier 1 embedder
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: python scripts/tier1_embedder.py
+        run: python scripts/tier1_embedder.py --limit $TIER1_LIMIT
 
   # ── 보강: 기존 책 v3 + reason + tier2 (수집과 병렬) ──
   enrich:
@@ -93,19 +109,19 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: python3 scripts/generate_book_v3_vectors.py
+        run: python3 scripts/generate_book_v3_vectors.py $V3_LIMIT
       - name: Reason extraction (v3)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: python3 scripts/v3_reason_extract.py --limit 200
+        run: python3 scripts/v3_reason_extract.py --limit $REASON_LIMIT
       - name: Tier 2 embedder
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: python3 scripts/tier2_embedder.py
+        run: python3 scripts/tier2_embedder.py --limit $TIER2_LIMIT
 
   # ── 대출 수 갱신: 기존 책 loan_count 순환 갱신 ──────
   refresh-loan-count:
@@ -122,14 +138,14 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           DATA4LIBRARY_API_KEY: ${{ secrets.DATA4LIBRARY_API_KEY }}
-        run: python3 scripts/refresh_loan_count.py --limit 200
+        run: python3 scripts/refresh_loan_count.py --limit $LOAN_LIMIT
 
   # ── 마무리: 인덱스 빌드 + 취향 재계산 (수동 전용) ──
   build-and-recompute:
     # 수동(workflow_dispatch) 전용. build_index 는 전체 v3 벡터 read(Supabase egress
     # ~70MB) + reason 전량 build-임베딩(OpenAI). 스케줄로 매일 돌면 무료가 아니다
     # (egress ~2GB/월 + OpenAI ~$5/월). 인덱스 빌드·배포는 사람이 수동 트리거한다.
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.mode != 'small'
     needs: [discovery, collect, enrich]
     runs-on: ubuntu-latest
     timeout-minutes: 15
