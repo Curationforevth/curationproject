@@ -12,7 +12,7 @@ from api.curation import router as curation_router
 
 # 배포 검증용 코드 리비전 마커. /health 로 어떤 코드가 라이브인지 관측한다
 # (feedback 게이트 해제 + home similar fix + health book/reason count fix 포함 이미지인지 확인용).
-CODE_REV = "goal1-health-bookcount-20260625"
+CODE_REV = "goal1-home-fixes-20260625"
 
 
 @asynccontextmanager
