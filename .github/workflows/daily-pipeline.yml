@@ -11,12 +11,12 @@
 name: Daily Pipeline
 
 on:
-  # ⚠️ 자동 스케줄 무장해제 (2026-06-25): 추천 데이터 토대 복구(reason 재빌드 안전 +
-  # 커버리지 enrich) 검증 전까지 daily 자동 빌드/배포 금지. repo 재활성화로 스케줄이
-  # 부활해 미검증 인덱스가 자동 배포되는 것을 막는다. 운영은 workflow_dispatch 수동만.
-  # 재가동 조건: build_index reason-safety 배포 검증 + Fix2/Fix3 완료.
-  # schedule:
-  #   - cron: '0 18 * * *'  # 매일 03:00 KST
+  # 무료 구조 (2026-06-25): 레포 공개로 GitHub Actions 무제한 무료. 스케줄은
+  # 축적(discovery/collect/enrich)만 자동으로 돌린다 — egress·OpenAI 무거운
+  # build-and-recompute 는 아래 if 로 수동(workflow_dispatch) 전용. 인덱스 빌드·배포는
+  # 항상 사람이 수동 트리거(미검증 인덱스 자동배포 방지 + 무료 유지).
+  schedule:
+    - cron: '0 18 * * *'  # 매일 03:00 KST — 축적 jobs 만 자동
   workflow_dispatch: {}
 
 permissions:
@@ -124,8 +124,12 @@ jobs:
           DATA4LIBRARY_API_KEY: ${{ secrets.DATA4LIBRARY_API_KEY }}
         run: python3 scripts/refresh_loan_count.py --limit 200
 
-  # ── 마무리: 인덱스 빌드 + 취향 재계산 (모두 완료 후) ──
+  # ── 마무리: 인덱스 빌드 + 취향 재계산 (수동 전용) ──
   build-and-recompute:
+    # 수동(workflow_dispatch) 전용. build_index 는 전체 v3 벡터 read(Supabase egress
+    # ~70MB) + reason 전량 build-임베딩(OpenAI). 스케줄로 매일 돌면 무료가 아니다
+    # (egress ~2GB/월 + OpenAI ~$5/월). 인덱스 빌드·배포는 사람이 수동 트리거한다.
+    if: github.event_name == 'workflow_dispatch'
     needs: [discovery, collect, enrich]
     runs-on: ubuntu-latest
     timeout-minutes: 15
