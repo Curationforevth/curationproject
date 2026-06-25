@@ -278,6 +278,7 @@ async def get_home(
     # (좋아요 변경) 이거나 계산 중이면 백그라운드 재계산을 트리거하고 이번 응답엔
     # personal_recommend 를 비운다(trending/curation 으로 fallback). 다음 로드에서 채워짐.
     recommend_scored = None
+    recs_pending = False  # Tier2 추천이 아직 준비 안 됨(백그라운드 계산중)
     if tier == 2:
         rec_cache = load_cache(user_id)
         ub_hash = compute_input_hash(user_books)
@@ -289,6 +290,7 @@ async def get_home(
         else:
             background_tasks.add_task(recompute_recommendations, user_id, request.app.state)
             recommend_scored = []
+            recs_pending = True
 
     sections = assemble_sections_for_user(
         tier=tier, stage=stage, total_likes=total_likes,
@@ -304,10 +306,14 @@ async def get_home(
     )
 
     # BackgroundTasks: cache write + impression INSERT + user_curation_history
-    background_tasks.add_task(
-        save_home_cache_if_current,
-        user_id, sections, tier, stage, input_hash,
-    )
+    # Tier2 추천이 아직 준비 안 된(비어있는) 응답은 캐시하지 않는다 — 캐시하면 백그라운드
+    # 재계산이 끝나도 같은 hour_bucket 동안 빈 personal_recommend 가 노출된다. 미저장 시
+    # 다음 /home 이 재조립하여 준비된 추천을 즉시 반영한다.
+    if not recs_pending:
+        background_tasks.add_task(
+            save_home_cache_if_current,
+            user_id, sections, tier, stage, input_hash,
+        )
     background_tasks.add_task(
         _log_impressions_and_history,
         user_id, sections, stage,
