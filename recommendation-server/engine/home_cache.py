@@ -26,7 +26,9 @@ def compute_home_input_hash(user_state_updated_at: str, hour_bucket: str) -> str
 def load_home_cache(user_id: str) -> Optional[dict]:
     sb = get_supabase()
     res = sb.table("home_section_cache").select("*").eq("user_id", user_id).maybe_single().execute()
-    return res.data
+    # maybe_single() 은 행이 0개(신규유저)면 None 을 반환 → res.data 접근 시 AttributeError.
+    # None = 캐시 미스로 처리(호출측에서 섹션 재조립). 과거 신규유저 첫 홈 로드 500 의 원인.
+    return res.data if res else None
 
 
 def save_home_cache_if_current(
