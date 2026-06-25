@@ -6,6 +6,7 @@
 + recommendation_stage 1 (+ fallback_curation 1)
 """
 from __future__ import annotations
+import asyncio
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
@@ -286,7 +287,9 @@ async def get_home(
             if fb_emb:
                 fb_data[bid] = {"emb": to_np(fb_emb), "is_dislike": ub.get("rating") == "bad"}
         try:
-            recommend_scored = compute_scored_books(
+            # CPU 무거운 스코어링은 스레드로 offload (단일워커 /health 블로킹 방지).
+            recommend_scored = await asyncio.to_thread(
+                compute_scored_books,
                 index=request.app.state.index,
                 liked_books=liked_books, fb_data=fb_data,
                 prestacked_reasons=request.app.state.prestacked_reasons,

@@ -22,10 +22,10 @@ def test_compute_scored_books_empty_inputs_returns_empty():
 def test_compute_scored_books_v3_fallback_used_when_prestacked_none(monkeypatch):
     idx = _FakeIndex()
     called = {}
-    def fake_scores(index, liked_books, fb_data):
+    def fake_scores(index, liked_books, fb_data, top_n):
         called["v3"] = True
         return {"b1": 0.5, "b2": 0.3}
-    monkeypatch.setattr("engine.recommend_core.recommend_scores", fake_scores)
+    monkeypatch.setattr("engine.recommend_core.recommend_scores_two_stage", fake_scores)
 
     result = compute_scored_books(
         index=idx,

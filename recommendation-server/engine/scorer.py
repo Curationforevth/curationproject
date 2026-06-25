@@ -100,3 +100,48 @@ def recommend_scores(index: VectorIndex, liked_books: dict,
             continue
         scores[cid] = _score_one(index, active, fb_data, cid)
     return scores
+
+
+def recommend_scores_two_stage(index: VectorIndex, liked_books: dict,
+                               fb_data: dict, top_n: int) -> dict:
+    """desc 선필터(stage1) 후 top_n 후보만 정확 스코어링(stage2).
+
+    전체 brute-force(recommend_scores)는 2,679책 × likes 를 벡터화 없이 Python
+    루프로 돌아 ~13s 걸려 단일워커(무료티어)를 블로킹 → /health 5s timeout →
+    Render 재시작. desc 유사도 상위 top_n 만 후보로 두면 동일 top 결과를 ~5x 빠르게
+    얻는다(검증: STAGE1_TOP_N=500~700 에서 full 대비 top-10 일치 10/10). desc
+    가중치(W_DESC=3)가 최대라 고득점 책은 desc 상위권에 반드시 포함된다.
+    stage2 의 _score_one 은 reason/desc/fb 를 그대로 계산하므로 후보 내 랭킹은 정확.
+    """
+    if not liked_books:
+        return {}
+    active = {bid: d for bid, d in liked_books.items() if d["rating"] != "neutral"}
+    if not active:
+        return {}
+    read_ids = set(liked_books.keys())
+
+    good_ids = [bid for bid, d in active.items() if d["rating"] == "good"]
+    good_descs = [index.get_book(b).desc for b in good_ids if index.get_book(b) is not None]
+    if not good_descs:
+        # good desc 없음(드묾, dislike만) → 전체 fallback (정확성 우선)
+        return recommend_scores(index, liked_books, fb_data)
+
+    if index._desc_matrix is None:
+        index.build_desc_matrix()
+    G = np.stack(good_descs)                          # (g, D)
+    agg = (G @ index._desc_matrix.T).max(axis=0)      # (B,) 후보별 best desc 유사도
+    for bid in read_ids:
+        i = index._desc_bid_to_idx.get(bid)
+        if i is not None:
+            agg[i] = -1e9
+    n = min(top_n, agg.shape[0])
+    cand_idx = np.argpartition(agg, -n)[-n:]
+    order = index._desc_bid_order
+
+    scores = {}
+    for i in cand_idx:
+        cid = order[i]
+        if cid in read_ids:
+            continue
+        scores[cid] = _score_one(index, active, fb_data, cid)
+    return scores

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from auth import verify_jwt
 from models import RecommendResponse, BookScore
@@ -119,7 +121,11 @@ async def get_recommendations(
             has_feedback = True
             fb_data[bid] = {"emb": to_np(fb_emb), "is_dislike": rating == "bad"}
 
-    sorted_scores = compute_scored_books(
+    # CPU 무거운 스코어링은 스레드로 offload — 단일워커 이벤트루프(=/health)를
+    # 블로킹하지 않도록. (numpy 가 matmul 중 GIL 해제 → /health 응답 유지 →
+    # Render health-check timeout 으로 인한 재시작 방지.)
+    sorted_scores = await asyncio.to_thread(
+        compute_scored_books,
         index=index,
         liked_books=liked_books,
         fb_data=fb_data,

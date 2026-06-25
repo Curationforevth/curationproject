@@ -9,7 +9,7 @@ api/recommend.py 의 scoring 로직을 추출. api 계층(HTTP/cache)과 분리�
 from __future__ import annotations
 from typing import Optional
 
-from engine.scorer import recommend_scores
+from engine.scorer import recommend_scores_two_stage
 from engine.twostage import stage1_hybrid, batch_score_prestacked
 from config import STAGE1_TOP_N, CACHE_TOP_N
 
@@ -44,7 +44,8 @@ def compute_scored_books(
         scores = batch_score_prestacked(
             index, liked_books, fb_data, candidates, prestacked_reasons)
     else:
-        scores = recommend_scores(index, liked_books, fb_data)
+        # v3 — desc 선필터 two-stage (전체 brute-force 는 단일워커 ~13s 블로킹).
+        scores = recommend_scores_two_stage(index, liked_books, fb_data, top_n=STAGE1_TOP_N)
 
     sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
     return sorted_scores[:CACHE_TOP_N]

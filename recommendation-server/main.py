@@ -12,7 +12,7 @@ from api.curation import router as curation_router
 
 # 배포 검증용 코드 리비전 마커. /health 로 어떤 코드가 라이브인지 관측한다
 # (feedback 게이트 해제 + home similar fix + health book/reason count fix 포함 이미지인지 확인용).
-CODE_REV = "goal1-home-fixes-20260625"
+CODE_REV = "goal1-tier2-twostage-20260625"
 
 
 @asynccontextmanager
@@ -30,6 +30,9 @@ async def lifespan(app: FastAPI):
     # 전용 bid_order/prestacked 를 읽어 v3 배포에선 books_loaded=0, total_reasons=0
     # 으로 보고 → 엔진이 실제 로드됐는지 /health 로 확인 불가, code_rev 만 보고
     # "라이브"로 오판하는 원인이었다. book_ids/reasons 는 v3·v4 공통 소스다.)
+    # desc 행렬을 시작 시 1회 빌드 — Tier2 two-stage 선필터 + /similar 가 재사용.
+    # (요청 중에 빌드하면 이벤트루프 블로킹.)
+    index.build_desc_matrix()
     v4 = prestacked is not None
     app.state.books_loaded = len(index.book_ids)
     if v4:
