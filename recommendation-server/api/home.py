@@ -47,8 +47,12 @@ def _book_dict(bid: str, books_meta: dict, score: Optional[float] = None) -> Opt
 
 def _similar_books_from_seed(index, books_meta: dict, seed_book_id: str, limit: int = 10) -> list[dict]:
     try:
-        results = index.similar_by_desc(seed_book_id, top_n=limit)
-    except Exception:
+        # 시그니처는 similar_by_desc(book_id, limit=10). 과거 top_n= 오인자로 TypeError
+        # 가 나고 except 가 삼켜 Tier 1(personal_recommend 없음) 유저의 similar 섹션이
+        # 통째로 비어있던 버그. except 도 더는 무음으로 삼키지 않는다.
+        results = index.similar_by_desc(seed_book_id, limit=limit)
+    except Exception as e:
+        print(f"[home] similar_by_desc failed (seed={seed_book_id}): {e}", flush=True)
         return []
     out = []
     for bid, _score in results:

@@ -1,6 +1,19 @@
 from unittest.mock import MagicMock
 
-from api.home import assemble_sections_for_user
+from api.home import assemble_sections_for_user, _similar_books_from_seed
+
+
+def test_similar_books_from_seed_uses_correct_signature(small_index):
+    # 회귀: similar_by_desc(book_id, limit=10) — 과거 top_n= 오인자로 TypeError →
+    # except 가 삼켜 Tier 1 유저 similar 섹션이 통째로 비던 버그. 실제 VectorIndex 로
+    # 호출해 시그니처가 맞아야 결과가 채워진다. (MagicMock 으로는 오인자도 통과해
+    # 회귀를 못 잡으므로 반드시 실제 인덱스로 검증.)
+    small_index.build_desc_matrix()
+    meta = {bid: {"title": bid, "author": "a", "cover_url": None}
+            for bid in small_index.book_ids}
+    out = _similar_books_from_seed(small_index, meta, "novel1", limit=3)
+    assert out, "similar 결과가 비어있음 — 시그니처 불일치(top_n=) 회귀"
+    assert "novel1" not in [b["book_id"] for b in out], "seed 자신은 제외돼야"
 
 
 def test_assemble_sections_tier_0_returns_trending_and_curations():

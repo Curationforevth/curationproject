@@ -55,8 +55,12 @@ async def submit_feedback(
     except Exception as e:
         raise HTTPException(500, f"Failed to save feedback: {e}")
 
-    # 피드백 저장 후 백그라운드에서 추천 재계산
-    if request.app.state.prestacked_reasons is not None:
+    # 피드백 저장 후 백그라운드에서 추천 재계산.
+    # recompute_recommendations/compute_scored_books 는 prestacked=None(v3)일 때
+    # recommend_scores(v3 brute-force)로 정상 폴백하므로, prestacked 유무가 아니라
+    # 인덱스 로드 여부로만 게이트한다. (과거: prestacked is not None 게이트 → v3 prod
+    # 에선 None 이라 /feedback 저장해도 재계산이 한 번도 안 돌던 GOAL #1 차단 버그.)
+    if request.app.state.index is not None:
         background_tasks.add_task(recompute_recommendations, current_user, request.app.state)
 
     return FeedbackResponse(status="ok")
