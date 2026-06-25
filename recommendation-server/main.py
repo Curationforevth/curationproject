@@ -11,8 +11,8 @@ from api.home import router as home_router
 from api.curation import router as curation_router
 
 # 배포 검증용 코드 리비전 마커. /health 로 어떤 코드가 라이브인지 관측한다
-# (feedback 게이트 해제 + home similar fix 가 포함된 이미지인지 확인용).
-CODE_REV = "goal1-feedback-similar-20260625"
+# (feedback 게이트 해제 + home similar fix + health book/reason count fix 포함 이미지인지 확인용).
+CODE_REV = "goal1-health-bookcount-20260625"
 
 
 @asynccontextmanager
@@ -26,8 +26,22 @@ async def lifespan(app: FastAPI):
     app.state.desc_matrix_f16 = desc_mat
     app.state.agg_reason_matrix_f16 = agg_mat
     app.state.bid_order = bid_order
+    # /health 관측용 카운트는 시작 시 1회만 계산해 저장한다. (과거: health 가 v4
+    # 전용 bid_order/prestacked 를 읽어 v3 배포에선 books_loaded=0, total_reasons=0
+    # 으로 보고 → 엔진이 실제 로드됐는지 /health 로 확인 불가, code_rev 만 보고
+    # "라이브"로 오판하는 원인이었다. book_ids/reasons 는 v3·v4 공통 소스다.)
     v4 = prestacked is not None
-    print(f"[main] Server ready. {len(index.book_ids)} books. v4={v4}. Built at {built_at}")
+    app.state.books_loaded = len(index.book_ids)
+    if v4:
+        app.state.total_reasons = sum(len(r) for r in prestacked.values())
+    else:
+        app.state.total_reasons = sum(
+            len(index.get_book(bid).reasons) for bid in index.book_ids
+        )
+    print(
+        f"[main] Server ready. {app.state.books_loaded} books, "
+        f"{app.state.total_reasons} reasons. v4={v4}. Built at {built_at}"
+    )
     yield
 
 
@@ -48,8 +62,8 @@ async def health(request: Request):
         "status": "ok",
         "version": ver,
         "code_rev": CODE_REV,
-        "books_loaded": len(getattr(state, "bid_order", []) or []),
-        "total_reasons": sum(len(r) for r in (getattr(state, "prestacked_reasons", {}) or {}).values()) if getattr(state, "prestacked_reasons", None) else 0,
+        "books_loaded": getattr(state, "books_loaded", 0),
+        "total_reasons": getattr(state, "total_reasons", 0),
         "index_built_at": getattr(state, "built_at", None),
         "memory_mb": mem_mb,
         "cache_hits": getattr(state, "cache_hits", 0),
