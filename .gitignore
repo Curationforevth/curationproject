@@ -28,3 +28,7 @@ reason_log.txt
 
 # Generated artifacts (index.pkl은 Render 배포에 필요하므로 추적 유지)
 recommendation-server/data/index.pkl.tmp
+
+# Supabase CLI 로컬 메타/캐시 (pooler-url 등 — 공개레포 실수 커밋 방지)
+supabase/.temp/
+supabase/.branches/
