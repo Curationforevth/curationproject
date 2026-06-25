@@ -9,7 +9,7 @@ services:
     # 서버 코드(main/api/engine/config/Dockerfile/data 등)가 바뀔 때만 재배포.
     # scripts·tests·워크플로·마이그레이션·docs push 가 매번 188MB 인덱스 재pull +
     # 재배포를 트리거해 실패·낭비하던 것을 막는다(무료·안정).
-    buildFilters:
+    buildFilter:
       paths:
         - recommendation-server/**
       ignoredPaths:
