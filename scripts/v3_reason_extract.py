@@ -123,7 +123,12 @@ def extract_v3_reasons(book):
             desc = clean
     desc = (desc or "")[:1500]
 
-    if not desc or len(desc) < 50:
+    # 품질 게이트 (GOAL #2): 얕은 텍스트로 reason 생성 금지.
+    # rich_description 없이 plain description 만 있거나(알라딘 평균 142자·약16%가
+    # 마케팅/평론/고유명사 = build_v3_prompt 가 명시 배제하는 형태) 200자 미만이면 SKIP.
+    # reason 은 W_REASON=2.0 짜리 제품 #1 차별자 → 저질 reason 펌핑을 원천 차단한다.
+    # (과거 임계 <50 은 얕은 텍스트를 통과시켰음.)
+    if not rich_desc or len(desc) < 200:
         return SKIPPED_NO_DATA
 
     prompt = build_v3_prompt(title, genre, desc)

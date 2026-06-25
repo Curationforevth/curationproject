@@ -33,13 +33,16 @@ def make_client():
 
 
 def build_desc_source(book):
-    """desc 임베딩용 소스 텍스트 생성. 스펙 섹션 3.2."""
+    """desc 임베딩용 소스 텍스트 생성. 스펙 섹션 3.2.
+
+    품질 게이트 (GOAL #2): rich_description 기반 200자 이상만 임베딩. 얕은
+    title+genre+description 폴백(알라딘 평균 142자·약16% 마케팅/평론)은 dominant
+    desc 벡터(W_DESC=3.0) + stage1 후보선택을 오염시키므로 임베딩하지 않고 None 을
+    반환 → 호출부에서 SKIP. rich 텍스트 확보 후 임베딩되도록 둔다.
+    """
     source = clean_html(book.get("rich_description") or "").strip()
     if not source or len(source) < 200:
-        title = book.get("title", "")
-        genre = book.get("genre", "")
-        desc = book.get("description", "")
-        source = f"{title} ({genre}) — {desc}"
+        return None
     return source[:2000]
 
 
@@ -144,8 +147,14 @@ def main():
     # 3. 준비: 각 책의 desc 소스 + L1/L2 FK 매핑
     prepared = []
     no_genre_count = 0
+    skipped_shallow = 0
     for book in books:
         source = build_desc_source(book)
+        if source is None:
+            # 품질 게이트: rich_description 200자 미만 → 임베딩 SKIP (얕은 텍스트
+            # 오염 방지). rich 확보되면 다음 run 에서 임베딩됨.
+            skipped_shallow += 1
+            continue
         l1, l2 = parse_genre(book.get("genre"))
         l1_id = genre_lookup.get((l1, "l1")) if l1 else None
         l2_id = genre_lookup.get((l2, "l2")) if l2 else None
@@ -162,6 +171,9 @@ def main():
 
     if no_genre_count:
         print(f"  주의: 장르 없는 책 {no_genre_count}권 (desc만 저장)", flush=True)
+    if skipped_shallow:
+        print(f"  품질게이트 SKIP: rich_description<200자 {skipped_shallow}권 "
+              f"(얕은 텍스트 임베딩 안 함, rich 확보 후 재시도)", flush=True)
 
     if args.dry_run:
         print(f"\n[dry-run] {len(prepared)}권 준비 완료. 처음 3건:")
