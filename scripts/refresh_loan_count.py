@@ -11,9 +11,11 @@ from __future__ import annotations
 
 import argparse
 import os
+import random
 import sys
 import time
 
+import requests
 from dotenv import load_dotenv
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -28,6 +30,19 @@ from scripts.lib.books_upsert import update_loan_count_by_book_id  # noqa: E402
 REQUEST_DELAY = 0.3
 MAX_CONSECUTIVE_ERRORS = 10
 
+# usageAnalysisList 는 최重 엔드포인트 → 60s. (15s 는 잦은 Read timeout 원인이었음)
+USAGE_TIMEOUT = 60.0
+# 두 실패 양상 구분 (backfill_loan_count_unify 와 동일 정책):
+#  - 빈 응답(RuntimeError): 미수록 ISBN(신간 979-11-…)은 거의 영구. EMPTY_RETRIES 만큼만
+#    재확인 후 no_data(loan_count=0) 확정 → update 로 updated_at stamp → 큐 뒤로 밀려
+#    매 run 재호출 멈춤(다음 사이클 ~14일 뒤 재확인). 에러 아님.
+#  - timeout/connection(RequestException): 진짜 transient → backoff 재시도, 끝까지
+#    실패하면 raise → error 카운트 + updated_at 미stamp(NULL 유지 → 다음 run 재시도).
+MAX_RETRIES = 3
+RETRY_BASE_DELAY = 1.0
+EMPTY_RETRIES = 1
+EMPTY_RETRY_DELAY = 0.5
+
 
 class LoanCountRefresher:
     def __init__(self, dry_run: bool = False):
@@ -36,7 +51,8 @@ class LoanCountRefresher:
         self._sb = None
         self.stats = {
             "fetched": 0, "updated": 0,
-            "skipped_empty": 0, "errors": 0,
+            "skipped_empty": 0, "no_data": 0,
+            "retried": 0, "errors": 0,
         }
 
     @property
@@ -70,39 +86,70 @@ class LoanCountRefresher:
         )
         return res.data or []
 
+    def _fetch_usage_with_retry(self, isbn: str) -> dict:
+        """usageAnalysisList + 재시도. 빈응답은 no_data 로 확정(미raise),
+        진짜 transient 만 backoff 후 raise. backfill_loan_count_unify 와 동일 정책."""
+        last_exc: Exception | None = None
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                raw = fetch_usage_analysis(self.api_key, isbn, timeout=USAGE_TIMEOUT)
+                usage = parse_usage_analysis(raw)
+                if attempt > 0:
+                    self.stats["retried"] += 1
+                return usage
+            except RuntimeError:
+                # 빈 응답: 미수록(신간) → EMPTY_RETRIES 만큼만 재확인 후 no_data 확정.
+                if attempt >= EMPTY_RETRIES:
+                    self.stats["no_data"] += 1
+                    return parse_usage_analysis(None)
+                time.sleep(EMPTY_RETRY_DELAY)
+            except requests.exceptions.RequestException as e:
+                last_exc = e
+                if attempt == MAX_RETRIES:
+                    raise
+                time.sleep(RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(0, 0.4))
+        assert last_exc is not None
+        raise last_exc
+
     def refresh_one(self, book: dict) -> str:
-        """1권 갱신. Returns: 'updated' | 'empty' | 'error'."""
+        """1권 갱신. Returns: 'updated' | 'no_data' | 'error'.
+
+        no_data(빈응답/미수록)도 updated_at 을 stamp 한다 — 그래야 큐 뒤로 밀려
+        매 run 재호출되지 않는다([[feedback_accumulate_not_realtime_api]]).
+        transient error 만 stamp 하지 않아 다음 run 에서 재시도된다.
+        """
         isbn = book.get("isbn")
         try:
-            raw = fetch_usage_analysis(self.api_key, isbn, timeout=15.0)
-            usage = parse_usage_analysis(raw)
-            self.stats["fetched"] += 1
-
-            if usage.get("is_empty"):
-                self.stats["skipped_empty"] += 1
-
-            if self.dry_run:
-                return "empty" if usage.get("is_empty") else "updated"
-
-            extra = {}
-            if usage.get("library_keywords"):
-                extra["library_keywords"] = usage["library_keywords"]
-            if usage.get("co_loan_isbns"):
-                extra["related_isbns"] = {"co_loan": usage["co_loan_isbns"]}
-
-            update_loan_count_by_book_id(
-                self.sb, book["id"],
-                usage.get("loan_count") or 0,
-                usage.get("loan_count_12mo") or 0,
-                extra=extra or None,
-            )
-            self.stats["updated"] += 1
-            return "empty" if usage.get("is_empty") else "updated"
+            usage = self._fetch_usage_with_retry(isbn)
         except Exception as e:
             self.stats["errors"] += 1
             if self.stats["errors"] <= 5:
-                print(f"  ✗ 에러 ({isbn}): {e}")
+                print(f"  ✗ transient 에러 ({isbn}): {e}")
             return "error"
+
+        self.stats["fetched"] += 1
+        is_empty = usage.get("is_empty")
+        if is_empty:
+            self.stats["skipped_empty"] += 1
+
+        if self.dry_run:
+            return "no_data" if is_empty else "updated"
+
+        extra = {}
+        if usage.get("library_keywords"):
+            extra["library_keywords"] = usage["library_keywords"]
+        if usage.get("co_loan_isbns"):
+            extra["related_isbns"] = {"co_loan": usage["co_loan_isbns"]}
+
+        # no_data 여도 update — loan_count=0, updated_at stamp 로 재호출 방지.
+        update_loan_count_by_book_id(
+            self.sb, book["id"],
+            usage.get("loan_count") or 0,
+            usage.get("loan_count_12mo") or 0,
+            extra=extra or None,
+        )
+        self.stats["updated"] += 1
+        return "no_data" if is_empty else "updated"
 
     def run(self, limit: int = 200) -> int:
         print("🔄 refresh 대상 조회 중...")
@@ -114,6 +161,7 @@ class LoanCountRefresher:
             return 0
 
         consecutive_errors = 0
+        early_stop = False
         for i, book in enumerate(candidates, 1):
             result = self.refresh_one(book)
 
@@ -121,6 +169,7 @@ class LoanCountRefresher:
                 consecutive_errors += 1
                 if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
                     print(f"\n⛔ 연속 {MAX_CONSECUTIVE_ERRORS}회 에러 — API 장애 판단, 조기 중단.")
+                    early_stop = True
                     break
             else:
                 consecutive_errors = 0
@@ -140,7 +189,10 @@ class LoanCountRefresher:
         print(f"{'=' * 50}")
         for k, v in self.stats.items():
             print(f"  {k}: {v}")
-        return 1 if self.stats["errors"] > 0 else 0
+        # no_data(미수록)·산발적 transient 는 정상 — 빈응답을 매 run 재호출하지
+        # 않도록 stamp 했고, transient 는 다음 run 재시도된다. job 은 API 가 통째로
+        # 죽었을 때(연속 에러 조기중단)만 실패로 본다.
+        return 1 if early_stop else 0
 
 
 def main():

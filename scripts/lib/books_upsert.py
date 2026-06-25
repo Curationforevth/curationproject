@@ -27,6 +27,22 @@ from .retry import with_retry
 _STRING_FIELDS = ("title", "author", "publisher", "cover_url")
 _NUMERIC_FIELDS = ("loan_count", "sales_point")
 
+# DB 가 자동 생성/관리하는 컬럼 — upsert payload 에서 반드시 제거.
+#  - id/created_at/updated_at: merge 결과에 실리면 새 row 에 NULL 이 들어감
+#  - l1/l2: books.genre 에서 GENERATED ALWAYS AS ... STORED (migration 20260415000008).
+#    SELECT * 가 끌어오므로 merge 결과에 남는데, 생성컬럼은 insert/upsert 불가 →
+#    postgrest APIError 428C9 로 청크 전체 실패. genre 만 보내면 DB 가 자동 계산.
+_DB_MANAGED = ("id", "created_at", "updated_at")
+_GENERATED_COLS = ("l1", "l2")
+
+
+def _strip_non_insertable(row: dict) -> dict:
+    """upsert 불가 컬럼(DB 관리 + 생성컬럼) 제거. row 는 변형하지 않고 사본 반환."""
+    cleaned = dict(row)
+    for k in (*_DB_MANAGED, *_GENERATED_COLS):
+        cleaned.pop(k, None)
+    return cleaned
+
 
 def _is_empty(v: Any) -> bool:
     if v is None:
@@ -98,9 +114,6 @@ def upsert_books_rich_merge(sb, rows: list[dict], chunk_size: int = 200) -> int:
         existing_map = {r["isbn"]: r for r in (existing_rows.data or [])}
 
         merged_chunk = []
-        # DB 가 자동 생성하는 컬럼 — merge 결과에서 제거해야
-        # 배치 upsert 시 새 row 에 NULL 이 들어가는 문제를 방지.
-        _DB_MANAGED = {"id", "created_at", "updated_at"}
         for new_row in chunk:
             isbn = new_row.get("isbn")
             if not isbn:
@@ -108,12 +121,10 @@ def upsert_books_rich_merge(sb, rows: list[dict], chunk_size: int = 200) -> int:
             existing = existing_map.get(isbn)
             if existing:
                 merged = merge_richer(existing, new_row)
-                # 기존 row 의 DB 관리 컬럼 제거 (upsert 시 DB 가 유지)
-                for k in _DB_MANAGED:
-                    merged.pop(k, None)
-                merged_chunk.append(merged)
             else:
-                merged_chunk.append(new_row)
+                merged = new_row
+            # DB 관리/생성 컬럼 제거 (upsert 불가) — 양쪽 경로 모두 적용.
+            merged_chunk.append(_strip_non_insertable(merged))
 
         with_retry(lambda c=merged_chunk: sb.table("books")
                    .upsert(c, on_conflict="isbn").execute())

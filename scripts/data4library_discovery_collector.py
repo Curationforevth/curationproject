@@ -27,6 +27,7 @@ import time
 from datetime import datetime, timedelta
 from typing import Optional
 
+import requests
 from dotenv import load_dotenv
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -178,6 +179,7 @@ class DiscoveryCollector:
             "filtered_isbn_dup": 0,
             "filtered_edition_dup": 0,
             "usage_api_errors": 0,
+            "usage_no_data": 0,
             "skipped_usage_fail": 0,
             "updated_existing_loan_count": 0,
             "upserted": 0,
@@ -305,15 +307,26 @@ class DiscoveryCollector:
     def _fetch_accurate_loan_count(self, isbn: str) -> Optional[dict]:
         """usageAnalysisList 호출 → {loan_count, loan_count_12mo, ...} 반환.
 
-        실패 시 None (이 row 는 수집 스킵, 다음 discovery run 에서 재시도).
+        두 실패 양상을 구분한다([[feedback_accumulate_not_realtime_api]]):
+          - 빈 응답(RuntimeError): 미수록 ISBN(신간 979-11-…)은 HTTP 200+빈 body 를
+            영구 반환. None(skip) 하면 DB 미저장 → 다음 run 또 '신규' 로 보여 재호출
+            (무한). no_data(loan_count=0) 로 확정·반환해 **저장**하면 dedup index 에
+            올라 다음 run SKIP → 재호출 멈춤. (loan_count 0 은 ~14일 주기 loan_count
+            cron 이 재확인. Strategy C 상 loanItemSrch 기간값은 저장 안 함.)
+          - timeout/connection(RequestException): 진짜 transient → None(skip),
+            다음 discovery run 에서 재시도.
         """
         try:
             raw = fetch_usage_analysis(self.api_key, isbn, timeout=15.0)
             return parse_usage_analysis(raw)
-        except Exception as e:
+        except RuntimeError:
+            # 빈 응답 = 미수록 확정 → no_data 로 저장(축적).
+            self.stats["usage_no_data"] += 1
+            return parse_usage_analysis(None)
+        except requests.exceptions.RequestException as e:
             self.stats["usage_api_errors"] += 1
             if self.stats["usage_api_errors"] <= 5:
-                print(f"  ✗ usageAnalysisList 실패 ({isbn}): {e}")
+                print(f"  ✗ usageAnalysisList transient ({isbn}): {e}")
             return None
 
     def filter_and_upsert(self, parsed_rows: list[dict]) -> int:
