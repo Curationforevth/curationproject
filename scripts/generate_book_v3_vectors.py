@@ -175,6 +175,12 @@ def main():
         print(f"  품질게이트 SKIP: rich_description<200자 {skipped_shallow}권 "
               f"(얕은 텍스트 임베딩 안 함, rich 확보 후 재시도)", flush=True)
 
+    # 품질게이트로 prepared 가 비면(남은 대상이 전부 shallow) 아래 prepared[0] 가
+    # IndexError → daily enrich job 크래시. 빈 가드.
+    if not prepared:
+        print("  처리할 책 없음 (전부 품질게이트 SKIP 또는 미처리 0)", flush=True)
+        return
+
     if args.dry_run:
         print(f"\n[dry-run] {len(prepared)}권 준비 완료. 처음 3건:")
         for p in prepared[:3]:

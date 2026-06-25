@@ -168,6 +168,27 @@ def is_adult_general(book: dict) -> bool:
 
 # ----- HTTP layer -----
 
+def _scrub_key(text) -> str:
+    """authKey 쿼리값을 *** 로 가린다. authKey 는 URL 쿼리 파라미터라 requests 예외
+    메시지(HTTPError/Timeout/ConnectionError)에 키가 그대로 박힌다. 콜러들이 그 예외를
+    `print(f"...: {e}")` 로 찍고, 레포가 PUBLIC 이라 Actions 로그가 월드리더블 →
+    라이브 키가 노출된다. 소스에서 차단."""
+    return re.sub(r"(authKey=)[^&\s]+", r"\1***", str(text))
+
+
+def _get(endpoint: str, params: dict, timeout: float):
+    """data4library GET + raise_for_status. requests 예외의 authKey 를 스크럽한 뒤
+    **같은 예외로 재발생**한다(콜러의 예외 타입 분기/retry 로직 보존)."""
+    try:
+        r = requests.get(f"{API_BASE}/{endpoint}", params=params, timeout=timeout)
+        r.raise_for_status()
+        return r
+    except requests.exceptions.RequestException as e:
+        if e.args:
+            e.args = (_scrub_key(e.args[0]),) + tuple(e.args[1:])
+        raise
+
+
 def fetch_loan_item_page(
     api_key: str, page_no: int, page_size: int,
     start_dt: str, end_dt: str, kdc: Optional[str] = None,
@@ -175,32 +196,24 @@ def fetch_loan_item_page(
     timeout: float = 60.0,
 ) -> dict:
     params = build_loan_item_params(api_key, page_no, page_size, start_dt, end_dt, kdc, add_code)
-    r = requests.get(f"{API_BASE}/loanItemSrch", params=params, timeout=timeout)
-    r.raise_for_status()
-    return r.json()
+    return _get("loanItemSrch", params, timeout).json()
 
 
 def fetch_recommand(api_key: str, isbn13: str, page_size: int = 10,
                     timeout: float = 60.0) -> dict:
     params = build_recommand_params(api_key, isbn13, page_size)
-    r = requests.get(f"{API_BASE}/recommandList", params=params, timeout=timeout)
-    r.raise_for_status()
-    return r.json()
+    return _get("recommandList", params, timeout).json()
 
 
 def fetch_search(api_key: str, keyword: str, page_no: int = 1, page_size: int = 10,
                  timeout: float = 60.0) -> dict:
     params = build_search_params(api_key, keyword, page_no, page_size)
-    r = requests.get(f"{API_BASE}/srchBooks", params=params, timeout=timeout)
-    r.raise_for_status()
-    return r.json()
+    return _get("srchBooks", params, timeout).json()
 
 
 def fetch_monthly_keywords(api_key: str, month: str, timeout: float = 60.0) -> dict:
     params = build_monthly_keywords_params(api_key, month)
-    r = requests.get(f"{API_BASE}/monthlyKeywords", params=params, timeout=timeout)
-    r.raise_for_status()
-    return r.json()
+    return _get("monthlyKeywords", params, timeout).json()
 
 
 # ----- usageAnalysisList (Strategy C: loan_count 정합성 기준) -----
@@ -214,8 +227,7 @@ def fetch_usage_analysis(api_key: str, isbn13: str, timeout: float = 15.0) -> di
     정상 '데이터 없음' 은 response.book.loanCnt = 0 으로 내려온다 (404 아님).
     """
     params = {"authKey": api_key, "isbn13": isbn13, "format": "json"}
-    r = requests.get(f"{API_BASE}/usageAnalysisList", params=params, timeout=timeout)
-    r.raise_for_status()
+    r = _get("usageAnalysisList", params, timeout)
     if not r.text.strip():
         raise RuntimeError(f"빈 응답 body (transient 의심, isbn={isbn13})")
     return r.json()

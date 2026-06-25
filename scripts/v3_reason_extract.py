@@ -116,20 +116,16 @@ def extract_v3_reasons(book):
     rich_desc = book.get("rich_description", "")
     desc = book.get("description", "")
 
-    # rich_description 우선, HTML 제거, 1500자 제한
-    if rich_desc:
-        clean = re.sub(r"<[^>]+>", "", rich_desc)
-        if len(clean) > len(desc or ""):
-            desc = clean
-    desc = (desc or "")[:1500]
-
-    # 품질 게이트 (GOAL #2): 얕은 텍스트로 reason 생성 금지.
-    # rich_description 없이 plain description 만 있거나(알라딘 평균 142자·약16%가
-    # 마케팅/평론/고유명사 = build_v3_prompt 가 명시 배제하는 형태) 200자 미만이면 SKIP.
-    # reason 은 W_REASON=2.0 짜리 제품 #1 차별자 → 저질 reason 펌핑을 원천 차단한다.
-    # (과거 임계 <50 은 얕은 텍스트를 통과시켰음.)
-    if not rich_desc or len(desc) < 200:
+    # 품질 게이트 (GOAL #2): rich_description 기반 200자 이상만 reason 생성.
+    # rich 없거나(plain description 만) cleaned rich 가 200자 미만이면 SKIP — 얕은
+    # 알라딘 텍스트(평균 142자·약16% 마케팅/평론/고유명사 = build_v3_prompt 가 명시
+    # 배제하는 형태)로 W_REASON=2.0 짜리 제품 #1 차별자(reason)를 오염시키는 것을
+    # 원천 차단한다. (게이트는 merged desc 가 아니라 rich 텍스트 길이로 — 짧은 rich +
+    # 긴 plain 이 통과하던 버그 수정.)
+    clean_rich = re.sub(r"<[^>]+>", "", rich_desc).strip() if rich_desc else ""
+    if len(clean_rich) < 200:
         return SKIPPED_NO_DATA
+    desc = clean_rich[:1500]
 
     prompt = build_v3_prompt(title, genre, desc)
     raw = call_chat(prompt, temperature=0)
