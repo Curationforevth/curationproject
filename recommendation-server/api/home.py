@@ -25,6 +25,8 @@ from engine.home_cache import (
     load_home_cache, save_home_cache_if_current,
 )
 from engine.cache import load_cache, compute_input_hash, recompute_recommendations
+from engine.recommend_core import try_compute_inline
+from engine.utils import to_np
 
 router = APIRouter()
 
@@ -288,9 +290,19 @@ async def get_home(
             recommend_scored = [(r["book_id"], r.get("score", 0.0))
                                 for r in rec_cache["recommendations"]]
         else:
-            background_tasks.add_task(recompute_recommendations, user_id, request.app.state)
-            recommend_scored = []
-            recs_pending = True
+            # 캐시 없음/stale → 메모리 가드 슬롯 있으면 즉시 계산(첫 로드에 개인화).
+            liked_books = {ub["book_id"]: {"rating": ub.get("rating", "neutral")} for ub in user_books}
+            fb_data = {}
+            for ub in user_books:
+                emb = ub.get("feedback_embedding")
+                if emb:
+                    fb_data[ub["book_id"]] = {"emb": to_np(emb), "is_dislike": ub.get("rating") == "bad"}
+            recommend_scored = await try_compute_inline(request.app.state, liked_books, fb_data)
+            if recommend_scored is None:
+                # 슬롯 없음(동시 다발) → 백그라운드 + 이번 응답엔 비움(다음 로드 반영).
+                background_tasks.add_task(recompute_recommendations, user_id, request.app.state)
+                recommend_scored = []
+                recs_pending = True
 
     sections = assemble_sections_for_user(
         tier=tier, stage=stage, total_likes=total_likes,

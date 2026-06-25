@@ -3,7 +3,10 @@ from __future__ import annotations
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from auth import verify_jwt
 from models import RecommendResponse, BookScore
-from engine.cache import compute_input_hash, load_cache, recompute_recommendations
+from engine.cache import (compute_input_hash, load_cache,
+                          recompute_recommendations, save_cache_if_current)
+from engine.recommend_core import try_compute_inline
+from engine.utils import to_np
 from config import DEFAULT_RECOMMEND_LIMIT, get_supabase
 
 router = APIRouter()
@@ -108,8 +111,37 @@ async def get_recommendations(
     total_disliked = sum(1 for ub in ub_res.data if ub.get("rating") == "bad")
     has_feedback = any(ub.get("feedback_embedding") for ub in ub_res.data)
 
-    background_tasks.add_task(recompute_recommendations, user_id, request.app.state)
+    # 메모리 가드 슬롯이 있으면 즉시(inline) 계산해 첫 호출에 개인화 추천을 바로 준다.
+    liked_books = {ub["book_id"]: {"rating": ub.get("rating", "neutral")} for ub in ub_res.data}
+    fb_data = {}
+    for ub in ub_res.data:
+        emb = ub.get("feedback_embedding")
+        if emb:
+            fb_data[ub["book_id"]] = {"emb": to_np(emb), "is_dislike": ub.get("rating") == "bad"}
 
+    scored = await try_compute_inline(request.app.state, liked_books, fb_data)
+    if scored is not None:
+        books_meta = request.app.state.books_meta
+        recs, recs_for_cache = [], []
+        for bid, score in scored:
+            meta = books_meta.get(bid)
+            if meta is None:
+                continue
+            book = BookScore(book_id=bid, score=round(score, 4),
+                             title=meta.get("title", ""), author=meta.get("author", ""),
+                             cover_url=meta.get("cover_url"))
+            recs.append(book)
+            recs_for_cache.append(book.dict())
+        background_tasks.add_task(save_cache_if_current, user_id, recs_for_cache,
+                                  input_hash, total_liked, total_disliked, has_feedback)
+        return RecommendResponse(
+            user_id=user_id, recommendations=recs[:limit],
+            meta={"total_liked": total_liked, "total_disliked": total_disliked,
+                  "has_feedback": has_feedback},
+        )
+
+    # 슬롯 없음(동시 다발) → 메모리 보호: 백그라운드 재계산 + fallback(stale/computing).
+    background_tasks.add_task(recompute_recommendations, user_id, request.app.state)
     if cache and cache.get("recommendations"):
         recs = [BookScore(**r) for r in cache["recommendations"][:limit]]
         return RecommendResponse(
@@ -118,7 +150,6 @@ async def get_recommendations(
                   "has_feedback": has_feedback,
                   "from_cache": True, "stale": True, "computing": True},
         )
-
     return RecommendResponse(
         user_id=user_id, recommendations=[],
         meta={"total_liked": total_liked, "total_disliked": total_disliked,
