@@ -1,0 +1,45 @@
+# Keep-alive 핑 — Render 무료 인스턴스 cold-start 완화
+#
+# 무료 인스턴스는 15분 idle 시 sleep → 깨어날 때 첫 요청 ~21s 지연.
+# 10분마다 /health 를 핑해 깨워둔다.
+#
+# ⚠️ instance-hours 제어: Render 무료는 750h/월 한도. 24/7 핑(720~744h)은
+# 한도에 너무 붙어 월말 suspend 위험 → cold-start 보다 나쁘다.
+# 그래서 활성 시간대(KST 06:00~02:00, 20시간)만 깨워둔다. 새벽 2~6시(KST)는
+# sleep 허용(이용자 드뭄). 월 instance-hours ≈ 600h 로 안전 마진 확보.
+#
+# UTC↔KST: KST = UTC+9. 깨어둘 KST 06:00~02:00(익일) = UTC 21:00~17:00(익일).
+# 즉 UTC 17~20시(KST 02~06시)만 핑 제외.
+#
+# 부가효과: --fail curl 이라 /health 가 비정상(5xx/타임아웃)이면 job 이 실패로
+# 빨간불 → 무료 uptime 모니터 겸용.
+
+name: Keep Alive
+
+on:
+  schedule:
+    # 매 10분, UTC 0-16시 + 21-23시 (= KST 06:00~02:00, 20시간 윈도우)
+    - cron: '*/10 0-16,21-23 * * *'
+  workflow_dispatch: {}
+
+# 이전 핑이 느리게 끝나도 겹치지 않게 (cold-start wake 가 길어질 수 있음)
+concurrency:
+  group: keep-alive
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping /health
+        # --max-time 90: cold wake 가 최대 ~60s 까지 걸릴 수 있어 여유.
+        # --retry 2 --retry-delay 15: wake 중 첫 연결 실패를 흡수.
+        # --fail: HTTP 4xx/5xx 면 비정상 종료 → job 실패(빨간불) = uptime 모니터.
+        run: |
+          curl --fail --silent --show-error \
+            --max-time 90 --retry 2 --retry-delay 15 --retry-connrefused \
+            https://curation-recommendation.onrender.com/health
