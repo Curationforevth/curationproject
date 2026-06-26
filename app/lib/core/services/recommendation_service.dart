@@ -3,6 +3,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/book.dart';
+import '../utils/image_url.dart';
 
 class RecommendedBook {
   final String bookId;
@@ -25,7 +26,7 @@ class RecommendedBook {
         score: (json['score'] as num).toDouble(),
         title: json['title'] as String,
         author: json['author'] as String,
-        coverUrl: json['cover_url'] as String?,
+        coverUrl: highResCoverUrl(json['cover_url'] as String?),
       );
 
   Book toBook() => Book(
@@ -66,7 +67,7 @@ class HomeBook {
         bookId: json['book_id'] as String,
         title: (json['title'] ?? '') as String,
         author: (json['author'] ?? '') as String,
-        coverUrl: json['cover_url'] as String?,
+        coverUrl: highResCoverUrl(json['cover_url'] as String?),
       );
 
   Book toBook() => Book(

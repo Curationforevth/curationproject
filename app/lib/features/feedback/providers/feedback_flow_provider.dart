@@ -139,11 +139,8 @@ class FeedbackFlowNotifier extends StateNotifier<FeedbackFlowState> {
       }
 
       _ref.invalidate(bookshelfProvider);
-      // 피드백이 user_books 를 바꿨으므로 추천/홈피드도 다시 가져와야 한다(서버가
-      // 다음 호출에서 새 input_hash 로 재계산). 과거: bookshelf 만 무효화하고
-      // 추천 provider 는 안 해 추천이 세션 내내 안 바뀜.
-      _ref.invalidate(recommendationsProvider);
-      _ref.invalidate(homeFeedProvider);
+      // 추천/홈피드는 세션 중 자동 갱신하지 않는다 — 당겨서 새로고침(홈 pull-to-refresh)
+      // 에서만 갱신. 피드백은 user_books 에 즉시 반영되고, 다음 새로고침 때 서버가 재계산.
     } catch (e) {
       debugPrint('피드백 저장 실패: $e');
       state = state.copyWith(isSaving: false);
