@@ -48,6 +48,63 @@ class RecommendationResult {
   });
 }
 
+/// /home 섹션의 책 (personal_recommend 외엔 score 없음 → score 무시).
+class HomeBook {
+  final String bookId;
+  final String title;
+  final String author;
+  final String? coverUrl;
+
+  const HomeBook({
+    required this.bookId,
+    required this.title,
+    required this.author,
+    this.coverUrl,
+  });
+
+  factory HomeBook.fromJson(Map<String, dynamic> json) => HomeBook(
+        bookId: json['book_id'] as String,
+        title: (json['title'] ?? '') as String,
+        author: (json['author'] ?? '') as String,
+        coverUrl: json['cover_url'] as String?,
+      );
+
+  Book toBook() => Book(
+        id: bookId,
+        title: title,
+        author: author,
+        coverUrl: coverUrl,
+      );
+}
+
+/// /home 의 한 섹션 (type: personal_recommend / curation / similar / trending / category_nav).
+class HomeSection {
+  final String type;
+  final String title;
+  final List<HomeBook> books;
+
+  const HomeSection({
+    required this.type,
+    required this.title,
+    required this.books,
+  });
+
+  factory HomeSection.fromJson(Map<String, dynamic> json) => HomeSection(
+        type: (json['type'] ?? '') as String,
+        title: (json['title'] ?? '') as String,
+        books: ((json['books'] as List<dynamic>?) ?? const [])
+            .map((e) => HomeBook.fromJson(e as Map<String, dynamic>))
+            .toList(),
+      );
+}
+
+class HomeFeed {
+  final List<HomeSection> sections;
+  final String? cta;
+
+  const HomeFeed({required this.sections, this.cta});
+}
+
 class RecommendationService {
   static String get _baseUrl =>
       dotenv.env['RECOMMENDATION_SERVER_URL'] ??
@@ -108,5 +165,25 @@ class RecommendationService {
     }
     if (response.statusCode == 404) return []; // book not in index
     throw Exception('Similar failed: ${response.statusCode}');
+  }
+
+  /// 홈 피드 — 큐레이션/트렌딩/맞춤추천/비슷한책 섹션을 한 번에 받는다.
+  /// (서버가 빈 섹션은 제거하고, 한 쿼리 실패해도 가능한 섹션만 돌려줌.)
+  Future<HomeFeed> getHome() async {
+    final userId = _userId;
+    if (userId == null || _token == null) throw Exception('Not authenticated');
+
+    final uri = Uri.parse('$_baseUrl/home/$userId');
+    final response =
+        await http.get(uri, headers: _headers).timeout(_timeout);
+
+    if (response.statusCode == 200) {
+      final json = jsonDecode(response.body) as Map<String, dynamic>;
+      final sections = ((json['sections'] as List<dynamic>?) ?? const [])
+          .map((e) => HomeSection.fromJson(e as Map<String, dynamic>))
+          .toList();
+      return HomeFeed(sections: sections, cta: json['cta'] as String?);
+    }
+    throw Exception('Home failed: ${response.statusCode}');
   }
 }

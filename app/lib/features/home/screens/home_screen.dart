@@ -169,8 +169,145 @@ class _HomeContent extends ConsumerWidget {
         // ── Section 3: 이 책은 어때요? (추천) ──────────────────────
         const _RecommendationSection(),
 
+        // ── Section 4: 큐레이션 + 화제의 책 (/home) ─────────────────
+        const _CurationSections(),
+
         const SizedBox(height: 32),
       ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Section 4: 큐레이션 / 화제의 책 (서버 /home 의 curation·trending 섹션)
+// ---------------------------------------------------------------------------
+
+class _CurationSections extends ConsumerWidget {
+  const _CurationSections();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final feedAsync = ref.watch(homeFeedProvider);
+    return feedAsync.when(
+      // 로딩/에러 시엔 조용히 비움 — 위 추천 섹션이 이미 화면을 채운다.
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
+      data: (feed) {
+        final sections = feed.sections
+            .where((s) =>
+                (s.type == 'curation' || s.type == 'trending') &&
+                s.books.isNotEmpty)
+            .toList();
+        if (sections.isEmpty) return const SizedBox.shrink();
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [for (final s in sections) _FeedRow(section: s)],
+        );
+      },
+    );
+  }
+}
+
+class _FeedRow extends StatelessWidget {
+  final HomeSection section;
+
+  const _FeedRow({required this.section});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 24, 0, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(right: 20),
+            child: Text(
+              section.title.isEmpty ? '추천' : section.title,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: AppColors.textPrimary,
+                letterSpacing: 0.01,
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 212,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.only(right: 20),
+              itemCount: section.books.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 12),
+              itemBuilder: (context, index) {
+                final b = section.books[index];
+                return _FeedBookCard(
+                  book: b,
+                  onTap: () =>
+                      BookDetailBottomSheet.show(context, b.toBook()),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FeedBookCard extends StatelessWidget {
+  final HomeBook book;
+  final VoidCallback onTap;
+
+  const _FeedBookCard({required this.book, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: SizedBox(
+        width: 120,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: SizedBox(
+                width: 120,
+                height: 172,
+                child: book.coverUrl != null
+                    ? Image.network(
+                        book.coverUrl!,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => _CoverFallback(),
+                      )
+                    : _CoverFallback(),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              book.title,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: AppColors.textPrimary,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            Text(
+              book.author,
+              style: const TextStyle(
+                fontSize: 11,
+                color: AppColors.textSecondary,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

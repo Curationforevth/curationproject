@@ -104,6 +104,7 @@ class BookDetailNotifier extends StateNotifier<BookDetailState> {
           .eq('id', _userBookId);
       _ref.invalidate(bookshelfProvider);
       _ref.invalidate(recommendationsProvider);  // rating 변경 → 추천 재계산 필요
+      _ref.invalidate(homeFeedProvider);
     } catch (e) {
       state = state.copyWith(userBook: prev);
       debugPrint('rating 저장 실패: $e');
@@ -190,6 +191,7 @@ class BookDetailNotifier extends StateNotifier<BookDetailState> {
       );
       _ref.invalidate(bookshelfProvider);
       _ref.invalidate(recommendationsProvider);  // review_text → feedback_embedding → 추천 영향
+      _ref.invalidate(homeFeedProvider);
     } catch (e) {
       debugPrint('리뷰 저장 실패: $e');
       rethrow;
