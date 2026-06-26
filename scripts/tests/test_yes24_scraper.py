@@ -2,6 +2,39 @@
 import pytest
 
 
+class TestAuthorMatches:
+    """ISBN 불일치 fallback 의 저자 매칭 — 성-only 오매칭 차단(정확도 보호).
+
+    제목이 정규화 일치한 뒤의 저자 확인 단계. rich_description 이 desc 임베딩에
+    직결되므로 잘못된 책 매칭(오염) > 일부 에디션 복구 실패. 정확도 우선.
+    """
+
+    def test_blocks_surname_only_false_match(self):
+        """제목 같고 성만 같은 다른 저자 → 거부 (기존 버그: last_name substring)."""
+        from yes24_scraper import author_matches
+        assert author_matches("마이클 샌델", "데이비드 샌델") is False
+
+    def test_same_author_edition_matches(self):
+        """같은 저자(에디션 복구) → 매칭. 페이지의 역할어(저) 제거."""
+        from yes24_scraper import author_matches
+        assert author_matches("마이클 샌델", "마이클 샌델 저") is True
+
+    def test_db_surname_contained_in_full_page_name(self):
+        """DB 가 성만(단일 토큰)이고 페이지 전체명에 포함 → 매칭."""
+        from yes24_scraper import author_matches
+        assert author_matches("롤링", "조앤 K. 롤링") is True
+
+    def test_strips_role_suffix_on_db_side(self):
+        """DB 저자의 지음/옮김 등 역할어 제거 후 비교."""
+        from yes24_scraper import author_matches
+        assert author_matches("김영하 지음", "김영하") is True
+
+    def test_empty_author_rejected(self):
+        from yes24_scraper import author_matches
+        assert author_matches("", "마이클 샌델") is False
+        assert author_matches("마이클 샌델", "") is False
+
+
 def test_isbn_matches_exact():
     from yes24_scraper import isbn_matches
     assert isbn_matches("9788954681179", "9788954681179") is True

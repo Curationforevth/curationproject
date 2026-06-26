@@ -35,10 +35,35 @@ jobs:
           cd recommendation-server
           python3 scripts/build_index.py
 
+      # v4 lean 검증: Linux(러너)에서 pkl load 후 peak RSS 측정. Render 512MB 의
+      # proxy(로컬 Mac RSS 는 malloc 차이로 신뢰 불가). reason 중복 제거가 안 되면
+      # RSS 가 폭증하므로 명백한 실패(>450MB)는 abort 해 prod OOM 배포를 막는다.
+      # (ru_maxrss 는 unpickle 피크 포함 과대평가 → 정밀 게이트는 배포 후 /health.)
+      - name: Measure index RSS (Linux proxy for Render 512MB)
+        run: |
+          cd recommendation-server
+          python3 - <<'PY'
+          import resource, sys
+          sys.path.insert(0, ".")
+          from engine.loader import load_index
+          idx, meta, built, pre, dm, am, bo = load_index()
+          n = sum(len(r) for r in pre.values()) if pre else 0
+          mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024  # Linux KB→MB
+          print(f"version: {'v4' if pre is not None else 'v3'}  books={len(idx.book_ids)}  prestacked_reasons={n}")
+          print(f"peak RSS ~= {mb:.0f} MB (Linux ru_maxrss, unpickle 피크 포함)")
+          if mb > 360:
+              print(f"::warning::RSS {mb:.0f}MB > 360MB 보수 게이트 — 배포 후 Render /health memory_mb 면밀 확인")
+          if mb > 450:
+              print(f"::error::RSS {mb:.0f}MB > 450MB — lean 미적용/reason 중복 의심. 배포 abort.")
+              sys.exit(1)
+          PY
+
       - name: Commit and push index.pkl
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add recommendation-server/data/index.pkl
+          # .pkl + .sha256 를 같은 commit 으로 — loader._verify_hash 정합 + 롤백 시
+          # revert 한 번으로 둘 다 동반 복귀(stale hash crash 방지).
+          git add recommendation-server/data/index.pkl recommendation-server/data/index.pkl.sha256
           git diff --cached --quiet || git commit -m "chore: rebuild index.pkl ($(date -u '+%Y-%m-%d %H:%M UTC'))"
           git push

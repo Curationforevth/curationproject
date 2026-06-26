@@ -42,6 +42,20 @@ PAGE_SLEEP = 0  # read-only fetch — sleep 불필요
 EMBED_BATCH = 128  # build 시점 reason 텍스트 배치 임베딩 크기
 
 
+def _lean_strip_reasons(index, bid_order):
+    """v4 lean: prestacked 구축 후 저장 index 의 per-book reasons 를 비운다.
+
+    serving(twostage)은 prestacked_reasons 를 사용하고 index.reasons fallback 은
+    prestacked 가 빈 책(=원래 reason 없는 책)에만 도달하므로, 저장 index 에 reason 을
+    중복 보유할 필요가 없다. 무료 Render 512MB 에서 reason 중복(~142MB) 제거로 OOM 방지.
+    desc/l1/l2 는 serving 이 index 에서 읽으므로 보존한다.
+    """
+    for bid in bid_order:
+        bv = index.get_book(bid)
+        if bv is not None:
+            bv.reasons = []
+
+
 def _to_np(vec) -> np.ndarray:
     if isinstance(vec, str):
         vec = [float(x) for x in vec.strip("[]").split(",")]
@@ -327,6 +341,10 @@ def build(dry_run: bool = False, incremental: bool = False):
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     built_at = datetime.now(timezone.utc).isoformat()
+
+    # v4 lean: prestacked/agg 구축 완료 후 저장 index 의 reason 중복 제거(무료 512MB RSS).
+    _lean_strip_reasons(index, bid_order)
+
     bundle = {
         "index": index,
         "meta": books_meta,

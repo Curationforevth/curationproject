@@ -48,6 +48,12 @@ type: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`
 - 새 기능은 테스트와 함께 작성
 - 위젯 테스트 + 유닛 테스트 최소 커버리지 유지
 
+### DB 쓰기 경로 검증 (dry-run 한계)
+dry-run 은 SELECT 만 하고 INSERT/UPDATE/DELETE 를 skip 하므로 **생성컬럼·CHECK·FK·트리거를 검증 못 한다**. 실제로 l1 생성컬럼·user_state 트리거·wishlist 제약 버그가 모두 dry-run 을 통과했다. DB 쓰기 경로를 추가/변경하면 경로별로 **실쓰기 검증** 필수:
+- **수집 파이프라인 경로**(books upsert, loan_count 등) → `daily-pipeline` 워크플로를 `mode=small` 로 dispatch 해 실 Actions 소량 쓰기로 검증.
+- **feedback/서버 경로**(user_books, wishlist 등) → throwaway 유저로 **prod E2E** 검증(pm-agent memory `ref_prod_e2e_throwaway`).
+- DB 트리거/CHECK 제약 자체는 단위테스트로 검증 불가(DB 에만 존재) — 마이그레이션 DDL + 실쓰기로만 보장. 단위테스트는 **호출측 로직**(예: 트리거를 유발하는 페이로드를 만들지 않는지)만 고정한다.
+
 ### API 키 관리
 - `.env` 파일에 보관, 절대 커밋하지 않음
 - `.gitignore`에 `.env` 포함 필수

@@ -109,6 +109,56 @@ def normalize_for_match(title):
     return re.sub(r'\s+', '', t).strip().lower()
 
 
+_AUTHOR_ROLE_SUFFIX = re.compile(
+    r'\s*(지음|옮김|그림|글|엮음|원작|지은이|옮긴이|저|역|편|편저|감수)\s*$')
+
+
+def _normalize_author(raw):
+    """저자명 정규화: 괄호/첫 저자/역할어 제거."""
+    a = re.sub(r'\s*\(.*?\)', '', raw or '')   # 괄호 주석 제거
+    a = a.split(',')[0].strip()                # 첫 저자만
+    a = _AUTHOR_ROLE_SUFFIX.sub('', a).strip()
+    return a
+
+
+def _author_tokens(name):
+    """유의미 토큰 집합(점 제거, 길이>=2). 'J.K.'→'jk', 1글자 이니셜은 제외."""
+    toks = set()
+    for t in re.split(r'\s+', name or ''):
+        t = t.replace('.', '').strip().lower()
+        if len(t) >= 2:
+            toks.add(t)
+    return toks
+
+
+def author_matches(expected_author, page_author):
+    """ISBN 불일치 fallback 의 저자 확인. 제목이 정규화 일치한 뒤 호출된다.
+
+    오매칭(같은 제목·같은 성 다른 사람) 차단을 위해 '성 substring 단독' 은 거부.
+    매칭 기준(정확도 우선):
+      - 전체명 substring 포함(양방향, 길이>=2) → 매칭 (예: '롤링' ⊂ '조앤 K. 롤링')
+      - 단일 토큰(한국식 붙은 이름) → 그 토큰이 페이지 토큰에 포함되면 매칭
+      - 다중 토큰 → 유의미 토큰 2개 이상 공유해야 매칭 (성 1개만 같으면 거부)
+    부작용: 표기차로 토큰이 1개만 겹치는 정당한 에디션('조앤 K. 롤링' vs 'J.K. 롤링')은
+    못 찾을 수 있음 — 오염보다 미수집이 안전하므로 의도된 trade-off.
+    """
+    db = _normalize_author(expected_author)
+    pg = _normalize_author(page_author)
+    if not db or not pg:
+        return False
+    db_ns = re.sub(r'\s+', '', db).lower()
+    pg_ns = re.sub(r'\s+', '', pg).lower()
+    if len(db_ns) >= 2 and (db_ns in pg_ns or pg_ns in db_ns):
+        return True
+    db_toks = _author_tokens(db)
+    pg_toks = _author_tokens(pg)
+    if not db_toks:
+        return False
+    if len(db_toks) == 1:
+        return db_toks <= pg_toks
+    return len(db_toks & pg_toks) >= 2
+
+
 def _extract_author_from_ld(html):
     """HTML에서 JSON-LD author.name 추출. 없으면 None."""
     m = re.search(r'<script type="application/ld\+json">(.*?)</script>', html, re.DOTALL)
@@ -258,28 +308,17 @@ class Yes24Scraper:
 
             # 1차: ISBN 매칭
             if isbn_matches(page_isbn, expected_isbn):
-                return html
+                return html, "isbn"
 
-            # 2차 후보: 제목+저자 매칭 (첫 번째만 저장)
-            if best_title_match is None and expected_title:
+            # 2차 후보: 제목 정규화 일치 + 저자 강매칭 (첫 번째만 저장)
+            if best_title_match is None and expected_title and expected_author:
                 page_title = _extract_title_from_ld(html)
                 page_author = _extract_author_from_ld(html)
                 if (page_title and page_author
                         and normalize_for_match(expected_title)
-                        == normalize_for_match(page_title)):
-                    # 저자도 확인 (오매칭 방지)
-                    db_author = re.sub(r'\s*\(.*?\)', '', expected_author or '')
-                    db_author = db_author.split(',')[0].strip()
-                    db_author = re.sub(
-                        r'\s*(지음|옮김|그림|글|엮음|원작|지은이|옮긴이)\s*$',
-                        '', db_author,
-                    ).strip()
-                    if db_author:
-                        # 전체 이름 또는 성(마지막 단어)으로 매칭
-                        # "조앤 K. 롤링" → "롤링", "J.K. 롤링" → "롤링"
-                        last_name = db_author.split()[-1]
-                        if db_author in page_author or (len(last_name) >= 2 and last_name in page_author):
-                            best_title_match = html
+                        == normalize_for_match(page_title)
+                        and author_matches(expected_author, page_author)):
+                    best_title_match = html
 
             time.sleep(0.3)
 
@@ -287,9 +326,9 @@ class Yes24Scraper:
         if best_title_match:
             self.stats.setdefault("title_matched", 0)
             self.stats["title_matched"] += 1
-            return best_title_match
+            return best_title_match, "title_fallback"
 
-        return None
+        return None, None
 
     def _extract_sections(self, html):
         """HTML에서 책소개/출판사리뷰/책속으로 추출"""
@@ -308,14 +347,15 @@ class Yes24Scraper:
                     sections[name] = cleaned
         return sections
 
-    def _save_rich_description(self, book_id, sections):
-        """DB에 rich_description 저장"""
+    def _save_rich_description(self, book_id, sections, matched_via="isbn"):
+        """DB에 rich_description 저장. matched_via 로 매칭 경로 추적(audit용)."""
         if not sections or self.dry_run:
             return
         combined = '\n\n'.join(f'[{name}]\n{text}' for name, text in sections.items())
         with_retry(lambda: (
             self.sb.table("books")
-            .update({"rich_description": combined})
+            .update({"rich_description": combined,
+                     "rich_description_matched_via": matched_via})
             .eq("id", book_id)
             .execute()
         ))
@@ -357,7 +397,7 @@ class Yes24Scraper:
 
                 time.sleep(self.REQUEST_DELAY)
 
-                html = self._find_matching_page(
+                html, matched_via = self._find_matching_page(
                     goods_ids, isbn,
                     expected_title=title, expected_author=author,
                 )
@@ -376,7 +416,7 @@ class Yes24Scraper:
                     time.sleep(self.REQUEST_DELAY)
                     continue
 
-                self._save_rich_description(book['id'], sections)
+                self._save_rich_description(book['id'], sections, matched_via)
 
                 total_chars = sum(len(t) for t in sections.values())
                 self.stats["success"] += 1

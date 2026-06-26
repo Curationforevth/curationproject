@@ -49,6 +49,29 @@ def test_embed_batch_empty_input():
         assert bi._embed_batch([]) == []
 
 
+def test_lean_strip_reasons_empties_reasons_keeps_vectors():
+    """v4 lean: 저장 index 의 per-book reasons 만 비우고 desc/l1/l2 는 보존.
+
+    prestacked 가 reason 을 대체하므로(서빙은 prestacked 사용) 무료 512MB RSS 절감.
+    """
+    bi = _load_builder()
+    from engine.index import VectorIndex
+
+    idx = VectorIndex(dim=4, dtype=np.float16)
+    r = np.ones(4, dtype=np.float32)
+    idx.add_book("b1", reasons=[r, r], desc=r * 2, l1=r, l2=r)
+    idx.add_book("b2", reasons=[], desc=r * 3, l1=r, l2=r)
+
+    bi._lean_strip_reasons(idx, ["b1", "b2"])
+
+    assert idx.get_book("b1").reasons == [], "reason 비워져야"
+    assert idx.get_book("b2").reasons == []
+    # desc/l1/l2 보존 (serving 이 index 에서 읽음)
+    assert idx.get_book("b1").desc.shape == (4,)
+    assert idx.get_book("b1").l1.shape == (4,)
+    assert idx.get_book("b2").desc.shape == (4,)
+
+
 def test_embed_batch_retries_then_raises():
     bi = _load_builder()
     calls = {"n": 0}
