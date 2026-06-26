@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Curation — 전체 화면 디자인</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --primary:#0F172A;        /* Slate 900 */
+    --primary-light:#334155;  /* Slate 700 */
+    --surface:#FFFFFF;
+    --surface-variant:#F8FAFC;
+    --card:#FAFAFA;
+    --border:#F1F5F9;
+    --shelf:#E8E4DE;
+    --shelf-dark:#DDD8D0;
+    --text-primary:#0F172A;
+    --text-secondary:#94A3B8;
+    --slate300:#CBD5E1;
+    --kakao:#FEE500;
+    --pf:'Pretendard Variable',Pretendard,-apple-system,sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    font-family:var(--pf);
+    background:
+      radial-gradient(1200px 600px at 15% -10%, #1e293b 0%, transparent 60%),
+      radial-gradient(1000px 700px at 100% 0%, #25303f 0%, transparent 55%),
+      linear-gradient(160deg,#0b1220 0%,#0f172a 55%,#10151f 100%);
+    background-attachment:fixed;
+    color:#e2e8f0;
+    min-height:100vh;
+    -webkit-font-smoothing:antialiased;
+  }
+  /* subtle dot grid texture */
+  body::before{
+    content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+    background-image:radial-gradient(rgba(148,163,184,.07) 1px,transparent 1px);
+    background-size:26px 26px;
+    mask-image:linear-gradient(180deg,rgba(0,0,0,.7),transparent 70%);
+  }
+
+  /* ── Page header ─────────────────────────────────── */
+  header.hero{
+    position:relative;z-index:1;
+    max-width:1320px;margin:0 auto;padding:72px 40px 28px;
+  }
+  .eyebrow{
+    font-size:12px;letter-spacing:.42em;text-transform:uppercase;
+    color:#64748b;font-weight:600;margin-bottom:18px;
+  }
+  h1.title{
+    font-family:'Instrument Serif',serif;
+    font-weight:400;line-height:.95;letter-spacing:-.5px;
+    font-size:clamp(48px,8vw,104px);
+    color:#f8fafc;
+  }
+  h1.title em{font-style:italic;color:#94a3b8;}
+  .sub{
+    margin-top:22px;max-width:620px;font-size:15.5px;line-height:1.65;
+    color:#94a3b8;font-weight:300;
+  }
+  .meta-row{
+    display:flex;flex-wrap:wrap;gap:10px;margin-top:26px;
+  }
+  .chip{
+    font-size:12px;color:#cbd5e1;background:rgba(148,163,184,.10);
+    border:1px solid rgba(148,163,184,.18);
+    padding:7px 13px;border-radius:999px;font-weight:500;
+    backdrop-filter:blur(4px);
+  }
+  .chip b{color:#f1f5f9;font-weight:600;}
+
+  /* ── Gallery grid ───────────────────────────────── */
+  .gallery{
+    position:relative;z-index:1;
+    max-width:1320px;margin:0 auto;padding:30px 40px 100px;
+    display:grid;
+    grid-template-columns:repeat(auto-fill,minmax(330px,1fr));
+    gap:54px 40px;
+    align-items:start;
+    justify-items:center;
+  }
+  .frame{width:330px;}
+  .frame .cap{
+    display:flex;align-items:baseline;gap:9px;margin-bottom:14px;padding-left:4px;
+  }
+  .cap .num{
+    font-family:'Instrument Serif',serif;font-size:20px;color:#475569;
+    line-height:1;min-width:26px;
+  }
+  .cap .nm{font-size:14px;font-weight:600;color:#e2e8f0;letter-spacing:-.2px;}
+  .cap .rt{margin-left:auto;font-size:11px;color:#64748b;font-weight:500;
+    background:rgba(148,163,184,.08);padding:3px 8px;border-radius:6px;}
+
+  /* phone shell */
+  .phone{
+    width:330px;height:700px;background:var(--surface);
+    border-radius:34px;overflow:hidden;position:relative;
+    box-shadow:
+      0 1px 0 1px rgba(255,255,255,.04) inset,
+      0 30px 60px -20px rgba(0,0,0,.65),
+      0 12px 24px -12px rgba(0,0,0,.5);
+    border:1px solid rgba(15,23,42,.6);
+  }
+  .phone.tall{height:760px;}
+  .phone .scr{
+    position:absolute;inset:0;overflow:hidden;
+    display:flex;flex-direction:column;
+    color:var(--text-primary);
+  }
+  /* status bar */
+  .sbar{
+    height:44px;flex:none;display:flex;align-items:center;justify-content:space-between;
+    padding:0 26px;font-size:13px;font-weight:600;color:var(--text-primary);
+  }
+  .sbar .dots{display:flex;gap:5px;align-items:center;}
+  .sbar .dots i{width:15px;height:10px;border:1.4px solid var(--text-primary);border-radius:2px;display:inline-block;position:relative;}
+  .sbar .dots i::after{content:"";position:absolute;right:-3px;top:3px;width:1.6px;height:4px;background:var(--text-primary);border-radius:1px;}
+  .sbar .sig{letter-spacing:1px;}
+  .notch{position:absolute;top:0;left:50%;transform:translateX(-50%);width:120px;height:26px;background:#0b1220;border-radius:0 0 16px 16px;z-index:5;}
+
+  .body{flex:1;overflow:hidden;position:relative;}
+  .pad{padding:0 20px;}
+
+  /* bottom nav */
+  .nav{
+    flex:none;height:60px;border-top:1px solid var(--border);
+    display:flex;align-items:center;justify-content:space-around;
+    background:#fff;padding-bottom:6px;
+  }
+  .nav .it{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10px;color:var(--slate300);font-weight:500;}
+  .nav .it.on{color:var(--primary);}
+  .nav .it svg{width:24px;height:24px;}
+  .home-ind{position:absolute;bottom:7px;left:50%;transform:translateX(-50%);width:120px;height:4px;background:#0f172a;opacity:.85;border-radius:3px;z-index:6;}
+
+  /* ── shared UI atoms ───────────────────────────── */
+  .row{display:flex;}
+  .between{justify-content:space-between;}
+  .center{align-items:center;}
+  .av{width:30px;height:30px;border-radius:50%;background:#F1F5F9;display:flex;align-items:center;justify-content:center;color:var(--text-secondary);}
+  .ic{color:var(--text-secondary);display:inline-flex;}
+  .h-title{font-size:26px;font-weight:300;letter-spacing:-1px;line-height:1.35;color:#0F172A;}
+  .sec-t{font-size:13px;font-weight:700;letter-spacing:.01em;color:var(--text-primary);}
+  .muted{color:var(--text-secondary);}
+
+  .hscroll{display:flex;gap:12px;overflow:hidden;}
+  /* book cover */
+  .cover{border-radius:8px;overflow:hidden;position:relative;flex:none;
+    display:flex;align-items:flex-end;color:#fff;}
+  .cover .ct{font-size:10px;font-weight:600;line-height:1.25;padding:8px;
+    text-shadow:0 1px 2px rgba(0,0,0,.35);max-height:100%;}
+  .cover.sm{} /* size set inline */
+  .bt{font-size:12px;font-weight:500;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .ba{font-size:11px;font-weight:300;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+
+  /* my-book card */
+  .mbcard{width:140px;flex:none;background:var(--card);border-radius:14px;padding:12px;display:flex;flex-direction:column;}
+  .cta{margin-top:auto;text-align:center;padding:8px 0;border-radius:8px;font-size:12px;font-weight:500;}
+  .cta.pri{background:var(--primary);color:#fff;}
+  .cta.lit{background:#F1F5F9;color:var(--text-primary);}
+
+  .feedcard{width:120px;flex:none;}
+
+  /* pills / chips */
+  .pill{border:1.5px solid var(--border);border-radius:20px;padding:8px 16px;font-size:13px;color:var(--text-secondary);background:#fff;}
+  .pill.on{background:var(--primary);border-color:var(--primary);color:#fff;font-weight:500;}
+
+  .placeholder{background:#FAFAFA;border-radius:12px;padding:18px;text-align:center;color:#94A3B8;font-size:13px;}
+
+  .btn-primary{background:var(--primary);color:#fff;text-align:center;border-radius:12px;padding:16px;font-size:15px;font-weight:500;}
+  .divider{height:1px;background:var(--border);}
+
+  /* footer */
+  footer{position:relative;z-index:1;text-align:center;padding:10px 20px 70px;color:#475569;font-size:12.5px;line-height:1.7;}
+  footer b{color:#94a3b8;font-weight:600;}
+  .legend{max-width:1320px;margin:0 auto 8px;padding:0 40px;display:flex;flex-wrap:wrap;gap:8px;justify-content:center;}
+  .legend .chip{background:rgba(148,163,184,.07);}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="eyebrow">Curation · 도서 취향 큐레이션</div>
+  <h1 class="title">전체 화면<br><em>디자인 갤러리</em></h1>
+  <p class="sub">실제 Flutter 코드(<b style="color:#cbd5e1">lib/features/**</b>)를 그대로 재현한 목업입니다.
+     컬러 = <b style="color:#cbd5e1">Minimal Slate</b> 팔레트(Slate 900 + 순백 서피스), 폰트 = Pretendard.
+     로그인 없이 모든 화면을 한 눈에 볼 수 있게 정리했어요.</p>
+  <div class="meta-row">
+    <span class="chip"><b>11</b> screens</span>
+    <span class="chip">Flutter · Riverpod</span>
+    <span class="chip">Supabase</span>
+    <span class="chip">Slate 900 <b>#0F172A</b></span>
+    <span class="chip">Pretendard</span>
+  </div>
+</header>
+
+<main class="gallery">
+
+  <!-- 1. 로그인 -->
+  <div class="frame">
+    <div class="cap"><span class="num">01</span><span class="nm">로그인</span><span class="rt">/login</span></div>
+    <div class="phone"><div class="scr"><div class="notch"></div>
+      <div class="sbar"><span>9:41</span><div class="dots"><span class="sig">●●●</span><i></i></div></div>
+      <div class="body" style="display:flex;align-items:center;justify-content:center;">
+        <div style="padding:0 32px;width:100%;text-align:center;">
+          <div style="font-size:34px;font-weight:300;letter-spacing:-1px;color:#0F172A;">Curation</div>
+          <div style="margin-top:8px;font-size:15px;color:#9aa3af;">나만의 서재를 시작하세요</div>
+          <div style="height:48px;"></div>
+          <div style="height:48px;border-radius:8px;background:var(--kakao);color:#1a1a1a;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:600;">카카오로 시작하기</div>
+          <div style="height:12px;"></div>
+          <div style="height:48px;border-radius:8px;background:#fff;border:1px solid #E2E8F0;color:#0F172A;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:500;">Google로 시작하기</div>
+        </div>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- 2. 홈 (빈 상태) -->
+  <div class="frame">
+    <div class="cap"><span class="num">02</span><span class="nm">홈 · 빈 상태</span><span class="rt">/home</span></div>
+    <div class="phone"><div class="scr"><div class="notch"></div>
+      <div class="sbar"><span>9:41</span><div class="dots"><span class="sig">●●●</span><i></i></div></div>
+      <div class="body" style="display:flex;align-items:center;justify-content:center;">
+        <div style="padding:0 40px;text-align:center;">
+          <div style="font-size:22px;font-weight:500;color:#0F172A;">서재를 시작해볼까요?</div>
+          <div style="margin-top:8px;font-size:14px;font-weight:300;color:#94A3B8;">책을 등록하고 취향을 발견해보세요</div>
+          <div style="height:32px;"></div>
+          <div style="display:inline-block;background:var(--primary);color:#fff;border-radius:12px;padding:14px 32px;font-size:15px;font-weight:500;">시작하기</div>
+        </div>
+      </div>
+      <div class="nav">
+        <div class="it on"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>홈</div>
+        <div class="it"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>등록</div>
+        <div class="it"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 5.5A2.5 2.5 0 015.5 3H11v16H5.5A2.5 2.5 0 003 19.5zM21 5.5A2.5 2.5 0 0018.5 3H13v16h5.5A2.5 2.5 0 0121 19.5z"/></svg>서재</div>
+      </div>
+      <div class="home-ind"></div>
+    </div></div>
+  </div>
+
+  <!-- 3. 홈 (콘텐츠) — HERO -->
+  <div class="frame">
+    <div class="cap"><span class="num">03</span><span class="nm">홈 · 피드</span><span class="rt">/home</span></div>
+    <div class="phone tall"><div class="scr"><div class="notch"></div>
+      <div class="sbar"><span>9:41</span><div class="dots"><span class="sig">●●●</span><i></i></div></div>
+      <div class="body">
+        <!-- topbar -->
+        <div class="pad row between center" style="padding-top:16px;">
+          <div class="av"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12a5 5 0 100-10 5 5 0 000 10zm0 2c-4 0-9 2-9 6v2h18v-2c0-4-5-6-9-6z"/></svg></div>
+          <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg></div>
+        </div>
+        <!-- header -->
+        <div class="pad" style="padding-top:20px;"><div class="h-title">오늘은 어떤 책을<br>만나볼까요?</div></div>
+
+        <!-- 내 책 -->
+        <div style="padding-top:24px;">
+          <div class="pad sec-t">내 책</div>
+          <div class="hscroll pad" style="padding-top:12px;">
+            <div class="mbcard">
+              <div class="cover" style="width:116px;height:166px;background:linear-gradient(150deg,#3D5A80,#2c456b);"><div class="ct">데미안</div></div>
+              <div class="bt" style="margin-top:8px;">데미안</div><div class="ba">헤르만 헤세</div>
+              <div class="cta pri">다 읽었어요</div>
+            </div>
+            <div class="mbcard">
+              <div class="cover" style="width:116px;height:166px;background:linear-gradient(150deg,#C67B5C,#a9613f);"><div class="ct">사피엔스</div></div>
+              <div class="bt" style="margin-top:8px;">사피엔스</div><div class="ba">유발 하라리</div>
+              <div class="cta lit">피드백 남기기</div>
+            </div>
+            <div class="mbcard">
+              <div class="cover" style="width:116px;height:166px;background:linear-gradient(150deg,#5B7B6F,#41594f);"><div class="ct">아몬드</div></div>
+              <div class="bt" style="margin-top:8px;">아몬드</div><div class="ba">손원평</div>
+              <div class="cta pri">다 읽었어요</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 읽고싶은 책 -->
+        <div style="padding-top:24px;">
+          <div class="pad row between center"><span class="sec-t">읽고싶은 책</span><span class="ba" style="font-weight:500;">4권</span></div>
+          <div class="hscroll pad" style="padding-top:10px;">
+            <div class="feedcard"><div class="cover" style="width:120px;height:172px;background:linear-gradient(150deg,#8B6F8E,#6b5270);"><div class="ct">노르웨이의 숲</div></div><div class="bt" style="margin-top:6px;">노르웨이의 숲</div><div class="ba">무라카미 하루키</div></div>
+            <div class="feedcard"><div class="cover" style="width:120px;height:172px;background:linear-gradient(150deg,#7B8FA1,#5d6f80);"><div class="ct">달러구트 꿈 백화점</div></div><div class="bt" style="margin-top:6px;">달러구트 꿈 백화점</div><div class="ba">이미예</div></div>
+            <div class="feedcard"><div class="cover" style="width:120px;height:172px;background:linear-gradient(150deg,#4A7C6F,#345952);"><div class="ct">불편한 편의점</div></div><div class="bt" style="margin-top:6px;">불편한 편의점</div><div class="ba">김호연</div></div>
+          </div>
+        </div>
+
+        <!-- 이 책은 어때요 -->
+        <div class="pad" style="padding-top:24px;">
+          <div class="sec-t">이 책은 어때요?</div>
+          <div class="hscroll" style="padding-top:10px;">
+            <div class="feedcard"><div class="cover" style="width:120px;height:172px;background:linear-gradient(150deg,#EE6C4D,#cf4f31);"><div class="ct">미움받을 용기</div></div><div class="bt" style="margin-top:6px;">미움받을 용기</div><div class="ba">기시미 이치로</div></div>
+            <div class="feedcard"><div class="cover" style="width:120px;height:172px;background:linear-gradient(150deg,#6B8F71,#4f6f54);"><div class="ct">채식주의자</div></div><div class="bt" style="margin-top:6px;">채식주의자</div><div class="ba">한강</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="nav">
+        <div class="it on"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>홈</div>
+        <div class="it"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>등록</div>
+        <div class="it"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 5.5A2.5 2.5 0 015.5 3H11v16H5.5A2.5 2.5 0 003 19.5zM21 5.5A2.5 2.5 0 0018.5 3H13v16h5.5A2.5 2.5 0 0121 19.5z"/></svg>서재</div>
+      </div>
+      <div class="home-ind"></div>
+    </div></div>
+  </div>
+
+  <!-- 4. 서재 -->
+  <div class="frame">
+    <div class="cap"><span class="num">04</span><span class="nm">서재</span><span class="rt">/library</span></div>
+    <div class="phone tall"><div class="scr"><div class="notch"></div>
+      <div class="sbar"><span>9:41</span><div class="dots"><span class="sig">●●●</span><i></i></div></div>
+      <div class="body">
+        <div class="pad row center" style="padding-top:20px;">
+          <div class="h-title" style="font-size:26px;">내 서재</div>
+          <div style="margin-left:auto;background:var(--primary);color:#fff;border-radius:8px;padding:10px 14px;font-size:13px;font-weight:500;">+ 추가</div>
+        </div>
+        <div class="pad" style="padding-top:10px;font-size:13px;color:#94A3B8;">읽은 책 <b style="color:#475569;">18</b>&nbsp;&nbsp;읽는 중 <b style="color:#475569;">2</b></div>
+
+        <!-- 읽는 중 -->
+        <div style="padding-top:20px;">
+          <div class="pad" style="font-weight:600;font-size:14px;color:#0F172A;">읽는 중 <span class="muted" style="font-weight:400;">2</span></div>
+          <div class="hscroll pad" style="padding-top:12px;">
+            <div style="width:280px;flex:none;background:#FAFAFA;border-radius:14px;padding:12px 14px;display:flex;gap:12px;align-items:center;">
+              <div class="cover" style="width:44px;height:64px;border-radius:6px;background:linear-gradient(150deg,#3D5A80,#2c456b);"></div>
+              <div style="flex:1;min-width:0;">
+                <div style="font-size:13px;font-weight:600;color:#0F172A;">데미안</div>
+                <div class="ba">헤르만 헤세</div>
+                <div style="margin-top:8px;display:inline-block;background:var(--primary);color:#fff;border-radius:999px;padding:4px 10px;font-size:11px;font-weight:500;">다 읽었어요</div>
+              </div>
+            </div>
+            <div style="width:280px;flex:none;background:#FAFAFA;border-radius:14px;padding:12px 14px;display:flex;gap:12px;align-items:center;">
+              <div class="cover" style="width:44px;height:64px;border-radius:6px;background:linear-gradient(150deg,#C67B5C,#a9613f);"></div>
+              <div style="flex:1;min-width:0;">
+                <div style="font-size:13px;font-weight:600;color:#0F172A;">사피엔스</div>
+                <div class="ba">유발 하라리</div>
+                <div style="margin-top:8px;display:inline-block;background:var(--primary);color:#fff;border-radius:999px;padding:4px 10px;font-size:11px;font-weight:500;">다 읽었어요</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 읽은 책 (책등 선반) -->
+        <div style="padding-top:28px;">
+          <div style="padding-left:20px;font-size:11px;font-weight:500;letter-spacing:.3px;color:#94A3B8;">읽은 책</div>
+          <div style="padding:14px 16px 0;">
+            <div style="display:flex;gap:4px;align-items:flex-end;height:160px;overflow:hidden;">
+              <!-- spines: color-block, page-width varies -->
+              <div class="sp" style="width:34px;background:#EE6C4D;"><span>미움받을 용기</span></div>
+              <div class="sp" style="width:44px;background:#3D5A80;"><span>데미안</span></div>
+              <div class="sp" style="width:30px;background:#5B7B6F;"><span>아몬드</span></div>
+              <div class="sp" style="width:50px;background:#1A2238;"><span>코스모스</span></div>
+              <div class="sp" style="width:38px;background:#6B8F71;"><span>채식주의자</span></div>
+              <div class="sp" style="width:42px;background:#8B6F8E;"><span>노르웨이의 숲</span></div>
+              <div class="sp" style="width:32px;background:#D4A574;"><span>클라라와 태양</span></div>
+              <div class="sp" style="width:46px;background:#4A7C6F;"><span>불편한 편의점</span></div>
+              <div class="sp" style="width:36px;background:#B5838D;"><span>보통의 존재</span></div>
+            </div>
+            <!-- 선반 -->
+            <div style="height:10px;margin:0 -4px;background:var(--shelf);border-radius:0 0 4px 4px;box-shadow:0 2px 4px rgba(221,216,208,.7);"></div>
+          </div>
+        </div>
+      </div>
+      <div class="nav">
+        <div class="it"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>홈</div>
+        <div class="it"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>등록</div>
+        <div class="it on"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 5.5A2.5 2.5 0 015.5 3H11v16H5.5A2.5 2.5 0 003 19.5zM21 5.5A2.5 2.5 0 0018.5 3H13v16h5.5A2.5 2.5 0 0121 19.5z"/></svg>서재</div>
+      </div>
+      <div class="home-ind"></div>
+    </div></div>
+  </div>
+
+  <!-- 5. 책 등록 -->
+  <div class="frame">
+    <div class="cap"><span class="num">05</span><span class="nm">책 등록</span><span class="rt">/register</span></div>
+    <div class="phone"><div class="scr"><div class="notch"></div>
+      <div class="sbar"><span>9:41</span><div class="dots"><span class="sig">●●●</span><i></i></div></div>
+      <div class="body">
+        <div class="pad row center between" style="padding-top:8px;height:52px;">
+          <div style="font-size:18px;font-weight:500;color:#0F172A;">책 등록</div>
+          <div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0F172A" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></div>
+        </div>
+        <div style="padding:8px 16px 12px;">
+          <div style="background:var(--surface-variant);border-radius:12px;display:flex;align-items:center;gap:8px;padding:14px 12px;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+            <span style="color:#94A3B8;font-size:15px;">책 제목 또는 저자 검색</span>
+          </div>
+        </div>
+        <!-- result rows -->
+        <div>
+          <div class="rrow">
+            <div class="cover" style="width:48px;height:70px;border-radius:6px;background:linear-gradient(150deg,#3D5A80,#2c456b);"></div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:15px;font-weight:500;color:#0F172A;">데미안</div>
+              <div style="font-size:13px;color:#94A3B8;margin-top:4px;">헤르만 헤세</div>
+              <div style="font-size:12px;color:#94A3B8;margin-top:2px;">민음사</div>
+            </div>
+          </div><div class="divider" style="margin:0 16px;"></div>
+          <div class="rrow">
+            <div class="cover" style="width:48px;height:70px;border-radius:6px;background:linear-gradient(150deg,#C67B5C,#a9613f);"></div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:15px;font-weight:500;color:#0F172A;">사피엔스</div>
+              <div style="font-size:13px;color:#94A3B8;margin-top:4px;">유발 하라리</div>
+              <div style="font-size:12px;color:#94A3B8;margin-top:2px;">김영사</div>
+            </div>
+            <div style="background:var(--border);color:#94A3B8;border-radius:12px;padding:4px 8px;font-size:11px;align-self:flex-start;">등록됨</div>
+          </div><div class="divider" style="margin:0 16px;"></div>
+          <div class="rrow">
+            <div class="cover" style="width:48px;height:70px;border-radius:6px;background:linear-gradient(150deg,#5B7B6F,#41594f);"></div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:15px;font-weight:500;color:#0F172A;">아몬드</div>
+              <div style="font-size:13px;color:#94A3B8;margin-top:4px;">손원평</div>
+              <div style="font-size:12px;color:#94A3B8;margin-top:2px;">창비</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- 6. 등록 — 상태 선택 바텀시트 -->
+  <div class="frame">
+    <div class="cap"><span class="num">06</span><span class="nm">등록 · 상태 선택</span><span class="rt">bottom sheet</span></div>
+    <div class="phone"><div class="scr"><div class="notch"></div>
+      <div class="sbar"><span>9:41</span><div class="dots"><span class="sig">●●●</span><i></i></div></div>
+      <div class="body" style="background:rgba(15,23,42,.42);position:relative;">
+        <!-- dim faux content -->
+        <div style="position:absolute;inset:0;filter:blur(1px);opacity:.5;">
+          <div class="pad" style="padding-top:20px;font-size:18px;font-weight:500;">책 등록</div>
+        </div>
+        <!-- sheet -->
+        <div style="position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:20px 20px 0 0;padding:12px 20px 24px;">
+          <div style="width:40px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 20px;"></div>
+          <div style="display:flex;gap:14px;align-items:flex-start;">
+            <div class="cover" style="width:56px;height:80px;border-radius:6px;background:linear-gradient(150deg,#3D5A80,#2c456b);"></div>
+            <div style="flex:1;">
+              <div style="font-size:17px;font-weight:500;color:#0F172A;">데미안</div>
+              <div style="font-size:13px;font-weight:300;color:#94A3B8;margin-top:4px;">헤르만 헤세</div>
+            </div>
+          </div>
+          <div style="margin-top:24px;font-size:15px;font-weight:500;color:#0F172A;">이 책을 어떻게 등록할까요?</div>
+          <div style="margin-top:14px;border:1.5px solid var(--border);border-radius:14px;padding:16px;display:flex;gap:12px;align-items:center;">
+            <span style="font-size:20px;">📖</span>
+            <div><div style="font-size:15px;font-weight:500;">읽는 중</div><div class="ba">지금 읽고 있어요</div></div>
+          </div>
+          <div style="margin-top:10px;border:1.5px solid var(--border);border-radius:14px;padding:16px;display:flex;gap:12px;align-items:center;">
+            <span style="font-size:20px;">✅</span>
+            <div><div style="font-size:15px;font-weight:500;">읽었어요</div><div class="ba">다 읽고 피드백 남기기</div></div>
+          </div>
+        </div>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- 7. 책 검색 -->
+  <div class="frame">
+    <div class="cap"><span class="num">07</span><span class="nm">책 검색</span><span class="rt">/search</span></div>
+    <div class="phone"><div class="scr"><div class="notch"></div>
+      <div class="sbar"><span>9:41</span><div class="dots"><span class="sig">●●●</span><i></i></div></div>
+      <div class="body">
+        <!-- appbar with inline search field -->
+        <div class="pad row center" style="height:56px;gap:10px;border-bottom:1px solid var(--border);">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0F172A" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+          <span style="flex:1;font-size:16px;color:#0F172A;">노르웨이<span style="opacity:.45;font-weight:300;">|</span></span>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </div>
+        <div>
+          <div class="rrow">
+            <div class="cover" style="width:48px;height:70px;border-radius:6px;background:linear-gradient(150deg,#8B6F8E,#6b5270);"></div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:15px;font-weight:500;color:#0F172A;">노르웨이의 숲</div>
+              <div style="font-size:13px;color:#94A3B8;margin-top:4px;">무라카미 하루키</div>
+            </div>
+          </div><div class="divider" style="margin:0 16px;"></div>
+          <div class="rrow">
+            <div class="cover" style="width:48px;height:70px;border-radius:6px;background:linear-gradient(150deg,#7B8FA1,#5d6f80);"></div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:15px;font-weight:500;color:#0F172A;">노르웨이 너의 손에</div>
+              <div style="font-size:13px;color:#94A3B8;margin-top:4px;">박지운</div>
+            </div>
+          </div><div class="divider" style="margin:0 16px;"></div>
+          <div class="rrow">
+            <div class="cover" style="width:48px;height:70px;border-radius:6px;background:linear-gradient(150deg,#4A7C6F,#345952);"></div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:15px;font-weight:500;color:#0F172A;">북유럽 신화</div>
+              <div style="font-size:13px;color:#94A3B8;margin-top:4px;">닐 게이먼</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- 8. 피드백 플로우 -->
+  <div class="frame">
+    <div class="cap"><span class="num">08</span><span class="nm">피드백 플로우</span><span class="rt">/feedback</span></div>
+    <div class="phone tall"><div class="scr"><div class="notch"></div>
+      <div class="sbar"><span>9:41</span><div class="dots"><span class="sig">●●●</span><i></i></div></div>
+      <div class="body">
+        <div class="row center between" style="padding:12px 16px;">
+          <span style="font-size:17px;font-weight:600;color:#0F172A;">피드백</span>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0F172A" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </div>
+        <div style="padding:24px 24px 0;">
+          <!-- book info -->
+          <div style="display:flex;gap:16px;align-items:flex-start;">
+            <div class="cover" style="width:72px;height:104px;background:linear-gradient(150deg,#3D5A80,#2c456b);"><div class="ct">데미안</div></div>
+            <div style="flex:1;">
+              <div style="font-size:18px;font-weight:500;color:#0F172A;">데미안</div>
+              <div style="font-size:14px;font-weight:300;color:#94A3B8;margin-top:4px;">헤르만 헤세</div>
+            </div>
+          </div>
+
+          <div style="height:32px;"></div>
+          <div style="font-size:13px;font-weight:500;color:#0F172A;">어떠셨어요?</div>
+          <div style="display:flex;gap:8px;margin-top:12px;">
+            <div style="flex:1;border:1.5px solid var(--primary);background:var(--primary);border-radius:12px;padding:14px 0;text-align:center;color:#fff;">
+              <div style="font-size:18px;">👍</div><div style="font-size:12px;font-weight:600;margin-top:4px;">좋았어요</div>
+            </div>
+            <div style="flex:1;border:1.5px solid var(--border);border-radius:12px;padding:14px 0;text-align:center;color:#94A3B8;">
+              <div style="font-size:18px;">👎</div><div style="font-size:12px;margin-top:4px;">별로였어요</div>
+            </div>
+          </div>
+
+          <div style="height:28px;"></div>
+          <div style="font-size:13px;font-weight:500;color:#0F172A;">어떤 점이 인상적이었어요?</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;">
+            <span class="pill on">캐릭터</span><span class="pill">문체</span>
+            <span class="pill on">세계관</span><span class="pill">스토리</span>
+            <span class="pill">메시지</span><span class="pill">분위기</span>
+          </div>
+
+          <div style="height:28px;"></div>
+          <div style="font-size:13px;font-weight:500;color:#0F172A;">한 줄 감상 <span class="muted">(선택)</span></div>
+          <div style="margin-top:12px;background:#FAFAFA;border:1.5px solid var(--border);border-radius:12px;padding:16px;color:#94A3B8;font-size:14px;min-height:64px;">자유롭게 적어주세요</div>
+
+          <div style="height:24px;"></div>
+          <div class="btn-primary">완료</div>
+          <div style="text-align:center;margin-top:16px;font-size:13px;color:#94A3B8;text-decoration:underline;">나중에 할게요</div>
+        </div>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- 9. 책 상세 -->
+  <div class="frame">
+    <div class="cap"><span class="num">09</span><span class="nm">책 상세</span><span class="rt">/book/:id</span></div>
+    <div class="phone tall"><div class="scr"><div class="notch"></div>
+      <div class="sbar"><span>9:41</span><div class="dots"><span class="sig">●●●</span><i></i></div></div>
+      <div class="body">
+        <!-- appbar -->
+        <div class="row center" style="height:56px;padding:0 8px;gap:6px;">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0F172A" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+          <span style="font-size:18px;font-weight:500;color:#0F172A;">데미안</span>
+        </div>
+        <div style="padding:20px;">
+          <!-- header -->
+          <div style="display:flex;gap:16px;align-items:flex-start;">
+            <div class="cover" style="width:80px;height:120px;border-radius:6px;background:linear-gradient(150deg,#3D5A80,#2c456b);"></div>
+            <div style="flex:1;">
+              <div style="font-size:22px;font-weight:700;color:#0F172A;line-height:1.25;">데미안</div>
+              <div style="font-size:14px;color:#94A3B8;margin-top:4px;">헤르만 헤세</div>
+              <div style="margin-top:12px;display:inline-flex;align-items:center;gap:6px;background:rgba(15,23,42,.08);border-radius:8px;padding:8px 12px;color:var(--primary);font-size:13px;font-weight:600;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M4 6h16v12H4z" opacity=".0"/><path d="M6 4h9l3 3v13H6z" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+                다 읽었어요 ›
+              </div>
+            </div>
+          </div>
+
+          <div style="height:28px;"></div>
+          <div style="font-size:14px;font-weight:600;color:#0F172A;">이 책 어때요?</div>
+          <div style="display:flex;gap:8px;margin-top:12px;">
+            <div style="flex:1;border:1.5px solid var(--primary);background:rgba(15,23,42,.10);border-radius:12px;padding:12px 0;text-align:center;color:var(--primary);">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M2 21h4V9H2zM23 10a2 2 0 00-2-2h-6.3l1-4.6V3a1.6 1.6 0 00-1.6-1.6L8 8v13h11l3.4-8z"/></svg>
+              <div style="font-size:12px;font-weight:600;margin-top:2px;">좋았다</div>
+            </div>
+            <div style="flex:1;border:1px solid var(--shelf);border-radius:12px;padding:12px 0;text-align:center;color:#94A3B8;">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 3h-4v12h4zM1 14a2 2 0 002 2h6.3l-1 4.6V21a1.6 1.6 0 001.6 1.6L16 16V3H5L1.6 11z"/></svg>
+              <div style="font-size:12px;margin-top:2px;">별로</div>
+            </div>
+          </div>
+
+          <div style="height:28px;"></div>
+          <div style="font-size:14px;font-weight:600;color:#0F172A;">이 책의 느낌은?</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;">
+            <span class="fc on">성장</span><span class="fc">철학적</span><span class="fc on">몰입감</span>
+            <span class="fc">따뜻함</span><span class="fc">여운</span>
+          </div>
+
+          <div style="height:28px;"></div>
+          <div style="border:1px solid var(--shelf);border-radius:12px;padding:16px;color:#b3bcc9;font-size:14px;min-height:80px;">이 책에 대해 자유롭게 적어보세요...</div>
+          <div style="margin-top:8px;font-size:13px;color:var(--primary);">뭘 쓸지 모르겠다면?</div>
+        </div>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- 10. 책 상세 바텀시트 -->
+  <div class="frame">
+    <div class="cap"><span class="num">10</span><span class="nm">책 카드 · 바텀시트</span><span class="rt">tap a cover</span></div>
+    <div class="phone"><div class="scr"><div class="notch"></div>
+      <div class="sbar"><span>9:41</span><div class="dots"><span class="sig">●●●</span><i></i></div></div>
+      <div class="body" style="background:rgba(15,23,42,.42);position:relative;">
+        <div style="position:absolute;inset:0;filter:blur(1px);opacity:.45;">
+          <div class="pad" style="padding-top:20px;"><div class="h-title">오늘은 어떤 책을<br>만나볼까요?</div></div>
+        </div>
+        <div style="position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:20px 20px 0 0;padding-bottom:24px;">
+          <div style="width:36px;height:4px;background:var(--border);border-radius:2px;margin:12px auto 24px;"></div>
+          <div style="padding:0 24px;display:flex;gap:16px;align-items:flex-start;">
+            <div class="cover" style="width:80px;height:116px;background:linear-gradient(150deg,#EE6C4D,#cf4f31);"><div class="ct">미움받을 용기</div></div>
+            <div style="flex:1;">
+              <div style="font-size:20px;font-weight:500;color:#0F172A;line-height:1.3;">미움받을 용기</div>
+              <div style="font-size:14px;font-weight:300;color:#94A3B8;margin-top:4px;">기시미 이치로</div>
+            </div>
+          </div>
+          <div style="padding:16px 24px 0;font-size:13px;color:#64748B;line-height:1.5;">아들러 심리학을 청년과 철학자의 대화로 풀어낸 자기계발 고전. 행복은 타인의 인정이 아니라…</div>
+          <div style="padding:24px 24px 0;display:flex;gap:8px;">
+            <div style="flex:1;background:#F8FAFC;border:1px solid var(--border);border-radius:10px;padding:12px 0;text-align:center;font-size:14px;font-weight:500;color:#0F172A;">읽는 중</div>
+            <div style="flex:1;background:var(--primary);border-radius:10px;padding:12px 0;text-align:center;font-size:14px;font-weight:500;color:#fff;">읽었어요</div>
+            <div style="width:48px;height:48px;background:#F8FAFC;border:1px solid var(--border);border-radius:10px;display:flex;align-items:center;justify-content:center;">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0F172A" stroke-width="2"><path d="M6 3h12v18l-6-4-6 4z"/></svg>
+            </div>
+          </div>
+          <!-- 비슷한 책 -->
+          <div style="padding:24px 24px 0;font-size:13px;font-weight:700;color:#0F172A;">비슷한 책</div>
+          <div class="hscroll" style="padding:10px 24px 0;gap:10px;">
+            <div style="width:72px;flex:none;"><div class="cover" style="width:72px;height:104px;background:linear-gradient(150deg,#5B7B6F,#41594f);"></div><div style="font-size:10px;font-weight:500;margin-top:4px;">아몬드</div></div>
+            <div style="width:72px;flex:none;"><div class="cover" style="width:72px;height:104px;background:linear-gradient(150deg,#C67B5C,#a9613f);"></div><div style="font-size:10px;font-weight:500;margin-top:4px;">사피엔스</div></div>
+            <div style="width:72px;flex:none;"><div class="cover" style="width:72px;height:104px;background:linear-gradient(150deg,#7B8FA1,#5d6f80);"></div><div style="font-size:10px;font-weight:500;margin-top:4px;">달러구트</div></div>
+          </div>
+        </div>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- 11. 취향 / 프로필 -->
+  <div class="frame">
+    <div class="cap"><span class="num">11</span><span class="nm">취향 · 프로필</span><span class="rt">/taste</span></div>
+    <div class="phone"><div class="scr"><div class="notch"></div>
+      <div class="sbar"><span>9:41</span><div class="dots"><span class="sig">●●●</span><i></i></div></div>
+      <div class="body">
+        <div class="row" style="justify-content:flex-end;padding:12px 20px 0;">
+          <div style="width:28px;height:28px;border-radius:50%;background:#F1F5F9;display:flex;align-items:center;justify-content:center;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>
+          </div>
+        </div>
+        <div style="padding:20px 24px 0;text-align:center;">
+          <div style="width:64px;height:64px;border-radius:50%;background:#F1F5F9;display:flex;align-items:center;justify-content:center;margin:0 auto;">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="#94A3B8"><path d="M12 12a5 5 0 100-10 5 5 0 000 10zm0 2c-4 0-9 2-9 6v2h18v-2c0-4-5-6-9-6z"/></svg>
+          </div>
+          <div style="font-size:18px;font-weight:500;color:#0F172A;margin-top:12px;">eden</div>
+          <div style="font-size:13px;color:#94A3B8;margin-top:4px;">기록 중</div>
+        </div>
+        <div style="padding:28px 24px 0;">
+          <div style="border:1px solid var(--border);border-radius:12px;display:flex;">
+            <div style="flex:1;text-align:center;padding:16px 0;"><div style="font-size:20px;font-weight:300;color:#0F172A;">20</div><div style="font-size:11px;color:#94A3B8;margin-top:4px;">등록</div></div>
+            <div style="width:1px;background:#F1F5F9;margin:12px 0;"></div>
+            <div style="flex:1;text-align:center;padding:16px 0;"><div style="font-size:20px;font-weight:300;color:#0F172A;">14</div><div style="font-size:11px;color:#94A3B8;margin-top:4px;">피드백</div></div>
+            <div style="width:1px;background:#F1F5F9;margin:12px 0;"></div>
+            <div style="flex:1;text-align:center;padding:16px 0;"><div style="font-size:20px;font-weight:300;color:#0F172A;">6</div><div style="font-size:11px;color:#94A3B8;margin-top:4px;">장르</div></div>
+          </div>
+          <div style="margin-top:20px;background:#FAFAFA;border-radius:12px;padding:18px;">
+            <div style="font-size:11px;font-weight:600;letter-spacing:.5px;color:#94A3B8;">나의 취향</div>
+            <div style="font-size:14px;color:#334155;margin-top:10px;">피드백이 더 쌓이면 취향 분석이 시작돼요</div>
+          </div>
+          <div style="margin-top:8px;">
+            <div class="mrow">알림 설정 <span>›</span></div>
+            <div class="mrow">계정 관리 <span>›</span></div>
+            <div class="mrow">로그아웃 <span>›</span></div>
+          </div>
+        </div>
+      </div>
+    </div></div>
+  </div>
+
+</main>
+
+<div class="legend">
+  <span class="chip">🎨 Slate 900 <b>#0F172A</b></span>
+  <span class="chip">⬜ Surface <b>#FFFFFF</b></span>
+  <span class="chip">🟫 Shelf <b>#E8E4DE</b></span>
+  <span class="chip">🔘 Secondary <b>#94A3B8</b></span>
+  <span class="chip">🟨 Kakao <b>#FEE500</b></span>
+</div>
+<footer>
+  <b>Curation</b> — 컨텐츠 소비 피드백 기반 취향 분석 & 추천 · 도서 MVP<br>
+  목업은 실제 코드(<b>home / library / register / search / feedback / book_detail / taste</b>)를 1:1 재현. 책 표지는 데모용 컬러 블록입니다.
+</footer>
+
+<style>
+  /* spine label (rotated) */
+  .sp{height:160px;flex:none;border-radius:3px;display:flex;align-items:flex-start;justify-content:center;
+      box-shadow:1px 1px 3px rgba(0,0,0,.18);overflow:hidden;position:relative;}
+  .sp span{writing-mode:vertical-rl;transform:rotate(180deg);color:rgba(255,255,255,.92);font-size:9px;font-weight:700;
+      letter-spacing:.5px;padding:10px 0;margin-top:6px;white-space:nowrap;}
+  /* result row */
+  .rrow{display:flex;gap:14px;align-items:flex-start;padding:12px 16px;}
+  /* feel chips (book detail) */
+  .fc{border:1px solid var(--shelf);border-radius:999px;padding:7px 14px;font-size:13px;color:#94A3B8;background:#fff;}
+  .fc.on{border-color:var(--primary);background:rgba(15,23,42,.12);color:var(--primary);font-weight:600;}
+  /* menu row (taste) */
+  .mrow{display:flex;justify-content:space-between;align-items:center;padding:14px 0;font-size:14px;color:#0F172A;}
+  .mrow span{font-size:18px;color:#94A3B8;}
+</style>
+
+</body>
+</html>

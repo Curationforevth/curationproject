@@ -104,8 +104,23 @@ class _HomeContent extends ConsumerWidget {
     final wishlistWithBook =
         wishlist.where((ub) => ub.book != null).toList();
 
-    return ListView(
-      children: [
+    return RefreshIndicator(
+      // 세션 중엔 자동 리뉴얼하지 않고, 당겨서 새로고침할 때만 추천/홈피드를 갱신한다.
+      // 서재(bookshelfProvider)는 무효화하지 않는다 — 그러면 그걸 watch 하는 홈 전체가
+      // 로딩으로 무너져 새로고침이 안 먹는 것처럼 보였다(서재는 추가/피드백 시 자체 갱신).
+      onRefresh: () async {
+        ref.invalidate(homeFeedProvider);
+        ref.invalidate(recommendationsProvider);
+        try {
+          await ref.read(homeFeedProvider.future);
+        } catch (_) {}
+        try {
+          await ref.read(recommendationsProvider.future);
+        } catch (_) {}
+      },
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: [
         // ── Top bar ──────────────────────────────────────────────────
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
@@ -173,7 +188,8 @@ class _HomeContent extends ConsumerWidget {
         const _CurationSections(),
 
         const SizedBox(height: 32),
-      ],
+        ],
+      ),
     );
   }
 }

@@ -1,3 +1,5 @@
+import '../utils/image_url.dart';
+
 class Book {
   final String id;
   final String? isbn;
@@ -47,7 +49,7 @@ class Book {
       title: json['title'] as String,
       author: json['author'] as String?,
       publisher: json['publisher'] as String?,
-      coverUrl: json['cover_url'] as String?,
+      coverUrl: highResCoverUrl(json['cover_url'] as String?),
       pageCount: json['page_count'] as int?,
       description: json['description'] as String?,
       genre: json['genre'] as String?,

@@ -3,6 +3,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/book.dart';
+import '../utils/image_url.dart';
 
 /// 검색 결과 + 페이지네이션 정보
 class BookSearchResult {
@@ -77,7 +78,7 @@ class BookSearchService {
       title: doc['title'] as String? ?? '',
       author: authors.join(', '),
       publisher: doc['publisher'] as String?,
-      coverUrl: doc['thumbnail'] as String?,
+      coverUrl: highResCoverUrl(doc['thumbnail'] as String?),
       description: doc['contents'] as String?,
       source: 'kakao',
     );
