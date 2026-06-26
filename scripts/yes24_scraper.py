@@ -146,8 +146,9 @@ def author_matches(expected_author, page_author):
     pg = _normalize_author(page_author)
     if not db or not pg:
         return False
-    db_ns = re.sub(r'\s+', '', db).lower()
-    pg_ns = re.sub(r'\s+', '', pg).lower()
+    # 공백+점 제거(이니셜 'K.' 가 길이 가드를 우회하지 못하게 — _author_tokens 와 일관).
+    db_ns = re.sub(r'[.\s]+', '', db).lower()
+    pg_ns = re.sub(r'[.\s]+', '', pg).lower()
     if len(db_ns) >= 2 and (db_ns in pg_ns or pg_ns in db_ns):
         return True
     db_toks = _author_tokens(db)

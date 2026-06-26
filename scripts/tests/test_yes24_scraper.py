@@ -34,6 +34,11 @@ class TestAuthorMatches:
         assert author_matches("", "마이클 샌델") is False
         assert author_matches("마이클 샌델", "") is False
 
+    def test_single_initial_with_dot_rejected(self):
+        """'K.' 같은 단일 초성은 점 때문에 길이>=2 가드를 우회하면 안 됨 → 거부."""
+        from yes24_scraper import author_matches
+        assert author_matches("K.", "조앤 K. 롤링") is False
+
 
 def test_isbn_matches_exact():
     from yes24_scraper import isbn_matches
