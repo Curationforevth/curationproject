@@ -122,6 +122,12 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: python3 scripts/tier2_embedder.py --limit $TIER2_LIMIT
+      - name: Backfill feedback embeddings (요청경로 비차단 → 실패분 채움)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: python3 scripts/backfill_feedback_embedding.py
 
   # ── 대출 수 갱신: 기존 책 loan_count 순환 갱신 ──────
   refresh-loan-count:

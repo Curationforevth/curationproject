@@ -11,10 +11,10 @@ from api.home import router as home_router
 from api.curation import router as curation_router
 
 # 배포 검증용 코드 리비전 마커. /health 로 어떤 코드가 라이브인지 관측한다.
-# dedup-works: 같은 작품의 다른 판본(다른 ISBN→다른 UUID, 인덱스의 0.8%)이
-# /recommend·/home 추천·/similar 에 중복 노출되던 것을 serving 레이어에서 작품
-# 단위로 접음(engine/dedup.py). 직전 cache-livehash(캐시 stale 고정 버그) 포함.
-CODE_REV = "dedup-works-20260626"
+# feedback-async: /feedback 의 OpenAI 임베딩을 요청경로에서 제거(BackgroundTask 로
+# 비차단, 임베딩→user_books 갱신→recompute 순서 보장). 실패분은 backfill 배치가
+# 채워 신호 소실 0. 직전 dedup-works(중복판본)·cache-livehash 포함.
+CODE_REV = "feedback-async-20260626"
 
 
 @asynccontextmanager
