@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock
 
-from api.home import assemble_sections_for_user, _similar_books_from_seed
+from api.home import (assemble_sections_for_user, _similar_books_from_seed,
+                     _drop_empty_sections, _safe)
 
 
 def test_similar_books_from_seed_uses_correct_signature(small_index):
@@ -59,3 +60,41 @@ def test_assemble_sections_tier_2_has_personal_recommend_first():
     types = [s["type"] for s in sections]
     assert types[0] == "personal_recommend"
     assert "category_nav" not in types
+
+
+# --- 견고화 (앱이 /home 을 직접 렌더하므로) ---
+
+class TestDropEmptySections:
+    def test_drops_empty_book_sections(self):
+        secs = [
+            {"type": "trending", "title": "화제의 책", "books": [{"book_id": "a"}]},
+            {"type": "curation", "title": "", "books": []},               # 빈 큐레이션 → 제거
+            {"type": "personal_recommend", "title": "추천", "books": []},  # 빈 추천 → 제거
+        ]
+        out = _drop_empty_sections(secs)
+        assert [s["type"] for s in out] == ["trending"]
+
+    def test_keeps_category_nav_even_when_empty(self):
+        secs = [
+            {"type": "category_nav", "title": "", "books": []},
+            {"type": "curation", "title": "공부", "books": [{"book_id": "x"}]},
+        ]
+        out = _drop_empty_sections(secs)
+        assert [s["type"] for s in out] == ["category_nav", "curation"]
+
+    def test_all_populated_passthrough(self):
+        secs = [
+            {"type": "personal_recommend", "books": [{"book_id": "a"}]},
+            {"type": "curation", "books": [{"book_id": "b"}]},
+        ]
+        assert len(_drop_empty_sections(secs)) == 2
+
+
+class TestSafe:
+    def test_returns_value_on_success(self):
+        assert _safe(lambda: 42, default=0) == 42
+
+    def test_returns_default_on_exception(self):
+        def boom():
+            raise RuntimeError("db down")
+        assert _safe(boom, default=[]) == []

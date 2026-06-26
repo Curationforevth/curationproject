@@ -29,7 +29,32 @@ from engine.recommend_core import try_compute_inline
 from engine.dedup import dedup_by_work, dedup_similar
 from engine.utils import to_np
 
+import logging
+
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+# 책 목록이 아니라 네비게이션 요소라 비어도 유지하는 섹션 타입.
+_NON_BOOK_SECTIONS = {"category_nav"}
+
+
+def _safe(fn, *, default):
+    """Supabase 쿼리 하나가 실패해도 /home 전체가 500 으로 죽지 않도록 감싼다.
+    앱이 /home 을 직접 그리므로(큐레이션/트렌딩 노출) 한 쿼리 장애가 화면을
+    통째로 깨면 안 된다. 실패 시 default 로 degrade(해당 섹션만 비고 나머지는 정상)."""
+    try:
+        return fn()
+    except Exception as e:
+        logger.warning("[home] query failed, degrading: %s", e)
+        return default
+
+
+def _drop_empty_sections(sections: list[dict]) -> list[dict]:
+    """책이 없는 빈 섹션을 제거 — 앱에 제목만 있고 책 없는 빈 줄이 내려가지 않게 한다.
+    (category_nav 는 네비게이션 요소라 비어도 유지.) tier2 에서 tier2+ 큐레이션 테마가
+    없을 때 빈 큐레이션 섹션이 내려가던 실측 버그 방지."""
+    return [s for s in sections
+            if s.get("books") or s.get("type") in _NON_BOOK_SECTIONS]
 
 
 def _book_dict(bid: str, books_meta: dict, score: Optional[float] = None) -> Optional[dict]:
@@ -211,11 +236,11 @@ async def get_home(
 
     sb = get_supabase()
 
-    us_res = sb.table("user_state").select(
+    us_data = _safe(lambda: sb.table("user_state").select(
         "current_tier,total_likes,top_authors,top_l1s,updated_at"
-    ).eq("user_id", user_id).limit(1).execute()
+    ).eq("user_id", user_id).limit(1).execute().data, default=[])
 
-    us = (us_res.data[0] if us_res.data else None) or {
+    us = (us_data[0] if us_data else None) or {
         "current_tier": 0, "total_likes": 0,
         "top_authors": [], "top_l1s": [], "updated_at": "",
     }
@@ -225,8 +250,9 @@ async def get_home(
     top_l1s = [l["l1"] for l in (us.get("top_l1s") or [])]
 
     # stage
-    stage_res = sb.table("recommendation_stage").select("current_stage").eq("id", 1).limit(1).execute()
-    stage = (stage_res.data[0]["current_stage"] if stage_res.data else 0)
+    stage_data = _safe(lambda: sb.table("recommendation_stage").select(
+        "current_stage").eq("id", 1).limit(1).execute().data, default=[])
+    stage = (stage_data[0]["current_stage"] if stage_data else 0)
 
     # home_section_cache 확인
     hour_bucket = current_hour_bucket()
@@ -248,24 +274,22 @@ async def get_home(
         }
 
     # Miss → 섹션 조립용 데이터 조회
-    ub_res = sb.table("user_books").select(
+    user_books = _safe(lambda: sb.table("user_books").select(
         "book_id,rating,feedback_embedding,updated_at"
-    ).eq("user_id", user_id).order("updated_at", desc=True).execute()
-    user_books = ub_res.data or []
+    ).eq("user_id", user_id).order("updated_at", desc=True).execute().data,
+        default=[]) or []
 
-    themes_res = sb.table("curation_themes").select(
+    active_themes = _safe(lambda: sb.table("curation_themes").select(
         "id,theme_type,title,description,personalization,"
         "target_l1,target_author,target_keyword,priority,click_rate,shown_count"
-    ).eq("is_active", True).execute()
-    active_themes = themes_res.data or []
+    ).eq("is_active", True).execute().data, default=[]) or []
 
     theme_ids = [t["id"] for t in active_themes]
     cache_rows = []
     if theme_ids:
-        cache_res = sb.table("curation_cache").select(
+        cache_rows = _safe(lambda: sb.table("curation_cache").select(
             "curation_id,book_ids,expires_at"
-        ).in_("curation_id", theme_ids).execute()
-        cache_rows = cache_res.data or []
+        ).in_("curation_id", theme_ids).execute().data, default=[]) or []
 
     now = datetime.now(timezone.utc)
     now_iso = now.isoformat()
@@ -275,14 +299,14 @@ async def get_home(
         if r.get("expires_at", "") > now_iso
     }
 
-    fb_res = sb.table("fallback_curation").select("book_id").order("rank").limit(30).execute()
-    fallback_books = fb_res.data or []
+    fallback_books = _safe(lambda: sb.table("fallback_curation").select(
+        "book_id").order("rank").limit(30).execute().data, default=[]) or []
 
     seven_days_ago = (now - timedelta(days=RECENT_CURATION_WINDOW_DAYS)).isoformat()
-    uch_res = sb.table("user_curation_history").select("curation_id").eq(
+    uch_data = _safe(lambda: sb.table("user_curation_history").select("curation_id").eq(
         "user_id", user_id
-    ).gte("shown_at", seven_days_ago).execute()
-    recent_curation_ids = {r["curation_id"] for r in (uch_res.data or [])}
+    ).gte("shown_at", seven_days_ago).execute().data, default=[])
+    recent_curation_ids = {r["curation_id"] for r in (uch_data or [])}
 
     # Tier 2 — personal_recommend 는 미리 계산된 recommendation_cache 에서 가져온다.
     # 요청경로에서 스코어링하지 않는다(무료 단일 CPU ~70s). 캐시가 없거나 stale
@@ -325,6 +349,9 @@ async def get_home(
         index=request.app.state.index,
         recommend_scored=recommend_scored,
     )
+
+    # 빈 책-섹션 제거 — 앱이 제목만 있고 책 없는 빈 줄을 그리지 않도록(category_nav 제외).
+    sections = _drop_empty_sections(sections)
 
     # BackgroundTasks: cache write + impression INSERT + user_curation_history
     # Tier2 추천이 아직 준비 안 된(비어있는) 응답은 캐시하지 않는다 — 캐시하면 백그라운드

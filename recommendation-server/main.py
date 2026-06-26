@@ -11,10 +11,10 @@ from api.home import router as home_router
 from api.curation import router as curation_router
 
 # 배포 검증용 코드 리비전 마커. /health 로 어떤 코드가 라이브인지 관측한다.
-# feedback-async: /feedback 의 OpenAI 임베딩을 요청경로에서 제거(BackgroundTask 로
-# 비차단, 임베딩→user_books 갱신→recompute 순서 보장). 실패분은 backfill 배치가
-# 채워 신호 소실 0. 직전 dedup-works(중복판본)·cache-livehash 포함.
-CODE_REV = "feedback-async-20260626"
+# home-harden: 앱이 /home 을 직접 렌더(큐레이션/트렌딩 노출)하게 되므로 견고화 —
+# 빈 책-섹션 제거(앱 빈 줄 방지) + Supabase 쿼리 _safe 래핑(한 쿼리 실패해도 500 X).
+# 직전 feedback-async·dedup-works·cache-livehash 포함.
+CODE_REV = "home-harden-20260626"
 
 
 @asynccontextmanager
