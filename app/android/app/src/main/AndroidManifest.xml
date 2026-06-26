@@ -1,6 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 네트워크 필수(Supabase·추천서버·카카오·표지이미지). Flutter 는 debug/profile
+         매니페스트에만 INTERNET 을 자동 추가하므로, release 빌드에서 네트워크가 막히지
+         않도록 main 매니페스트에 반드시 명시한다. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
-        android:label="curation_app"
+        android:label="큐레이션"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
