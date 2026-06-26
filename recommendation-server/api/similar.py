@@ -5,6 +5,7 @@ import numpy as np
 
 from auth import verify_jwt
 from models import SimilarResponse, SimilarBook, SimilarUnionRequest
+from engine.dedup import dedup_similar
 from config import DEFAULT_SIMILAR_LIMIT
 
 router = APIRouter()
@@ -35,7 +36,9 @@ async def get_similar(
     if index.get_book(book_id) is None:
         raise HTTPException(404, f"Book {book_id} not found in index")
 
-    results = index.similar_by_desc(book_id, limit=limit)
+    # over-fetch 후 시드의 다른 판본·중복 판본을 접어 limit 개 반환.
+    raw = index.similar_by_desc(book_id, limit=limit * 2 + 5)
+    results = dedup_similar(raw, books_meta, book_id, limit)
     return SimilarResponse(book_id=book_id, similar=_build_similar_books(results, books_meta))
 
 

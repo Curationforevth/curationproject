@@ -26,6 +26,7 @@ from engine.home_cache import (
 )
 from engine.cache import load_cache, compute_input_hash, recompute_recommendations
 from engine.recommend_core import try_compute_inline
+from engine.dedup import dedup_by_work, dedup_similar
 from engine.utils import to_np
 
 router = APIRouter()
@@ -51,7 +52,9 @@ def _similar_books_from_seed(index, books_meta: dict, seed_book_id: str, limit: 
         # 시그니처는 similar_by_desc(book_id, limit=10). 과거 top_n= 오인자로 TypeError
         # 가 나고 except 가 삼켜 Tier 1(personal_recommend 없음) 유저의 similar 섹션이
         # 통째로 비어있던 버그. except 도 더는 무음으로 삼키지 않는다.
-        results = index.similar_by_desc(seed_book_id, limit=limit)
+        # over-fetch 후 시드의 다른 판본·중복 판본 제거 → limit 개.
+        raw = index.similar_by_desc(seed_book_id, limit=limit * 2 + 5)
+        results = dedup_similar(raw, books_meta, seed_book_id, limit)
     except Exception as e:
         print(f"[home] similar_by_desc failed (seed={seed_book_id}): {e}", flush=True)
         return []
@@ -96,7 +99,13 @@ def assemble_sections_for_user(
 
         if stype == "personal_recommend":
             books = []
-            for bid, score in (recommend_scored or [])[:10]:
+            # 같은 작품의 다른 판본이 "당신을 위한 추천"에 중복으로 뜨지 않게 접는다.
+            scored = dedup_by_work(
+                list(recommend_scored or []),
+                lambda t: (books_meta.get(t[0], {}).get("title", ""),
+                           books_meta.get(t[0], {}).get("author", "")),
+            )
+            for bid, score in scored[:10]:
                 b = _book_dict(bid, books_meta, score=score)
                 if b:
                     books.append(b)

@@ -6,10 +6,18 @@ from models import RecommendResponse, BookScore
 from engine.cache import (compute_input_hash, load_cache,
                           recompute_recommendations, save_cache_if_current)
 from engine.recommend_core import try_compute_inline
+from engine.dedup import dedup_by_work
 from engine.utils import to_np
 from config import DEFAULT_RECOMMEND_LIMIT, get_supabase
 
 router = APIRouter()
+
+
+def _dedup_cached(rows: list, limit: int) -> list:
+    """캐시된 추천(dict)에서 같은 작품의 다른 판본을 접고 limit 개로 자른다.
+    (인덱스의 0.8% 가 중복 판본 — serving 에서만 접고 캐시/스코어는 불변.)"""
+    deduped = dedup_by_work(rows, lambda r: (r.get("title", ""), r.get("author", "")))
+    return [BookScore(**r) for r in deduped[:limit]]
 
 
 @router.get("/recommend/{user_id}", response_model=RecommendResponse)
@@ -73,8 +81,7 @@ async def get_recommendations(
         # 캐시 히트: hash 일치 + 인덱스 빌드 이후 계산된 것
         if (cache.get("input_hash") == input_hash
                 and cache.get("computed_at", "") > (getattr(request.app.state, "built_at", None) or "")):
-            cached_recs = cache["recommendations"][:limit]
-            recs = [BookScore(**r) for r in cached_recs]
+            recs = _dedup_cached(cache["recommendations"], limit)
             return RecommendResponse(
                 user_id=user_id, recommendations=recs,
                 meta={
@@ -87,8 +94,7 @@ async def get_recommendations(
 
         # C3: 백그라운드 재계산 진행 중이면 stale 캐시라도 반환 (중복 계산 방지)
         if cache.get("computing") and cache.get("recommendations"):
-            cached_recs = cache["recommendations"][:limit]
-            recs = [BookScore(**r) for r in cached_recs]
+            recs = _dedup_cached(cache["recommendations"], limit)
             return RecommendResponse(
                 user_id=user_id, recommendations=recs,
                 meta={
@@ -134,6 +140,7 @@ async def get_recommendations(
             recs_for_cache.append(book.dict())
         background_tasks.add_task(save_cache_if_current, user_id, recs_for_cache,
                                   input_hash, total_liked, total_disliked, has_feedback)
+        recs = dedup_by_work(recs, lambda b: (b.title, b.author))
         return RecommendResponse(
             user_id=user_id, recommendations=recs[:limit],
             meta={"total_liked": total_liked, "total_disliked": total_disliked,
@@ -143,7 +150,7 @@ async def get_recommendations(
     # 슬롯 없음(동시 다발) → 메모리 보호: 백그라운드 재계산 + fallback(stale/computing).
     background_tasks.add_task(recompute_recommendations, user_id, request.app.state)
     if cache and cache.get("recommendations"):
-        recs = [BookScore(**r) for r in cache["recommendations"][:limit]]
+        recs = _dedup_cached(cache["recommendations"], limit)
         return RecommendResponse(
             user_id=user_id, recommendations=recs,
             meta={"total_liked": total_liked, "total_disliked": total_disliked,

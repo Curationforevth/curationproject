@@ -11,10 +11,10 @@ from api.home import router as home_router
 from api.curation import router as curation_router
 
 # 배포 검증용 코드 리비전 마커. /health 로 어떤 코드가 라이브인지 관측한다.
-# cache-livehash: save_cache_if_current 가 캐시 행이 아니라 live user_books 와
-# 비교하도록 수정(온보딩 burst 시 캐시가 stale hash 에 고정돼 /recommend 가 매번
-# 재계산되던 버그). 이 마커가 보이면 수정본이 라이브.
-CODE_REV = "cache-livehash-20260626"
+# dedup-works: 같은 작품의 다른 판본(다른 ISBN→다른 UUID, 인덱스의 0.8%)이
+# /recommend·/home 추천·/similar 에 중복 노출되던 것을 serving 레이어에서 작품
+# 단위로 접음(engine/dedup.py). 직전 cache-livehash(캐시 stale 고정 버그) 포함.
+CODE_REV = "dedup-works-20260626"
 
 
 @asynccontextmanager
