@@ -62,8 +62,10 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # .pkl + .sha256 를 같은 commit 으로 — loader._verify_hash 정합 + 롤백 시
-          # revert 한 번으로 둘 다 동반 복귀(stale hash crash 방지).
-          git add recommendation-server/data/index.pkl recommendation-server/data/index.pkl.sha256
+          # index.pkl 만 commit. index.pkl.sha256 은 recommendation-server/.gitignore
+          # (data/*.sha256)로 의도적 미추적 → 레포에 없으므로 loader._verify_hash 는
+          # 항상 skip(no hash file). 따라서 stale-hash crash 가 구조적으로 불가능하고
+          # 롤백도 .pkl revert 한 번으로 정합(별도 sha256 동기화 불요).
+          git add recommendation-server/data/index.pkl
           git diff --cached --quiet || git commit -m "chore: rebuild index.pkl ($(date -u '+%Y-%m-%d %H:%M UTC'))"
           git push
