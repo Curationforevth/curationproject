@@ -6,6 +6,7 @@ import '../../../core/models/user_book.dart';
 import '../../../core/models/emotion_tag.dart';
 import '../../../core/models/reflection_prompt.dart';
 import '../../bookshelf/providers/bookshelf_provider.dart';
+import '../../home/providers/recommendation_provider.dart';
 
 // --- 상태 ---
 
@@ -102,6 +103,7 @@ class BookDetailNotifier extends StateNotifier<BookDetailState> {
           .update({'rating': newRating})
           .eq('id', _userBookId);
       _ref.invalidate(bookshelfProvider);
+      _ref.invalidate(recommendationsProvider);  // rating 변경 → 추천 재계산 필요
     } catch (e) {
       state = state.copyWith(userBook: prev);
       debugPrint('rating 저장 실패: $e');
@@ -187,6 +189,7 @@ class BookDetailNotifier extends StateNotifier<BookDetailState> {
         ),
       );
       _ref.invalidate(bookshelfProvider);
+      _ref.invalidate(recommendationsProvider);  // review_text → feedback_embedding → 추천 영향
     } catch (e) {
       debugPrint('리뷰 저장 실패: $e');
       rethrow;

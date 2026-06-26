@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/user_book.dart';
 import '../../../core/services/impression_logger.dart';
 import '../../bookshelf/providers/bookshelf_provider.dart';
+import '../../home/providers/recommendation_provider.dart';
 
 // --- 상태 ---
 
@@ -138,6 +139,10 @@ class FeedbackFlowNotifier extends StateNotifier<FeedbackFlowState> {
       }
 
       _ref.invalidate(bookshelfProvider);
+      // 피드백이 user_books 를 바꿨으므로 추천도 다시 가져와야 한다(서버가
+      // 다음 /recommend 호출에서 새 input_hash 로 재계산). 과거: bookshelf 만
+      // 무효화하고 recommendationsProvider 는 안 해 추천이 세션 내내 안 바뀜.
+      _ref.invalidate(recommendationsProvider);
     } catch (e) {
       debugPrint('피드백 저장 실패: $e');
       state = state.copyWith(isSaving: false);
