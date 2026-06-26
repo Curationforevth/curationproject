@@ -6,7 +6,7 @@ Supabase 의존 함수(load_cache, save_cache_if_current, recompute_recommendati
 from __future__ import annotations
 
 import pytest
-from engine.cache import compute_input_hash
+from engine.cache import compute_input_hash, save_cache_if_current
 
 
 # ---------------------------------------------------------------------------
@@ -48,3 +48,120 @@ class TestComputeInputHash:
         result = compute_input_hash(data)
         assert len(result) == 64
         int(result, 16)
+
+
+# ---------------------------------------------------------------------------
+# save_cache_if_current — stale-write 가드는 캐시 행이 아니라 *live DB 상태* 와
+# 비교해야 한다. (과거: 캐시 행 hash 와 비교 → 좋아요 burst 중 racing recompute 가
+# 남긴 stale 캐시 때문에 정답 결과가 거부돼 캐시가 stale hash 에 영구 고정되는 버그.
+# 신규 Tier2 유저(온보딩 burst)의 /recommend 가 매번 ~8s 재계산.)
+# ---------------------------------------------------------------------------
+
+class _Result:
+    def __init__(self, data):
+        self.data = data
+
+
+class _FakeQuery:
+    def __init__(self, table, store):
+        self.table = table
+        self.store = store
+        self._op = None
+        self._row = None
+
+    def select(self, *a, **k):
+        self._op = "select"
+        return self
+
+    def eq(self, *a, **k):
+        return self
+
+    def limit(self, *a, **k):
+        return self
+
+    def upsert(self, row, **k):
+        self._op = "upsert"
+        self._row = row
+        return self
+
+    def execute(self):
+        if self._op == "select":
+            return _Result(list(self.store["tables"].get(self.table, [])))
+        if self._op == "upsert":
+            self.store["upserts"].append((self.table, self._row))
+            return _Result([self._row])
+        return _Result([])
+
+
+class _FakeSB:
+    def __init__(self, store):
+        self.store = store
+
+    def table(self, name):
+        return _FakeQuery(name, self.store)
+
+
+def _goods(n):
+    return [_make_book(f"B{i}", "good") for i in range(n)]
+
+
+def _saved_cache_rows(store):
+    return [r for (t, r) in store["upserts"] if t == "recommendation_cache"]
+
+
+class TestSaveCacheIfCurrent:
+    def test_saves_when_live_state_matches_even_if_cache_holds_stale_hash(self, monkeypatch):
+        # 버그 재현: 캐시는 racing recompute 가 남긴 5권 hash 로 고정돼 있지만,
+        # live user_books 는 6권이고 우리가 6권으로 정확히 계산했다 → 저장돼야 한다.
+        six = _goods(6)
+        live_hash = compute_input_hash(six)
+        stale_hash = compute_input_hash(six[:5])
+        store = {
+            "tables": {
+                "user_books": six,
+                "recommendation_cache": [
+                    {"input_hash": stale_hash, "computing": False,
+                     "recommendations": [], "good_count": 5}
+                ],
+            },
+            "upserts": [],
+        }
+        monkeypatch.setattr("engine.cache.get_supabase", lambda: _FakeSB(store))
+
+        save_cache_if_current("u1", [{"book_id": "B0", "score": 1.0}],
+                              live_hash, 6, 0, False)
+
+        saved = _saved_cache_rows(store)
+        assert saved, "live 상태와 일치하는 정답 결과는 stale 캐시가 있어도 저장돼야 한다"
+        assert saved[-1]["input_hash"] == live_hash
+        assert saved[-1]["good_count"] == 6
+
+    def test_skips_when_live_state_moved_past_computed(self, monkeypatch):
+        # 진짜 stale write 방지: 우리가 6권으로 계산하는 사이 유저가 7권째를 추가 →
+        # live(7) != input(6) → 저장하면 안 된다.
+        seven = _goods(7)
+        store = {
+            "tables": {"user_books": seven, "recommendation_cache": []},
+            "upserts": [],
+        }
+        monkeypatch.setattr("engine.cache.get_supabase", lambda: _FakeSB(store))
+
+        save_cache_if_current("u1", [{"book_id": "B0", "score": 1.0}],
+                              compute_input_hash(seven[:6]), 6, 0, False)
+
+        assert not _saved_cache_rows(store), "live 상태가 앞섰으면 stale write 를 skip 해야 한다"
+
+    def test_saves_on_happy_path(self, monkeypatch):
+        three = _goods(3)
+        h = compute_input_hash(three)
+        store = {
+            "tables": {"user_books": three, "recommendation_cache": []},
+            "upserts": [],
+        }
+        monkeypatch.setattr("engine.cache.get_supabase", lambda: _FakeSB(store))
+
+        save_cache_if_current("u1", [{"book_id": "B0", "score": 1.0}], h, 3, 0, False)
+
+        saved = _saved_cache_rows(store)
+        assert saved and saved[-1]["input_hash"] == h
+        assert saved[-1]["computing"] is False

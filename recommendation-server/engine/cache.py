@@ -94,16 +94,28 @@ def save_cache_if_current(
         bad_count:       싫어요 수
         has_feedback:    피드백 임베딩 보유 여부
     """
-    # 현재 DB 상태 확인 — 이미 더 최신 결과가 있으면 skip
-    current = load_cache(user_id)
-    if current:
-        current_hash = current.get("input_hash", "")
-        # __computing__ 은 재계산 진행 중 — 덮어써도 됨
-        if current_hash != "__computing__" and current_hash != input_hash:
+    # stale-write 가드: *live user_books 상태* 가 우리가 계산한 input_hash 보다
+    # 앞섰을 때만(= 계산 중 유저가 좋아요를 더 바꿨을 때) skip 한다.
+    #
+    # (과거: 캐시 *행* 의 hash 와 비교했다. 그러면 좋아요 burst(온보딩 6권) 중
+    #  feedback 마다 걸리는 recompute 가 도중(예: 5권) 시점에 캐시를 확정하면,
+    #  /recommend inline 이 6권으로 정확히 계산한 결과를 "hash mismatch" 로 거부 →
+    #  캐시가 5권 hash 에 영구 고정 → 모든 /recommend 가 매번 ~8s 재계산하는 버그.
+    #  비교 기준을 캐시 행이 아니라 live DB 로 바꿔 정답이 항상 저장되게 한다.)
+    try:
+        live = get_supabase().table("user_books").select(
+            "book_id,rating,feedback_embedding"
+        ).eq("user_id", user_id).execute()
+        live_hash = compute_input_hash(live.data or [])
+        if live_hash != input_hash:
             logger.info(
-                "save_cache_if_current: hash mismatch for user %s — skipping stale write", user_id
+                "save_cache_if_current: live state moved past computed input "
+                "for user %s — skipping stale write", user_id
             )
             return
+    except Exception as exc:
+        # live 확인 실패 시 보수적으로 저장 진행 — stale 캐시보다 최신 결과가 낫다.
+        logger.warning("save_cache_if_current: live hash check failed for %s: %s", user_id, exc)
 
     row = {
         "user_id": user_id,

@@ -10,9 +10,11 @@ from api.feedback import router as feedback_router
 from api.home import router as home_router
 from api.curation import router as curation_router
 
-# 배포 검증용 코드 리비전 마커. /health 로 어떤 코드가 라이브인지 관측한다
-# (feedback 게이트 해제 + home similar fix + health book/reason count fix 포함 이미지인지 확인용).
-CODE_REV = "goal1-inline-guard-20260625"
+# 배포 검증용 코드 리비전 마커. /health 로 어떤 코드가 라이브인지 관측한다.
+# cache-livehash: save_cache_if_current 가 캐시 행이 아니라 live user_books 와
+# 비교하도록 수정(온보딩 burst 시 캐시가 stale hash 에 고정돼 /recommend 가 매번
+# 재계산되던 버그). 이 마커가 보이면 수정본이 라이브.
+CODE_REV = "cache-livehash-20260626"
 
 
 @asynccontextmanager
