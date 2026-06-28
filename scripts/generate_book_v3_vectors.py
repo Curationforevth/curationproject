@@ -89,18 +89,23 @@ def get_existing_book_ids(sb):
     return ids
 
 
-def fetch_target_books(sb, limit):
-    """rich_description이 있는 books 조회."""
+def fetch_target_books(sb, limit, existing_ids=None):
+    """books 전체 조회(rich 필터 없음 — 가진 정보 최대로 임베딩). 이미 임베딩된
+    book_id(existing_ids)는 페이지 단계에서 제외한 뒤 limit 적용 → mode=small 도
+    신규(미임베딩) 책을 대표성 있게 샘플한다(R2).
+
+    author 포함: minimal 폴백(title+author+genre)에 필요.
+    """
+    existing_ids = existing_ids or set()
     books = []
     offset = 0
     while len(books) < limit:
         res = with_retry(lambda o=offset: sb.table("books")
-                         .select("id, title, genre, description, rich_description")
-                         .not_.is_("rich_description", "null")
+                         .select("id, title, author, genre, description, rich_description")
                          .range(o, o + 999).execute())
         if not res.data:
             break
-        books.extend(res.data)
+        books.extend(b for b in res.data if b["id"] not in existing_ids)
         if len(res.data) < 1000:
             break
         offset += 1000
@@ -141,12 +146,9 @@ def main():
 
     # 2. 대상 수집 + 기존 제외
     print("대상 도서 수집 중...", flush=True)
-    all_books = fetch_target_books(sb, args.limit)
-    existing = get_existing_book_ids(sb)
-    checkpoint_ids = load_checkpoint()
-    existing = existing | checkpoint_ids
-    books = [b for b in all_books if b["id"] not in existing]
-    print(f"  전체: {len(all_books)}권, 이미 처리: {len(existing)}권, 남은 대상: {len(books)}권", flush=True)
+    existing = get_existing_book_ids(sb) | load_checkpoint()
+    books = fetch_target_books(sb, args.limit, existing_ids=existing)  # 기존분 제외 후 limit
+    print(f"  이미 처리: {len(existing)}권, 남은 대상: {len(books)}권", flush=True)
 
     if not books:
         print("모든 책이 이미 처리되었습니다.", flush=True)

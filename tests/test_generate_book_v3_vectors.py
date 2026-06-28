@@ -30,3 +30,53 @@ def test_build_desc_source_only_emits_known_tiers():
     for c in _cases():
         _, tier = build_desc_source(c["row"])
         assert tier in allowed
+
+
+class _FakeQ:
+    def __init__(self, rows, rec):
+        self._rows, self._rec = rows, rec
+
+    def select(self, cols):
+        self._rec["cols"] = cols
+        return self
+
+    @property
+    def not_(self):
+        self._rec["not_used"] = True
+        return self
+
+    def is_(self, *a):
+        return self
+
+    def range(self, a, b):
+        self._rec["range"] = (a, b)
+        return self
+
+    def execute(self):
+        return type("R", (), {"data": self._rows})()
+
+
+class _FakeSB:
+    def __init__(self, rows, rec):
+        self._rows, self._rec = rows, rec
+
+    def table(self, t):
+        return _FakeQ(self._rows, self._rec)
+
+
+def test_fetch_target_books_no_rich_filter_includes_author():
+    from generate_book_v3_vectors import fetch_target_books
+    rec = {}
+    sb = _FakeSB(rows=[], rec=rec)
+    fetch_target_books(sb, 10)
+    assert "author" in rec["cols"], "minimal 폴백용 author SELECT 포함"
+    assert "not_used" not in rec, "rich_description IS NOT NULL 필터 제거됨"
+
+
+def test_fetch_target_books_excludes_existing_before_limit():
+    from generate_book_v3_vectors import fetch_target_books
+    rec = {}
+    rows = [{"id": "a"}, {"id": "b"}, {"id": "c"}]
+    sb = _FakeSB(rows=rows, rec=rec)
+    out = fetch_target_books(sb, 10, existing_ids={"a", "b"})
+    assert [r["id"] for r in out] == ["c"], "이미 임베딩된 책은 제외(대표성)"
