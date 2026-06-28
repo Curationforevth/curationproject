@@ -89,6 +89,24 @@ def ensure_books_embedded(book_ids, sb=None, embed_fn=None) -> None:
             logger.warning("ensure_books_embedded failed b=%s: %s", row.get("id"), e)
 
 
+def needs_background_embed(ub_rows, bid_order_set) -> bool:
+    """캐시미스 시 백그라운드 recompute(임베딩+보강)가 필요한지 — 인메모리 싼 판정.
+
+    좋/싫(rated) 책 중 ① 정적 인덱스 밖이라 임베딩 필요하거나 ② 태그/리뷰 있는데
+    feedback_embedding 없으면 True. **rating 가드 필수**: neutral/무평가 행은
+    recompute 의 ensure_* 가 처리하지 않으므로(rated=good/bad 만), 가드 없으면 영구히
+    True 가 되어 매 요청 recompute 가 도는 버그(코드리뷰 I2). rated 와 동일 조건으로 맞춘다.
+    """
+    for ub in ub_rows:
+        if ub.get("rating") not in ("good", "bad"):
+            continue
+        if ub.get("book_id") not in bid_order_set:
+            return True
+        if (ub.get("emotion_tags") or ub.get("review_text")) and not ub.get("feedback_embedding"):
+            return True
+    return False
+
+
 def resolve_extra_query_vectors(liked_ids, bid_order_set, sb=None) -> dict:
     """정적 인덱스(bid_order_set) 밖 book_id 만 book_v3_vectors 에서 읽어 BookVectors 합성.
 

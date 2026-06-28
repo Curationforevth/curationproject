@@ -6,7 +6,7 @@ from models import RecommendResponse, BookScore
 from engine.cache import (compute_input_hash, load_cache,
                           recompute_recommendations, save_cache_if_current)
 from engine.recommend_core import try_compute_inline
-from engine.user_embed import resolve_extra_query_vectors
+from engine.user_embed import resolve_extra_query_vectors, needs_background_embed
 from engine.dedup import dedup_by_work
 from engine.utils import to_np
 from config import DEFAULT_RECOMMEND_LIMIT, get_supabase
@@ -126,14 +126,9 @@ async def get_recommendations(
         if emb:
             fb_data[ub["book_id"]] = {"emb": to_np(emb), "is_dislike": ub.get("rating") == "bad"}
 
-    # C4 트리거 술어: 좋/싫 책 중 인덱스 밖이 있거나(임베딩 필요) 태그/리뷰 있는데
-    # feedback_embedding 없는 행이 있으면 백그라운드 recompute 가 임베딩+보강해야 한다.
-    bid_set = set(request.app.state.bid_order or [])
-    needs_bg = any(
-        (ub.get("rating") in ("good", "bad") and ub["book_id"] not in bid_set)
-        or ((ub.get("emotion_tags") or ub.get("review_text")) and not ub.get("feedback_embedding"))
-        for ub in ub_res.data
-    )
+    # C4 트리거 술어(rating 가드 포함 — engine.user_embed 참조).
+    bid_set = set(getattr(request.app.state, "bid_order", None) or [])
+    needs_bg = needs_background_embed(ub_res.data, bid_set)
     # 이미 임베딩된 인덱스 밖 책은 inline 에서도 즉시 반영(OpenAI 없이 DB read).
     extra_query = resolve_extra_query_vectors(list(liked_books.keys()), bid_set, sb) if bid_set else {}
 

@@ -26,7 +26,7 @@ from engine.home_cache import (
 )
 from engine.cache import load_cache, compute_input_hash, recompute_recommendations
 from engine.recommend_core import try_compute_inline
-from engine.user_embed import resolve_extra_query_vectors
+from engine.user_embed import resolve_extra_query_vectors, needs_background_embed
 from engine.dedup import dedup_by_work, dedup_similar
 from engine.utils import to_np
 
@@ -332,12 +332,8 @@ async def get_home(
                 if emb:
                     fb_data[ub["book_id"]] = {"emb": to_np(emb), "is_dislike": ub.get("rating") == "bad"}
             # C4 술어 + 인덱스 밖 책 즉시 반영(이미 임베딩된 것, OpenAI 없음).
-            bid_set = set(request.app.state.bid_order or [])
-            needs_bg = any(
-                (ub.get("rating") in ("good", "bad") and ub["book_id"] not in bid_set)
-                or ((ub.get("emotion_tags") or ub.get("review_text")) and not ub.get("feedback_embedding"))
-                for ub in user_books
-            )
+            bid_set = set(getattr(request.app.state, "bid_order", None) or [])
+            needs_bg = needs_background_embed(user_books, bid_set)
             extra_query = resolve_extra_query_vectors(
                 [ub["book_id"] for ub in user_books], bid_set, sb) if bid_set else {}
             recommend_scored = await try_compute_inline(

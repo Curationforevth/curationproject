@@ -3,7 +3,8 @@ import numpy as np
 
 from engine.user_embed import (_pick_source_text, ensure_books_embedded,
                                resolve_extra_query_vectors,
-                               build_feedback_text, ensure_feedback_embedded)
+                               build_feedback_text, ensure_feedback_embedded,
+                               needs_background_embed)
 
 
 # --------------------------------------------------------------------------
@@ -191,3 +192,37 @@ def test_ensure_feedback_embedded_skips_already_embedded():
              "review_text": "좋음", "feedback_embedding": [0.9] * 2000}]
     ensure_feedback_embedded(rows, _FakeSB(), embed_fn=lambda t: calls.append(t) or [0.0] * 2000)
     assert calls == [], "이미 임베딩된 행은 skip"
+
+
+# --------------------------------------------------------------------------
+# needs_background_embed (C4 술어, rating 가드 = I2 회귀 방지)
+# --------------------------------------------------------------------------
+def test_needs_bg_true_for_good_out_of_index():
+    rows = [{"rating": "good", "book_id": "OUT", "feedback_embedding": None}]
+    assert needs_background_embed(rows, {"IN"}) is True
+
+
+def test_needs_bg_true_for_good_with_tags_no_embedding():
+    rows = [{"rating": "good", "book_id": "IN", "emotion_tags": ["문체"],
+             "feedback_embedding": None}]
+    assert needs_background_embed(rows, {"IN"}) is True
+
+
+def test_needs_bg_false_when_all_indexed_and_embedded():
+    rows = [{"rating": "good", "book_id": "IN", "emotion_tags": ["문체"],
+             "feedback_embedding": [0.1] * 2000}]
+    assert needs_background_embed(rows, {"IN"}) is False
+
+
+def test_needs_bg_ignores_neutral_row_with_tags_I2():
+    """I2 회귀: neutral 행은 ensure_* 가 임베딩 안 하므로 needs_bg 를 영구 True 로
+    만들면 안 된다. neutral 책이 인덱스 밖 + 태그 있어도 False 여야 한다."""
+    rows = [{"rating": "neutral", "book_id": "OUT", "emotion_tags": ["문체"],
+             "review_text": "음", "feedback_embedding": None}]
+    assert needs_background_embed(rows, {"IN"}) is False
+
+
+def test_needs_bg_empty_tags_array_does_not_trigger():
+    rows = [{"rating": "good", "book_id": "IN", "emotion_tags": [],
+             "review_text": None, "feedback_embedding": None}]
+    assert needs_background_embed(rows, {"IN"}) is False
