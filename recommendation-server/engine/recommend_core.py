@@ -21,10 +21,12 @@ from config import STAGE1_TOP_N, CACHE_TOP_N
 _COMPUTE_SEM = asyncio.Semaphore(2)
 
 
-async def try_compute_inline(app_state, liked_books: dict, fb_data: dict):
+async def try_compute_inline(app_state, liked_books: dict, fb_data: dict,
+                             extra_query: Optional[dict] = None):
     """슬롯 있으면 스레드에서 즉시 스코어링해 결과 반환, 없으면 None.
 
     None 이면 호출측은 백그라운드 재계산을 트리거하고 fallback 을 반환해야 한다.
+    extra_query: 이미 임베딩된 인덱스 밖 책의 BookVectors(OpenAI 없이 호출측이 resolve).
     """
     try:
         await asyncio.wait_for(_COMPUTE_SEM.acquire(), timeout=0.01)
@@ -40,6 +42,7 @@ async def try_compute_inline(app_state, liked_books: dict, fb_data: dict):
             desc_matrix_f16=app_state.desc_matrix_f16,
             agg_reason_matrix_f16=app_state.agg_reason_matrix_f16,
             bid_order=app_state.bid_order,
+            extra_query=extra_query,
         )
     finally:
         _COMPUTE_SEM.release()
@@ -54,6 +57,7 @@ def compute_scored_books(
     desc_matrix_f16,
     agg_reason_matrix_f16,
     bid_order: list,
+    extra_query: Optional[dict] = None,
 ) -> list[tuple[str, float]]:
     """
     Score all candidate books for a user and return top-N.
@@ -71,9 +75,11 @@ def compute_scored_books(
             liked_books, fb_data,
             desc_matrix_f16, agg_reason_matrix_f16, bid_order,
             top_n=STAGE1_TOP_N,
+            extra_query=extra_query,
         )
         scores = batch_score_prestacked(
-            index, liked_books, fb_data, candidates, prestacked_reasons)
+            index, liked_books, fb_data, candidates, prestacked_reasons,
+            extra_query=extra_query)
     else:
         # v3 — desc 선필터 two-stage (전체 brute-force 는 단일워커 ~13s 블로킹).
         scores = recommend_scores_two_stage(index, liked_books, fb_data, top_n=STAGE1_TOP_N)

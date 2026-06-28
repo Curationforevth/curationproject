@@ -26,6 +26,7 @@ from engine.home_cache import (
 )
 from engine.cache import load_cache, compute_input_hash, recompute_recommendations
 from engine.recommend_core import try_compute_inline
+from engine.user_embed import resolve_extra_query_vectors, needs_background_embed
 from engine.dedup import dedup_by_work, dedup_similar
 from engine.utils import to_np
 
@@ -275,7 +276,7 @@ async def get_home(
 
     # Miss → 섹션 조립용 데이터 조회
     user_books = _safe(lambda: sb.table("user_books").select(
-        "book_id,rating,feedback_embedding,updated_at"
+        "book_id,rating,feedback_embedding,emotion_tags,review_text,updated_at"
     ).eq("user_id", user_id).order("updated_at", desc=True).execute().data,
         default=[]) or []
 
@@ -330,11 +331,22 @@ async def get_home(
                 emb = ub.get("feedback_embedding")
                 if emb:
                     fb_data[ub["book_id"]] = {"emb": to_np(emb), "is_dislike": ub.get("rating") == "bad"}
-            recommend_scored = await try_compute_inline(request.app.state, liked_books, fb_data)
+            # C4 술어 + 인덱스 밖 책 즉시 반영(이미 임베딩된 것, OpenAI 없음).
+            bid_set = set(getattr(request.app.state, "bid_order", None) or [])
+            needs_bg = needs_background_embed(user_books, bid_set)
+            extra_query = resolve_extra_query_vectors(
+                [ub["book_id"] for ub in user_books], bid_set, sb) if bid_set else {}
+            recommend_scored = await try_compute_inline(
+                request.app.state, liked_books, fb_data, extra_query=extra_query)
             if recommend_scored is None:
                 # 슬롯 없음(동시 다발) → 백그라운드 + 이번 응답엔 비움(다음 로드 반영).
                 background_tasks.add_task(recompute_recommendations, user_id, request.app.state)
                 recommend_scored = []
+                recs_pending = True
+            elif needs_bg:
+                # inline 성공했지만 미임베딩 책/피드백 있음 → 백그라운드 임베딩+보강.
+                # 빈약본 캐시 방지(recs_pending=True 면 home_cache 미저장) → 다음 로드에 보강본.
+                background_tasks.add_task(recompute_recommendations, user_id, request.app.state)
                 recs_pending = True
 
     sections = assemble_sections_for_user(

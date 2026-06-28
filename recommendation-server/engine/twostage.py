@@ -16,7 +16,12 @@ def stage1_hybrid(
     agg_reason_matrix_f16: np.ndarray,
     bid_order: list[str],
     top_n: int = 700,
+    extra_query: dict | None = None,
 ) -> list[str]:
+    # extra_query: 정적 인덱스(bid_order) 밖 좋/싫 책의 BookVectors. desc 만 query 로
+    # 주입한다(fb 는 아래 fb_data 루프가 무가드로 이미 반영 — 이중계산 금지).
+    extra_query = extra_query or {}
+
     good_ids = [bid for bid, d in liked_books.items() if d["rating"] == "good"]
     bad_ids = [bid for bid, d in liked_books.items() if d["rating"] == "bad"]
     read_ids = set(liked_books.keys())
@@ -31,10 +36,22 @@ def stage1_hybrid(
     am = agg_reason_matrix_f16.astype(np.float32)
 
     good_desc_indices = [bid_to_idx[bid] for bid in good_ids if bid in bid_to_idx]
-    if not good_desc_indices:
+    extra_good = [bid for bid in good_ids if bid not in bid_to_idx and bid in extra_query]
+    extra_bad = [bid for bid in bad_ids if bid not in bid_to_idx and bid in extra_query]
+    if not good_desc_indices and not extra_good:
         return []
-    good_descs = dm[good_desc_indices]
-    good_aggs = am[good_desc_indices]
+
+    # good_descs/good_aggs: 인덱스 hit + 주입책(desc, agg=zero) 결합
+    idx_descs = dm[good_desc_indices] if good_desc_indices else np.zeros((0, dm.shape[1]), np.float32)
+    idx_aggs = am[good_desc_indices] if good_desc_indices else np.zeros((0, am.shape[1]), np.float32)
+    if extra_good:
+        ex_descs = np.stack([extra_query[b].desc.astype(np.float32) for b in extra_good])
+        ex_aggs = np.zeros((len(extra_good), am.shape[1]), np.float32)  # 유저 책 reason 없음 → 0
+        good_descs = np.vstack([idx_descs, ex_descs])
+        good_aggs = np.vstack([idx_aggs, ex_aggs])
+    else:
+        good_descs = idx_descs
+        good_aggs = idx_aggs
 
     # single-query scores
     sq_desc = (dm @ good_descs.T).max(axis=1)
@@ -60,6 +77,12 @@ def stage1_hybrid(
         if idx is None:
             continue
         pb_scores -= 1.5 * (dm @ dm[idx])
+    # 주입책 desc 항 (인덱스 밖이라 위 루프가 건너뜀). fb 항은 아래 fb_data 루프가
+    # bid_to_idx 가드 없이 주입책 fb 도 이미 반영하므로 여기서 추가하지 않는다(이중계산 방지).
+    for bid in extra_good:
+        pb_scores += 3.0 * (dm @ extra_query[bid].desc.astype(np.float32))
+    for bid in extra_bad:
+        pb_scores -= 1.5 * (dm @ extra_query[bid].desc.astype(np.float32))
     for bid, fb in fb_data.items():
         if liked_books.get(bid, {}).get("rating") == "neutral":
             continue
@@ -99,20 +122,24 @@ def batch_score_prestacked(
     w_l1: float = W_L1,
     w_l2: float = W_L2,
     w_fb_desc: float = W_FB_DESC,
+    extra_query: dict | None = None,
 ) -> dict:
     """Stage 2 정밀 스코어링.
 
     _score_one()과 동일한 알고리즘이지만, prestacked reason 배열을 사용해
     np.stack() 오버헤드를 제거한다.  최대 오차 < 0.01 (float16 양자화 기인).
+
+    extra_query: 정적 인덱스 밖 좋/싫 책의 BookVectors(desc 기반 취향 주입).
     """
+    extra_query = extra_query or {}
     good_ids = [bid for bid, d in liked_books.items() if d["rating"] == "good"]
     bad_ids = [bid for bid, d in liked_books.items() if d["rating"] == "bad"]
 
     if not good_ids and not bad_ids:
         return {}
 
-    # 좋아요 책 벡터를 미리 수집
-    good_books = {bid: index.get_book(bid) for bid in good_ids}
+    # 좋아요 책 벡터를 미리 수집 (인덱스 → 없으면 주입책)
+    good_books = {bid: (index.get_book(bid) or extra_query.get(bid)) for bid in good_ids}
     good_books = {bid: bv for bid, bv in good_books.items() if bv is not None}
 
     scores: dict = {}
@@ -163,7 +190,7 @@ def batch_score_prestacked(
                 weighted_maxsims.append(REASON_WEIGHT_WITHOUT_FB * r_sim)
 
         for bid in bad_ids:
-            bv = index.get_book(bid)
+            bv = index.get_book(bid) or extra_query.get(bid)
             if bv is None:
                 continue
             fb = fb_data.get(bid)

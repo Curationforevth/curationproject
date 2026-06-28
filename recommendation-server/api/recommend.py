@@ -6,6 +6,7 @@ from models import RecommendResponse, BookScore
 from engine.cache import (compute_input_hash, load_cache,
                           recompute_recommendations, save_cache_if_current)
 from engine.recommend_core import try_compute_inline
+from engine.user_embed import resolve_extra_query_vectors, needs_background_embed
 from engine.dedup import dedup_by_work
 from engine.utils import to_np
 from config import DEFAULT_RECOMMEND_LIMIT, get_supabase
@@ -60,9 +61,9 @@ async def get_recommendations(
             },
         )
 
-    # Tier 2 — feedback_embedding 포함 full fetch
+    # Tier 2 — feedback_embedding + 트리거 술어용 emotion_tags/review_text 포함 fetch
     ub_res = sb.table("user_books").select(
-        "book_id,rating,feedback_embedding"
+        "book_id,rating,feedback_embedding,emotion_tags,review_text"
     ).eq("user_id", user_id).execute()
 
     if not ub_res.data:
@@ -125,7 +126,13 @@ async def get_recommendations(
         if emb:
             fb_data[ub["book_id"]] = {"emb": to_np(emb), "is_dislike": ub.get("rating") == "bad"}
 
-    scored = await try_compute_inline(request.app.state, liked_books, fb_data)
+    # C4 트리거 술어(rating 가드 포함 — engine.user_embed 참조).
+    bid_set = set(getattr(request.app.state, "bid_order", None) or [])
+    needs_bg = needs_background_embed(ub_res.data, bid_set)
+    # 이미 임베딩된 인덱스 밖 책은 inline 에서도 즉시 반영(OpenAI 없이 DB read).
+    extra_query = resolve_extra_query_vectors(list(liked_books.keys()), bid_set, sb) if bid_set else {}
+
+    scored = await try_compute_inline(request.app.state, liked_books, fb_data, extra_query=extra_query)
     if scored is not None:
         books_meta = request.app.state.books_meta
         recs, recs_for_cache = [], []
@@ -138,8 +145,12 @@ async def get_recommendations(
                              cover_url=meta.get("cover_url"))
             recs.append(book)
             recs_for_cache.append(book.dict())
-        background_tasks.add_task(save_cache_if_current, user_id, recs_for_cache,
-                                  input_hash, total_liked, total_disliked, has_feedback)
+        if needs_bg:
+            # 미임베딩 책/피드백 → 빈약 캐시 저장 skip(코히런스), 백그라운드가 임베딩+보강 후 확정.
+            background_tasks.add_task(recompute_recommendations, user_id, request.app.state)
+        else:
+            background_tasks.add_task(save_cache_if_current, user_id, recs_for_cache,
+                                      input_hash, total_liked, total_disliked, has_feedback)
         recs = dedup_by_work(recs, lambda b: (b.title, b.author))
         return RecommendResponse(
             user_id=user_id, recommendations=recs[:limit],

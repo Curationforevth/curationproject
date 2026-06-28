@@ -154,29 +154,38 @@ def recompute_recommendations(user_id: str, app_state) -> None:
     from engine.twostage import stage1_hybrid, batch_score_prestacked
     from engine.scorer import recommend_scores_two_stage
     from engine.utils import to_np
+    from engine.user_embed import (ensure_feedback_embedded, ensure_books_embedded,
+                                   resolve_extra_query_vectors)
 
     sb = get_supabase()
 
-    # C2: 이미 computing 중이면 skip
+    # 이미 computing 중이면 skip
     existing = load_cache(user_id)
     if existing and existing.get("computing"):
         logger.info("recompute: already computing for %s — skipping", user_id)
         return
 
-    # computing 플래그 설정
+    # computing 플래그 설정 — 기존 recommendations 는 보존(stale-serve 폴백 유지).
+    # (blank 하면 inline 저장 skip 과 겹쳐 임베딩(수초) 동안 thin-only 가 됨.)
     try:
         sb.table("recommendation_cache").upsert(
             {"user_id": user_id, "computing": True,
              "input_hash": "__computing__",
-             "recommendations": [], "computed_at": datetime.now(timezone.utc).isoformat()},
+             "recommendations": (existing or {}).get("recommendations", []),
+             "computed_at": datetime.now(timezone.utc).isoformat()},
             on_conflict="user_id",
         ).execute()
     except Exception as exc:
         logger.warning("recompute: failed to set computing flag for %s: %s", user_id, exc)
 
+    if app_state.prestacked_reasons is None:
+        # v3 폴백은 augment 미적용 — prod 는 v4-prestacked 라 도달 안 함. 회귀 가시화.
+        logger.warning("recompute: prestacked is None — v3 fallback (extra_query 미적용) u=%s", user_id)
+
     try:
+        # 1차 read: 임베딩 판정용으로 emotion_tags/review_text 포함
         ub_res = sb.table("user_books").select(
-            "book_id,rating,feedback_embedding"
+            "book_id,rating,feedback_embedding,emotion_tags,review_text"
         ).eq("user_id", user_id).execute()
 
         if not ub_res.data:
@@ -190,6 +199,17 @@ def recompute_recommendations(user_id: str, app_state) -> None:
             ).execute()
             return
 
+        # C3+C1: 스코어링 전에 임베딩(요청경로 밖). per-book best-effort.
+        rated = [r for r in ub_res.data if r.get("rating") in ("good", "bad")]
+        for r in rated:
+            r["user_id"] = user_id  # ensure_feedback_embedded 가 키로 사용
+        ensure_feedback_embedded(rated, sb)                              # C3 (태그+리뷰)
+        ensure_books_embedded([r["book_id"] for r in rated], sb)        # C1 (유저 책)
+
+        # post-embedding 재read → input_hash 가 live(has_fb 반영)와 일치(코히런스).
+        ub_res = sb.table("user_books").select(
+            "book_id,rating,feedback_embedding"
+        ).eq("user_id", user_id).execute()
         input_hash = compute_input_hash(ub_res.data)
 
         liked_books: dict = {}
@@ -210,6 +230,11 @@ def recompute_recommendations(user_id: str, app_state) -> None:
                 has_feedback = True
                 fb_data[bid] = {"emb": to_np(fb_emb), "is_dislike": rating == "bad"}
 
+        # C2: 정적 인덱스 밖 좋/싫 책 벡터를 DB 에서 읽어 쿼리로 주입 (OpenAI 없음).
+        bid_order_set = set(app_state.bid_order or [])
+        extra_query = resolve_extra_query_vectors(
+            list(liked_books.keys()), bid_order_set, sb)
+
         prestacked = app_state.prestacked_reasons
         if prestacked is not None:
             candidates = stage1_hybrid(
@@ -218,9 +243,11 @@ def recompute_recommendations(user_id: str, app_state) -> None:
                 app_state.agg_reason_matrix_f16,
                 app_state.bid_order,
                 top_n=STAGE1_TOP_N,
+                extra_query=extra_query,
             )
             scores = batch_score_prestacked(
-                app_state.index, liked_books, fb_data, candidates, prestacked)
+                app_state.index, liked_books, fb_data, candidates, prestacked,
+                extra_query=extra_query)
         else:
             scores = recommend_scores_two_stage(
                 app_state.index, liked_books, fb_data, top_n=STAGE1_TOP_N)
