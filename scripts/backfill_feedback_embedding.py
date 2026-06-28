@@ -40,21 +40,39 @@ RETRY_BACKOFF = 10
 PAGE_SLEEP = 0.3
 
 
+def _fb_text(emotion_tags, review_text):
+    """감정태그 + 한줄감상을 임베딩 입력으로 조립(무절단). 라이브 경로
+    engine/user_embed.build_feedback_text 와 동일 로직(scripts→engine import 불가라 복제)."""
+    tags = [t for t in (emotion_tags or []) if t and str(t).strip()]
+    review = (review_text or "").strip()
+    if not tags and not review:
+        return None
+    parts = []
+    if tags:
+        parts.append("태그: " + ", ".join(tags))
+    if review:
+        parts.append(review)
+    return "\n".join(parts)
+
+
 def needs_embedding(row: dict) -> bool:
-    """review_text 가 실제 내용이 있고 feedback_embedding 이 비어있으면 backfill 대상."""
-    rt = row.get("review_text")
-    return bool(rt and rt.strip()) and not row.get("feedback_embedding")
+    """태그 또는 한줄감상 내용이 있고 feedback_embedding 이 비어있으면 backfill 대상."""
+    return _fb_text(row.get("emotion_tags"), row.get("review_text")) is not None \
+        and not row.get("feedback_embedding")
 
 
 def fetch_targets(sb, limit: int) -> list[dict]:
-    """review_text 있고 feedback_embedding NULL 인 user_books 행 조회(페이지네이션)."""
+    """feedback_embedding NULL 인 행 중 태그/리뷰 있는 것 조회(페이지네이션).
+
+    태그 OR 리뷰 조건은 PostgREST 단일 필터로 표현이 까다로워, 임베딩 NULL 만
+    서버 필터하고 태그/리뷰 유무는 needs_embedding 으로 파이썬 필터한다.
+    """
     out: list[dict] = []
     offset = 0
     while True:
         end = offset + PAGE - 1
         res = with_retry(lambda o=offset, e=end: sb.table("user_books")
-                         .select("user_id, book_id, review_text")
-                         .not_.is_("review_text", "null")
+                         .select("user_id, book_id, review_text, emotion_tags")
                          .is_("feedback_embedding", "null")
                          .range(o, e)
                          .execute())
@@ -114,10 +132,11 @@ def main():
     if args.dry_run:
         print(f"[dry-run] {len(targets)}건 임베딩/쓰기 건너뜀. 예시:")
         for r in targets[:3]:
-            print(f"  u={r['user_id'][:8]} b={r['book_id'][:8]} review={r['review_text'][:30]!r}")
+            txt = _fb_text(r.get("emotion_tags"), r.get("review_text"))
+            print(f"  u={r['user_id'][:8]} b={r['book_id'][:8]} text={txt[:40]!r}")
         return
 
-    texts = [r["review_text"].strip() for r in targets]
+    texts = [_fb_text(r.get("emotion_tags"), r.get("review_text")) for r in targets]
     embs = embed_batch(texts)
     assert len(embs) == len(targets), f"임베딩 수 불일치 {len(embs)} != {len(targets)}"
 
