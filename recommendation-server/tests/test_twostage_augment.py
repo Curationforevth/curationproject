@@ -46,3 +46,18 @@ def test_stage1_no_extra_query_unchanged_behavior():
     # 좋아요 책이 전부 인덱스 밖 + extra_query 없음 → 기존대로 []
     out = stage1_hybrid({"OUT": {"rating": "good"}}, {}, dm, am, bid_order, top_n=2)
     assert out == []
+
+
+def test_compute_scored_books_threads_extra_query():
+    from engine.recommend_core import compute_scored_books
+    dim = 2000
+    idx = VectorIndex(dim=dim, dtype=np.float16)
+    idx.add_book("cand", reasons=[], desc=_unit(1, dim), l1=np.zeros(dim), l2=np.zeros(dim))
+    extra = {"UB": BookVectors(reasons=[], desc=_unit(1, dim),
+                               l1=np.zeros(dim, np.float32), l2=np.zeros(dim, np.float32))}
+    out = compute_scored_books(
+        index=idx, liked_books={"UB": {"rating": "good"}}, fb_data={},
+        prestacked_reasons={}, desc_matrix_f16=np.stack([_unit(1, dim)]).astype(np.float16),
+        agg_reason_matrix_f16=np.zeros((1, dim), np.float16), bid_order=["cand"],
+        extra_query=extra)
+    assert out and out[0][0] == "cand"
