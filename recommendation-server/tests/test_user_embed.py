@@ -83,22 +83,34 @@ class _FakeSB:
 def test_pick_source_prefers_rich_when_long():
     row = {"rich_description": "가" * 250, "description": "짧은",
            "title": "T", "author": "A", "genre": "소설"}
-    text, prov = _pick_source_text(row)
-    assert text == "가" * 250 and prov is False
+    text, tier = _pick_source_text(row)
+    assert text == "가" * 250 and tier == "rich"
+
+
+def test_pick_source_rich_html_stripped_below_gate_falls_back():
+    # 태그 포함 250자지만 clean_html 후 <200 → kakao_desc 폴백(배치와 동일 게이트, M3)
+    row = {"rich_description": "<p>" + "가" * 180 + "</p>", "description": "카카오 설명"}
+    text, tier = _pick_source_text(row)
+    assert text == "카카오 설명" and tier == "kakao_desc"
 
 
 def test_pick_source_falls_back_to_description():
     row = {"rich_description": "짧음", "description": "카카오 줄거리 문단입니다.",
            "title": "T", "author": "A", "genre": "소설"}
-    text, prov = _pick_source_text(row)
-    assert text == "카카오 줄거리 문단입니다." and prov is True
+    text, tier = _pick_source_text(row)
+    assert text == "카카오 줄거리 문단입니다." and tier == "kakao_desc"
 
 
 def test_pick_source_last_resort_title_author_genre():
     row = {"rich_description": None, "description": None,
            "title": "어린왕자", "author": "생텍쥐페리", "genre": "소설"}
-    text, prov = _pick_source_text(row)
-    assert "어린왕자" in text and "생텍쥐페리" in text and "소설" in text and prov is True
+    text, tier = _pick_source_text(row)
+    assert "어린왕자" in text and "생텍쥐페리" in text and "소설" in text and tier == "minimal"
+
+
+def test_pick_source_empty_returns_none():
+    text, tier = _pick_source_text({})
+    assert text is None and tier is None
 
 
 # --------------------------------------------------------------------------
@@ -119,6 +131,7 @@ def test_ensure_books_embedded_embeds_missing_with_provisional():
     ensure_books_embedded(["B2"], sb, embed_fn=lambda t: calls.append(t) or [0.1] * 2000)
     assert calls == ["카카오 줄거리"], "미임베딩 책은 가용 텍스트로 1회 임베딩"
     assert sb.v3["B2"]["provisional"] is True, "얕은 텍스트 → provisional"
+    assert sb.v3["B2"]["source_tier"] == "kakao_desc", "카카오 description → kakao_desc tier"
     assert sb.v3["B2"]["desc_embedding"] == [0.1] * 2000
 
 

@@ -16,26 +16,29 @@ import requests
 from config import (get_supabase, OPENAI_API_KEY, EMBEDDING_MODEL,
                     EMBEDDING_DIMENSIONS)
 from engine.index import BookVectors
-from engine.utils import to_np
+from engine.utils import to_np, clean_html
 
 logger = logging.getLogger(__name__)
 
 _MIN_RICH = 200
 
 
-def _pick_source_text(row: dict) -> tuple[str, bool]:
-    """(임베딩 텍스트, provisional). rich≥200 우선 → 카카오 description → title+author+genre.
+def _pick_source_text(row: dict) -> tuple:
+    """(임베딩 텍스트|None, source_tier|None). rich≥200(clean_html 후) → 카카오 description → title+author+genre.
 
-    provisional=True 는 rich 가 아닌 얕은 텍스트로 임베딩했음을 뜻한다(후속 보강 대상).
+    source_tier ∈ {"rich","kakao_desc","minimal"}. 배치 build_desc_source 와 정책 동일
+    (배포 경계로 코드 미공유 — 동등성 테스트로 동기화). clean_html 양쪽 적용으로 같은 책이
+    경로별로 다른 tier/임베딩을 받지 않게 한다(M3).
     """
-    rich = (row.get("rich_description") or "").strip()
+    rich = clean_html(row.get("rich_description") or "").strip()
     if len(rich) >= _MIN_RICH:
-        return rich[:2000], False
-    desc = (row.get("description") or "").strip()
+        return rich[:2000], "rich"
+    desc = clean_html(row.get("description") or "").strip()
     if desc:
-        return desc[:2000], True
+        return desc[:2000], "kakao_desc"
     parts = [row.get("title") or "", row.get("author") or "", row.get("genre") or ""]
-    return " ".join(p for p in parts if p).strip(), True
+    m = " ".join(p for p in parts if p).strip()
+    return (m[:2000], "minimal") if m else (None, None)
 
 
 def _embed_text(text: str) -> list[float]:
@@ -75,7 +78,7 @@ def ensure_books_embedded(book_ids, sb=None, embed_fn=None) -> None:
         "id", todo).execute().data or []
     for row in rows:
         try:
-            text, provisional = _pick_source_text(row)
+            text, tier = _pick_source_text(row)
             if not text:
                 continue
             emb = embed_fn(text)
@@ -83,7 +86,8 @@ def ensure_books_embedded(book_ids, sb=None, embed_fn=None) -> None:
                 "book_id": row["id"],
                 "desc_embedding": emb,
                 "source_text": text[:2000],
-                "provisional": provisional,
+                "source_tier": tier,
+                "provisional": tier != "rich",
             }, on_conflict="book_id").execute()
         except Exception as e:  # per-book 격리
             logger.warning("ensure_books_embedded failed b=%s: %s", row.get("id"), e)
