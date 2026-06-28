@@ -140,3 +140,29 @@ class TestBatchScorePrestacked:
 
         # novel과 유사한 novel2가 econ과 유사한 econ2보다 높아야 함
         assert scores["novel2"] > scores["econ2"]
+
+    # ----------------------------------------------------------------------
+    # source_tier positive-part down-weight (C4 / B1 부호 안전)
+    # ----------------------------------------------------------------------
+    def test_positive_score_candidate_is_downweighted(self, small_index):
+        prestacked = _make_prestacked(small_index)
+        liked = {"novel1": {"rating": "good"}}
+        cands = ["novel2", "econ1", "econ2", "sci1"]
+        base = batch_score_prestacked(small_index, liked, {}, cands, prestacked)
+        assert base["novel2"] > 0
+        small_index._candidate_tier = {"novel2": "kakao_desc"}
+        tiered = batch_score_prestacked(small_index, liked, {}, cands, prestacked)
+        assert abs(tiered["novel2"] - base["novel2"] * 0.95) < 1e-6, "양수 후보 0.95 감점"
+        assert tiered["novel2"] < base["novel2"]
+        assert abs(tiered["econ1"] - base["econ1"]) < 1e-9, "rich 후보 불변"
+
+    def test_negative_score_candidate_not_promoted(self, small_index):
+        """음수 점수 후보에 페널티를 곱하면 0쪽으로 올라가 랭크가 상승하는 버그(B1) 방지."""
+        prestacked = _make_prestacked(small_index)
+        liked = {"econ1": {"rating": "bad"}}  # 싫어요 → 유사 후보 econ2 음수
+        cands = ["econ2"]
+        base = batch_score_prestacked(small_index, liked, {}, cands, prestacked)
+        assert base["econ2"] < 0
+        small_index._candidate_tier = {"econ2": "kakao_desc"}
+        tiered = batch_score_prestacked(small_index, liked, {}, cands, prestacked)
+        assert tiered["econ2"] == base["econ2"], "positive-part: 음수 점수 미변경(부호 안전)"

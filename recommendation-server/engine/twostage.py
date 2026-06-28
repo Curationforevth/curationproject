@@ -6,7 +6,7 @@ import numpy as np
 from engine.index import VectorIndex
 from config import (W_REASON, W_DESC, W_L1, W_L2, W_FB_DESC,
                     REASON_WEIGHT_WITH_FB, REASON_WEIGHT_WITHOUT_FB,
-                    FB_REASON_WEIGHT)
+                    FB_REASON_WEIGHT, SOURCE_TIER_PENALTY)
 
 
 def stage1_hybrid(
@@ -257,5 +257,11 @@ def batch_score_prestacked(
             + w_l2 * l2_score
             + w_fb_desc * fb_desc_score
         )
+        # source_tier 차등 down-weight (positive-part — 음수 점수는 미변경해
+        # 0쪽으로 올려 랭크가 상승하는 버그 방지, B1). 페널티는 후보에만(쿼리책 무관).
+        tier = getattr(index, "_candidate_tier", {}).get(cid, "rich")
+        pen = SOURCE_TIER_PENALTY.get(tier, 1.0)
+        if pen != 1.0 and scores[cid] > 0:
+            scores[cid] *= pen
 
     return scores
