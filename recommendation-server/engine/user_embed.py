@@ -112,3 +112,48 @@ def resolve_extra_query_vectors(liked_ids, bid_order_set, sb=None) -> dict:
             l2=np.zeros(dim, np.float32),
         )
     return out
+
+
+# --------------------------------------------------------------------------
+# C3 — 피드백 신호(감정태그 + 한줄감상)를 라이브 취향에 반영
+# --------------------------------------------------------------------------
+def build_feedback_text(emotion_tags, review_text):
+    """감정태그 + 한줄감상을 임베딩 입력 문자열로 조립. 둘 다 없으면 None.
+
+    원문 무절단(P4 유저 피드백 원문 유지). experiment_confidence.py 의 fmt_feedback
+    (이모지/40자 절단)은 디스플레이용이라 차용하지 않는다.
+    """
+    tags = [t for t in (emotion_tags or []) if t and str(t).strip()]
+    review = (review_text or "").strip()
+    if not tags and not review:
+        return None
+    parts = []
+    if tags:
+        parts.append("태그: " + ", ".join(tags))
+    if review:
+        parts.append(review)  # 무절단
+    return "\n".join(parts)
+
+
+def ensure_feedback_embedded(rows, sb=None, embed_fn=None) -> None:
+    """feedback_embedding 없고 태그/리뷰 있는 user_books 행을 임베딩·갱신. per-book best-effort.
+
+    rows: user_books dict 리스트 (각 행에 user_id, book_id, emotion_tags, review_text,
+    feedback_embedding 필요). 성공 시 행의 feedback_embedding 을 in-place 갱신해
+    호출측(recompute)이 같은 호출에서 즉시 사용한다.
+    """
+    sb = sb or get_supabase()
+    embed_fn = embed_fn or _embed_text
+    for r in rows:
+        if r.get("feedback_embedding"):
+            continue
+        text = build_feedback_text(r.get("emotion_tags"), r.get("review_text"))
+        if not text:
+            continue
+        try:
+            emb = embed_fn(text)
+            sb.table("user_books").update({"feedback_embedding": emb}).eq(
+                "user_id", r["user_id"]).eq("book_id", r["book_id"]).execute()
+            r["feedback_embedding"] = emb  # in-place → 호출측 즉시 사용
+        except Exception as e:  # per-book 격리
+            logger.warning("ensure_feedback_embedded failed b=%s: %s", r.get("book_id"), e)

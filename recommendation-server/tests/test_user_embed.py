@@ -2,7 +2,8 @@
 import numpy as np
 
 from engine.user_embed import (_pick_source_text, ensure_books_embedded,
-                               resolve_extra_query_vectors)
+                               resolve_extra_query_vectors,
+                               build_feedback_text, ensure_feedback_embedded)
 
 
 # --------------------------------------------------------------------------
@@ -20,6 +21,8 @@ class _FakeQuery:
         self._cols = None
         self._in_ids = None
         self._upsert = None
+        self._update = None
+        self._eq = {}
 
     def select(self, cols):
         self._cols = cols
@@ -33,7 +36,19 @@ class _FakeQuery:
         self._upsert = row
         return self
 
+    def update(self, row):
+        self._update = row
+        return self
+
+    def eq(self, col, val):
+        self._eq[col] = val
+        return self
+
     def execute(self):
+        if self._update is not None:
+            key = (self._eq.get("user_id"), self._eq.get("book_id"))
+            self.sb.user_books_updates[key] = self._update
+            return _Res([self._update])
         if self._upsert is not None:
             self.sb.v3[self._upsert["book_id"]] = self._upsert
             return _Res([self._upsert])
@@ -55,6 +70,7 @@ class _FakeSB:
     def __init__(self, books=None, v3=None):
         self.books = books or {}
         self.v3 = v3 or {}
+        self.user_books_updates = {}
 
     def table(self, name):
         return _FakeQuery(self, name)
@@ -132,3 +148,46 @@ def test_resolve_only_returns_out_of_index_books():
 def test_resolve_empty_when_all_in_index():
     sb = _FakeSB(v3={})
     assert resolve_extra_query_vectors(["A", "B"], {"A", "B"}, sb) == {}
+
+
+# --------------------------------------------------------------------------
+# C3 — build_feedback_text / ensure_feedback_embedded
+# --------------------------------------------------------------------------
+def test_build_feedback_text_full_review_no_truncation():
+    review = "이 책은 " + "정말 " * 50 + "좋았다"   # 200자+
+    out = build_feedback_text(["문체", "분위기"], review)
+    assert out.startswith("태그: 문체, 분위기\n")
+    assert review in out  # 절단 금지
+    assert "..." not in out and "리뷰:" not in out
+
+
+def test_build_feedback_text_tags_only():
+    assert build_feedback_text(["성장"], None) == "태그: 성장"
+
+
+def test_build_feedback_text_review_only():
+    assert build_feedback_text(None, "좋음") == "좋음"
+
+
+def test_build_feedback_text_none_when_empty():
+    assert build_feedback_text(None, None) is None
+    assert build_feedback_text([], "  ") is None
+
+
+def test_ensure_feedback_embedded_embeds_tags_only_row():
+    calls = []
+    sb = _FakeSB()
+    rows = [{"user_id": "U", "book_id": "B", "emotion_tags": ["문체"],
+             "review_text": None, "feedback_embedding": None}]
+    ensure_feedback_embedded(rows, sb, embed_fn=lambda t: calls.append(t) or [0.3] * 2000)
+    assert calls == ["태그: 문체"], "리뷰 없어도 태그만으로 임베딩"
+    assert rows[0]["feedback_embedding"] == [0.3] * 2000  # in-place 갱신
+    assert sb.user_books_updates[("U", "B")]["feedback_embedding"] == [0.3] * 2000
+
+
+def test_ensure_feedback_embedded_skips_already_embedded():
+    calls = []
+    rows = [{"user_id": "U", "book_id": "B", "emotion_tags": ["문체"],
+             "review_text": "좋음", "feedback_embedding": [0.9] * 2000}]
+    ensure_feedback_embedded(rows, _FakeSB(), embed_fn=lambda t: calls.append(t) or [0.0] * 2000)
+    assert calls == [], "이미 임베딩된 행은 skip"
