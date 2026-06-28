@@ -113,6 +113,25 @@ def test_pick_source_empty_returns_none():
     assert text is None and tier is None
 
 
+def test_pick_source_text_equivalence_with_batch_fixture():
+    """라이브 _pick_source_text 가 배치 build_desc_source 와 동일 출력(공유 픽스처, M3).
+
+    배포 경계로 두 함수는 코드를 공유 못 하므로 이 테스트가 유일한 동기화 장치.
+    한쪽만 바뀌면 여기서 실패한다.
+    """
+    import json
+    import os
+    path = os.path.join(os.path.dirname(__file__), "..", "..", "tests",
+                        "fixtures", "source_tier_cases.json")
+    with open(path, encoding="utf-8") as f:
+        cases = json.load(f)
+    for c in cases:
+        text, tier = _pick_source_text(c["row"])
+        assert tier == c["tier"], f"{c['name']}: tier {tier} != {c['tier']}"
+        if c.get("text") is not None:
+            assert text == c["text"], f"{c['name']}: text mismatch"
+
+
 # --------------------------------------------------------------------------
 # ensure_books_embedded — embed-once
 # --------------------------------------------------------------------------

@@ -1,0 +1,52 @@
+[
+  {
+    "name": "rich_long",
+    "row": {
+      "rich_description": "이 책은 깊고 풍부한 이야기다. 이 책은 깊고 풍부한 이야기다. 이 책은 깊고 풍부한 이야기다. 이 책은 깊고 풍부한 이야기다. 이 책은 깊고 풍부한 이야기다. 이 책은 깊고 풍부한 이야기다. 이 책은 깊고 풍부한 이야기다. 이 책은 깊고 풍부한 이야기다. 이 책은 깊고 풍부한 이야기다. 이 책은 깊고 풍부한 이야기다. 이 책은 깊고 풍부한 이야기다. 이 책은 깊고 풍부한 이야기다. ",
+      "description": "짧은",
+      "title": "T",
+      "author": "A",
+      "genre": "소설"
+    },
+    "tier": "rich"
+  },
+  {
+    "name": "rich_html_stripped_below_gate",
+    "row": {
+      "rich_description": "<p>가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가</p>",
+      "description": "카카오 설명"
+    },
+    "text": "카카오 설명",
+    "tier": "kakao_desc"
+  },
+  {
+    "name": "kakao_desc",
+    "row": {
+      "rich_description": "짧음",
+      "description": "카카오 줄거리 문단입니다.",
+      "title": "T",
+      "author": "A",
+      "genre": "소설"
+    },
+    "text": "카카오 줄거리 문단입니다.",
+    "tier": "kakao_desc"
+  },
+  {
+    "name": "minimal",
+    "row": {
+      "rich_description": null,
+      "description": null,
+      "title": "어린왕자",
+      "author": "생텍쥐페리",
+      "genre": "소설"
+    },
+    "text": "어린왕자 생텍쥐페리 소설",
+    "tier": "minimal"
+  },
+  {
+    "name": "empty",
+    "row": {},
+    "text": null,
+    "tier": null
+  }
+]

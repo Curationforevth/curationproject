@@ -32,18 +32,26 @@ def make_client():
     return create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"])
 
 
-def build_desc_source(book):
-    """desc 임베딩용 소스 텍스트 생성. 스펙 섹션 3.2.
+_MIN_RICH = 200
 
-    품질 게이트 (GOAL #2): rich_description 기반 200자 이상만 임베딩. 얕은
-    title+genre+description 폴백(알라딘 평균 142자·약16% 마케팅/평론)은 dominant
-    desc 벡터(W_DESC=3.0) + stage1 후보선택을 오염시키므로 임베딩하지 않고 None 을
-    반환 → 호출부에서 SKIP. rich 텍스트 확보 후 임베딩되도록 둔다.
+
+def build_desc_source(book):
+    """desc 임베딩 소스 텍스트 + 품질 등급. 반환 (text|None, source_tier|None).
+
+    단계적 폴백: rich_description≥200자(clean_html 후) → 카카오 description → title+author+genre.
+    라이브 user_embed._pick_source_text 와 정책 동일(배포 경계로 코드 미공유 → 동등성
+    테스트 tests/test_generate_book_v3_vectors.py 로 동기화). 얕은 텍스트도 임베딩하되
+    source_tier(kakao_desc/minimal)로 표시 → 서빙이 차등 down-weight(후보 배제 아님).
     """
-    source = clean_html(book.get("rich_description") or "").strip()
-    if not source or len(source) < 200:
-        return None
-    return source[:2000]
+    rich = clean_html(book.get("rich_description") or "").strip()
+    if len(rich) >= _MIN_RICH:
+        return rich[:2000], "rich"
+    desc = clean_html(book.get("description") or "").strip()
+    if desc:
+        return desc[:2000], "kakao_desc"
+    parts = [book.get("title") or "", book.get("author") or "", book.get("genre") or ""]
+    m = " ".join(p for p in parts if p).strip()
+    return (m[:2000], "minimal") if m else (None, None)
 
 
 def load_genre_lookup(sb):
@@ -149,10 +157,10 @@ def main():
     no_genre_count = 0
     skipped_shallow = 0
     for book in books:
-        source = build_desc_source(book)
+        source, tier = build_desc_source(book)
         if source is None:
-            # 품질 게이트: rich_description 200자 미만 → 임베딩 SKIP (얕은 텍스트
-            # 오염 방지). rich 확보되면 다음 run 에서 임베딩됨.
+            # 텍스트 전무(rich/description/title 모두 없음)만 SKIP. 빈약해도 가진
+            # 정보가 있으면 tier(kakao_desc/minimal)로 임베딩 → 후보풀 편입.
             skipped_shallow += 1
             continue
         l1, l2 = parse_genre(book.get("genre"))
@@ -163,6 +171,7 @@ def main():
         prepared.append({
             "book_id": book["id"],
             "source_text": source,
+            "source_tier": tier,
             "l1_text": l1,
             "l2_text": l2,
             "l1_genre_id": l1_id,
@@ -172,13 +181,12 @@ def main():
     if no_genre_count:
         print(f"  주의: 장르 없는 책 {no_genre_count}권 (desc만 저장)", flush=True)
     if skipped_shallow:
-        print(f"  품질게이트 SKIP: rich_description<200자 {skipped_shallow}권 "
-              f"(얕은 텍스트 임베딩 안 함, rich 확보 후 재시도)", flush=True)
+        print(f"  텍스트 전무 SKIP: {skipped_shallow}권 "
+              f"(rich/description/title 모두 없음)", flush=True)
 
-    # 품질게이트로 prepared 가 비면(남은 대상이 전부 shallow) 아래 prepared[0] 가
-    # IndexError → daily enrich job 크래시. 빈 가드.
+    # prepared 가 비면(전부 텍스트 전무) 아래 prepared[0] 가 IndexError → 크래시. 빈 가드.
     if not prepared:
-        print("  처리할 책 없음 (전부 품질게이트 SKIP 또는 미처리 0)", flush=True)
+        print("  처리할 책 없음 (전부 텍스트 전무 또는 미처리 0)", flush=True)
         return
 
     if args.dry_run:
@@ -233,6 +241,8 @@ def main():
                 "book_id": p["book_id"],
                 "desc_embedding": emb,
                 "source_text": p["source_text"],
+                "source_tier": p["source_tier"],
+                "provisional": p["source_tier"] != "rich",
                 "l1_text": p["l1_text"],
                 "l2_text": p["l2_text"],
                 "l1_genre_id": p["l1_genre_id"],
