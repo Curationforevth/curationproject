@@ -27,6 +27,12 @@ REASON_WEIGHT_WITH_FB = 0.5
 REASON_WEIGHT_WITHOUT_FB = 1.0
 FB_REASON_WEIGHT = 3.0
 
+# 후보 품질 등급별 down-weight (source_tier). 타이브레이크 수준 — niche 역전 방지(E2E 튜닝).
+# positive-part 곱셈으로만 적용(음수 점수 미변경 → 부호 안전). rich=무감점.
+SOURCE_TIER_PENALTY = {"rich": 1.0, "kakao_desc": 0.95, "minimal": 0.85}
+# /similar(항상 보이는 정밀 surface)는 minimal tier 노출 제외. /recommend(커버리지)는 유지.
+SIMILAR_MIN_TIER = "kakao_desc"
+
 DEFAULT_RECOMMEND_LIMIT = 10
 DEFAULT_SIMILAR_LIMIT = 10
 
