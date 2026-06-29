@@ -365,6 +365,10 @@ def build(dry_run: bool = False, incremental: bool = False):
 
     # v4 lean: prestacked/agg 구축 완료 후 저장 index 의 reason 중복 제거(무료 512MB RSS).
     _lean_strip_reasons(index, bid_order)
+    # dead l1/l2(W_L1=W_L2=0) 를 단일 공유 zero 로 — pkl 크기 + unpickle peak 감소.
+    # (런타임 strip 은 main.py 가 load 직후도 수행하지만, 여기서 빼면 pkl 자체가 작아져
+    # 2x 풀에서 부팅 unpickle peak 가 ~76MB 줄어 무료 512MB 부팅 OOM 여유 확보.)
+    index.strip_unused_genre_vectors()
 
     bundle = {
         "index": index,
