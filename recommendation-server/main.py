@@ -32,11 +32,13 @@ async def lifespan(app: FastAPI):
     # 전용 bid_order/prestacked 를 읽어 v3 배포에선 books_loaded=0, total_reasons=0
     # 으로 보고 → 엔진이 실제 로드됐는지 /health 로 확인 불가, code_rev 만 보고
     # "라이브"로 오판하는 원인이었다. book_ids/reasons 는 v3·v4 공통 소스다.)
-    # desc 행렬을 시작 시 1회 빌드 — Tier2 two-stage 선필터 + /similar 가 재사용.
-    # (요청 중에 빌드하면 이벤트루프 블로킹.)
-    index.build_desc_matrix()
-    # dead l1/l2(W_L1=W_L2=0) 단일 zero 공유로 회수 — 재빌드 없이 현재 인덱스에 즉시
-    # 적용(무료 512MB OOM 완화). build_desc_matrix 는 desc 만 쓰므로 순서 무관.
+    # desc 행렬: 번들 desc_matrix_f16 을 그대로 attach(중복 빌드 회피 — desc 1벌, ~72MB
+    # 절감, 무료 512MB). v4 번들엔 desc_mat 존재. 구 v3/번들 없으면 per-book 으로 빌드(폴백).
+    if desc_mat is not None and bid_order is not None:
+        index.attach_desc_matrix(desc_mat, bid_order)
+    else:
+        index.build_desc_matrix()
+    # dead l1/l2(W_L1=W_L2=0) 단일 zero 공유로 회수(무료 512MB).
     index.strip_unused_genre_vectors()
     v4 = prestacked is not None
     app.state.books_loaded = len(index.book_ids)

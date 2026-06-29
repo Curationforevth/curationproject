@@ -248,9 +248,17 @@ def batch_score_prestacked(
         reason_score = float(np.mean(weighted_maxsims)) if weighted_maxsims else 0.0
 
         # ── 2. desc_score ─────────────────────────────────────────────────
-        cand_desc = cand.desc.astype(np.float32)
-        good_descs = [good_books[bid].desc.astype(np.float32) for bid in good_ids if bid in good_books]
-        desc_score = float(max(float(np.dot(d, cand_desc)) for d in good_descs)) if good_descs else 0.0
+        # desc 는 per-book(BookVectors.desc) 또는 strip 시 index._desc_matrix 에서 조회
+        # (메모리 dedup: desc 1벌). 인덱스 밖 주입책(extra_query)은 per-book desc 사용.
+        def _desc(bid, bv):
+            d = index.desc_of(bid)
+            if d is None and bv is not None:
+                d = bv.desc
+            return d.astype(np.float32) if d is not None else None
+
+        cand_desc = _desc(cid, cand)
+        good_descs = [g for g in (_desc(bid, good_books[bid]) for bid in good_ids if bid in good_books) if g is not None]
+        desc_score = float(max(float(np.dot(d, cand_desc)) for d in good_descs)) if (good_descs and cand_desc is not None) else 0.0
 
         # ── 3. l1_score (w_l1=0이면 skip) ────────────────────────────────
         if w_l1 != 0:

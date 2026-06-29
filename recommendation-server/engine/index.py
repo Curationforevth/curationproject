@@ -91,6 +91,34 @@ class VectorIndex:
         )
         self._exclude_similar = {b for b, t in tier.items() if _below_similar_min(t)}
 
+    def attach_desc_matrix(self, matrix, bid_order):
+        """외부에서 만든 desc 행렬을 그대로 _desc_matrix 로 붙인다(중복 빌드/저장 회피).
+
+        build_desc_matrix 는 per-book BookVectors.desc 로 새 행렬을 또 만들어 desc 를
+        3중(per-book + 이 행렬 + 번들)으로 보유 → 무료 512MB 초과. desc 를 per-book 에서
+        strip 하고 번들 desc_matrix 하나만 attach 하면 desc 1벌(~72MB 절감). matrix 행 순서는
+        bid_order 와 일치해야 한다(빌드가 같은 순서로 생성). penalty/exclude 도 여기서 파생.
+        """
+        self._desc_matrix = matrix
+        self._desc_bid_order = list(bid_order)
+        self._desc_bid_to_idx = {bid: i for i, bid in enumerate(self._desc_bid_order)}
+        tier = getattr(self, "_candidate_tier", {})
+        self._penalty_vec = np.array(
+            [SOURCE_TIER_PENALTY[tier.get(bid, "rich")] for bid in self._desc_bid_order],
+            dtype=np.float32,
+        )
+        self._exclude_similar = {b for b, t in tier.items() if _below_similar_min(t)}
+
+    def desc_of(self, book_id: str):
+        """책의 desc 벡터. per-book 에 있으면 그걸, strip 됐으면 _desc_matrix 에서 조회."""
+        bv = self._books.get(book_id)
+        if bv is not None and bv.desc is not None:
+            return bv.desc
+        i = self._desc_bid_to_idx.get(book_id)
+        if i is not None and self._desc_matrix is not None:
+            return self._desc_matrix[i]
+        return None
+
     def similar_by_vector(
         self,
         query_vec: np.ndarray,

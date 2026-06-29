@@ -54,8 +54,8 @@ jobs:
           # 9483 인덱스 steady ~404(로컬 실측). peak<500 이면 Render(512) 부팅 생존.
           print(f"::notice::INDEX_RSS books={len(idx.book_ids)} reasons={n} peakRSS={mb:.0f}MB")
           print(f"INDEX_RSS_MB={mb:.0f}")
-          if mb > 500:
-              print(f"::error::RSS {mb:.0f}MB > 500 — abort (Render 512 OOM 위험). desc-dedup 필요."); sys.exit(1)
+          if mb > 480:
+              print(f"::error::RSS {mb:.0f}MB > 480 — abort (Render 512 OOM 위험)."); sys.exit(1)
           PY
 
       - name: Commit and push index.pkl

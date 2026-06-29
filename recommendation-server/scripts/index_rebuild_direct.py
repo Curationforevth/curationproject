@@ -115,7 +115,9 @@ def main():
         print("❌ reasons 0 — abort", file=sys.stderr); sys.exit(1)
 
     for bid in bid_order:
-        idx.get_book(bid).reasons = []
+        bv = idx.get_book(bid)
+        bv.reasons = []
+        bv.desc = None  # desc dedup: 번들 desc_matrix_f16 하나만 보유 → 로드 시 attach
     idx.strip_unused_genre_vectors()
 
     bundle = {
