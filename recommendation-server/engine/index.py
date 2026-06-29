@@ -144,7 +144,9 @@ class VectorIndex:
                 for i in top_idx if scores[i] > -900.0]
 
     def similar_by_desc(self, book_id: str, limit: int = 10) -> list[tuple[str, float]]:
-        bv = self._books.get(book_id)
-        if bv is None:
+        # desc 는 strip 시 per-book 에 없고 _desc_matrix 에만 있음 → desc_of 로 조회
+        # (bv.desc 직접 참조하면 dedup 인덱스에서 None → 500).
+        desc = self.desc_of(book_id)
+        if desc is None:
             return []
-        return self.similar_by_vector(bv.desc, exclude_ids={book_id}, limit=limit)
+        return self.similar_by_vector(desc, exclude_ids={book_id}, limit=limit)
