@@ -56,6 +56,23 @@ def _lean_strip_reasons(index, bid_order):
             bv.reasons = []
 
 
+def set_candidate_tiers(index, v3_map):
+    """인덱스에 실제 add된 책 중 non-rich source_tier 만 index._candidate_tier 로 운반.
+
+    sparse(rich=1.0 생략). 키는 bid_order(=index.book_ids) 부분집합 — skip(no_meta/no_desc)
+    으로 빠진 책·인덱스 밖 책(ghost)은 제외(M5). build_desc_matrix 가 페널티/제외집합 파생.
+    """
+    book_ids = set(index.book_ids)
+    tier_map = {}
+    for bid, v3 in v3_map.items():
+        if bid not in book_ids:
+            continue
+        t = v3.get("source_tier") or "rich"
+        if t != "rich":
+            tier_map[bid] = t
+    index._candidate_tier = tier_map
+
+
 def _to_np(vec) -> np.ndarray:
     if isinstance(vec, str):
         vec = [float(x) for x in vec.strip("[]").split(",")]
@@ -187,7 +204,8 @@ def build(dry_run: bool = False, incremental: bool = False):
         client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
         print("[build] Loading v3 vectors...", flush=True)
         raw = _fetch_paginated(
-            client, "book_v3_vectors", "book_id,desc_embedding,l1_genre_id,l2_genre_id",
+            client, "book_v3_vectors",
+            "book_id,desc_embedding,l1_genre_id,l2_genre_id,source_tier",
             PAGE_SIZE_VECTOR, order_col="book_id")
         v3 = {v["book_id"]: v for v in raw}
         print(f"  → {len(v3)} v3 vectors", flush=True)
@@ -286,9 +304,12 @@ def build(dry_run: bool = False, incremental: bool = False):
         )
         loaded += 1
 
+    set_candidate_tiers(index, v3_map)  # source_tier 운반(생존자만) → 페널티 파생
     index.build_desc_matrix()
+    n_provisional = len(index._candidate_tier)
     print(f"  → {loaded} books loaded, {skipped} skipped")
     print(f"  skip breakdown: {skip_reasons}")
+    print(f"  source_tier: rich={loaded - n_provisional}, non-rich(provisional)={n_provisional}")
 
     # 5b. v4 프리컴퓨팅 데이터 구성
     print("[build] Building v4 prestacked data...")
