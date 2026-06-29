@@ -31,13 +31,26 @@ from config import (
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 OUTPUT_PATH = os.path.join(OUTPUT_DIR, "index.pkl")
 PAGE_SIZE_META = 1000
-PAGE_SIZE_VECTOR = 1000
+# v3 desc_embedding(2000차원)은 행당 페이로드가 커, 풀이 커지면(9483행) 1000행/페이지가
+# httpx ReadTimeout 유발(2026-06-29 빌드 실패). 작은 페이지 + 긴 타임아웃 + 재시도로 견고화.
+PAGE_SIZE_VECTOR = 250
 # NOTE: recommendation-server 는 scripts/lib 와 별도 패키지.
 # scripts.lib.retry.with_retry 와 의도적으로 독립된 retry 로직 사용.
 # 변경 시 scripts/lib/retry.py 의 SQLSTATE whitelist 와 동기화 필요 없음
 # (이 파일은 read-only fetch 만 하므로 SQLSTATE 분기 불필요).
-MAX_RETRIES = 3
+MAX_RETRIES = 5
 RETRY_BACKOFF = 10
+POSTGREST_TIMEOUT = 180  # 큰 임베딩 페이지 read 안전(기본 타임아웃 초과 방지)
+
+
+def _mk_client():
+    """긴 postgrest 타임아웃을 설정한 Supabase 클라이언트(대용량 벡터 fetch 안전)."""
+    try:
+        from supabase.client import ClientOptions
+        return create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
+                             options=ClientOptions(postgrest_client_timeout=POSTGREST_TIMEOUT))
+    except Exception:
+        return create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)  # 폴백(옵션 미지원 버전)
 PAGE_SLEEP = 0  # read-only fetch — sleep 불필요
 EMBED_BATCH = 128  # build 시점 reason 텍스트 배치 임베딩 크기
 
@@ -176,7 +189,7 @@ def build(dry_run: bool = False, incremental: bool = False):
     import concurrent.futures
 
     def _fetch_books_meta_task():
-        client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        client = _mk_client()
         print("[build] Loading books meta...", flush=True)
         raw = _fetch_paginated(client, "books", "id,title,author,cover_url", PAGE_SIZE_META)
         meta = {}
@@ -189,7 +202,7 @@ def build(dry_run: bool = False, incremental: bool = False):
         return meta
 
     def _fetch_genres_task():
-        client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        client = _mk_client()
         print("[build] Loading genre embeddings...", flush=True)
         raw = _fetch_paginated(client, "genre_embeddings", "id,embedding", PAGE_SIZE_VECTOR)
         embs = {}
@@ -201,7 +214,7 @@ def build(dry_run: bool = False, incremental: bool = False):
         return embs
 
     def _fetch_v3_task():
-        client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        client = _mk_client()
         print("[build] Loading v3 vectors...", flush=True)
         raw = _fetch_paginated(
             client, "book_v3_vectors",
@@ -212,7 +225,7 @@ def build(dry_run: bool = False, incremental: bool = False):
         return v3
 
     def _fetch_reasons_task():
-        client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        client = _mk_client()
         print("[build] Loading reason TEXT (build-time embedding)...", flush=True)
         # Supabase 의 reason_embedding 은 free-tier(500MB) 위해 NULL. reason 텍스트만
         # 읽어 build 시점에 임베딩한다 → 벡터는 pkl 에만 존재, 재빌드가 reason(제품 #1
