@@ -40,25 +40,8 @@ jobs:
           cd recommendation-server
           python3 scripts/index_rebuild_direct.py
 
-      - name: Measure index RSS (Render arena setting reflected)
-        env:
-          MALLOC_ARENA_MAX: "2"
-        run: |
-          cd recommendation-server
-          python3 - <<'PY'
-          import resource, sys
-          sys.path.insert(0, ".")
-          from engine.loader import load_index
-          idx, meta, built, pre, dm, am, bo = load_index()
-          n = sum(len(r) for r in pre.values()) if pre else 0
-          mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
-          # ru_maxrss = unpickle peak 포함 과대측정. Render 한도 512MB 기준 게이트.
-          # 9483 인덱스 steady ~404(로컬 실측). peak<500 이면 Render(512) 부팅 생존.
-          print(f"::notice::INDEX_RSS books={len(idx.book_ids)} reasons={n} peakRSS={mb:.0f}MB(arena2)")
-          # 게이트 추측 중단 — 항상 커밋하고 Render /health(ground truth)로 판정.
-          if mb > 511:
-              print(f"::warning::peakRSS {mb:.0f}MB 높음 — 배포 후 /health OOM 면밀 확인, OOM 시 revert.")
-          PY
+      # RSS 측정 게이트 제거 — ru_maxrss 추측은 신뢰 불가했고 측정 스텝 자체가 불안정했다.
+      # 판정은 배포 후 Render /health memory_mb (ground truth). OOM 시 즉시 revert.
 
       - name: Commit and push index.pkl
         run: |
