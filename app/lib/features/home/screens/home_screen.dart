@@ -5,6 +5,8 @@ import '../../../core/models/user_book.dart';
 import '../../../core/services/recommendation_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../bookshelf/providers/bookshelf_provider.dart';
+import '../../onboarding/providers/onboarding_provider.dart';
+import '../../onboarding/screens/onboarding_screen.dart';
 import '../providers/home_provider.dart';
 import '../providers/recommendation_provider.dart';
 import '../widgets/book_detail_bottom_sheet.dart';
@@ -20,13 +22,18 @@ class HomeScreen extends ConsumerWidget {
     return Scaffold(
       backgroundColor: AppColors.surface,
       body: SafeArea(
-        // 0권이어도 _HomeContent 를 그린다 — 서버 /home(트렌딩+큐레이션) 콜드스타트
-        // 피드를 즉시 보여줘 "죽은 빈 홈"을 없앤다. 신규 유저는 라우터가 /onboarding 으로
-        // 먼저 보내고(아래 redirect), 온보딩을 건너뛴 0권 유저만 이 피드를 본다.
+        // 서재가 비어있고 아직 온보딩을 마치거나 건너뛰지 않았으면 온보딩을 띄운다.
+        // 그 외엔 _HomeContent — 0권이어도(온보딩 건너뜀) 서버 /home(트렌딩+큐레이션)
+        // 콜드스타트 피드를 보여줘 "죽은 빈 홈"을 없앤다.
         child: bookshelfAsync.when(
           loading: () => const Center(child: CircularProgressIndicator()),
           error: (e, _) => Center(child: Text('오류: $e')),
-          data: (books) => _HomeContent(),
+          data: (books) {
+            if (books.isEmpty && !ref.watch(onboardingDismissedProvider)) {
+              return const OnboardingScreen();
+            }
+            return _HomeContent();
+          },
         ),
       ),
     );
