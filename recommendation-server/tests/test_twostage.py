@@ -63,6 +63,30 @@ class TestStage1Hybrid:
         candidates = stage1_hybrid({}, {}, desc_mat, agg_mat, bid_order, top_n=3)
         assert candidates == []
 
+    def test_chunking_is_block_invariant(self, stage1_data, monkeypatch):
+        """청크 크기와 무관하게 동일 결과(메모리 bound 위해 행블록 처리, f16→f32 무손실).
+
+        good+bad+fb+extra_query 모든 항을 섞어 블록경계 버그를 잡는다.
+        """
+        import engine.twostage as ts
+        from engine.index import BookVectors
+        desc_mat, agg_mat, bid_order = stage1_data
+        liked = {"novel1": {"rating": "good"}, "econ1": {"rating": "bad"},
+                 "EXTRA_G": {"rating": "good"}, "EXTRA_B": {"rating": "bad"}}
+        fb = {"novel1": {"emb": _norm([1, 0, 0, 0, 0.7, 0.3, 0, 0]).astype(np.float32),
+                         "is_dislike": False}}
+        extra = {
+            "EXTRA_G": BookVectors(reasons=[], desc=_norm([1, 0, 0, 0, 0.4, 0.4, 0, 0]).astype(np.float32),
+                                   l1=np.zeros(8, np.float32), l2=np.zeros(8, np.float32)),
+            "EXTRA_B": BookVectors(reasons=[], desc=_norm([0, 1, 0, 0, 0, 0, 0.5, 0]).astype(np.float32),
+                                   l1=np.zeros(8, np.float32), l2=np.zeros(8, np.float32)),
+        }
+        monkeypatch.setattr(ts, "STAGE1_CHUNK", 10_000)  # 단일 블록
+        single = stage1_hybrid(liked, fb, desc_mat, agg_mat, bid_order, top_n=5, extra_query=extra)
+        monkeypatch.setattr(ts, "STAGE1_CHUNK", 2)        # 다중 블록(경계 다수)
+        chunked = stage1_hybrid(liked, fb, desc_mat, agg_mat, bid_order, top_n=5, extra_query=extra)
+        assert single == chunked and len(single) > 0
+
 
 # ---------------------------------------------------------------------------
 # TestBatchScorePrestacked

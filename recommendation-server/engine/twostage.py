@@ -8,6 +8,11 @@ from config import (W_REASON, W_DESC, W_L1, W_L2, W_FB_DESC,
                     REASON_WEIGHT_WITH_FB, REASON_WEIGHT_WITHOUT_FB,
                     FB_REASON_WEIGHT, SOURCE_TIER_PENALTY)
 
+# stage1 의 f32 업캐스트(dm/am)를 행블록으로 처리해 요청당 transient 를 O(block)으로
+# 고정(N 무관). 무료 512MB 에서 후보풀이 커져도 OOM 안 나게 하는 핵심(2026-06-29 OOM).
+# f16→f32 는 무손실이고 모든 reduction 이 행단위라 블록 처리는 전체 처리와 bit-identical.
+STAGE1_CHUNK = 1024
+
 
 def stage1_hybrid(
     liked_books: dict,
@@ -32,62 +37,84 @@ def stage1_hybrid(
     N = len(bid_order)
     bid_to_idx = {bid: i for i, bid in enumerate(bid_order)}
 
-    dm = desc_matrix_f16.astype(np.float32)
-    am = agg_reason_matrix_f16.astype(np.float32)
-
     good_desc_indices = [bid_to_idx[bid] for bid in good_ids if bid in bid_to_idx]
     extra_good = [bid for bid in good_ids if bid not in bid_to_idx and bid in extra_query]
     extra_bad = [bid for bid in bad_ids if bid not in bid_to_idx and bid in extra_query]
     if not good_desc_indices and not extra_good:
         return []
 
+    D = desc_matrix_f16.shape[1]
+
+    def _rows_f32(mat, idxs):
+        return mat[idxs].astype(np.float32) if idxs else np.zeros((0, D), np.float32)
+
+    # ── 쿼리 벡터는 작아서 1회만 f32 업캐스트(블록 루프 밖). dm/am 전체는 업캐스트 안 함 ──
     # good_descs/good_aggs: 인덱스 hit + 주입책(desc, agg=zero) 결합
-    idx_descs = dm[good_desc_indices] if good_desc_indices else np.zeros((0, dm.shape[1]), np.float32)
-    idx_aggs = am[good_desc_indices] if good_desc_indices else np.zeros((0, am.shape[1]), np.float32)
+    idx_descs = _rows_f32(desc_matrix_f16, good_desc_indices)
+    idx_aggs = _rows_f32(agg_reason_matrix_f16, good_desc_indices)
     if extra_good:
         ex_descs = np.stack([extra_query[b].desc.astype(np.float32) for b in extra_good])
-        ex_aggs = np.zeros((len(extra_good), am.shape[1]), np.float32)  # 유저 책 reason 없음 → 0
+        ex_aggs = np.zeros((len(extra_good), D), np.float32)  # 유저 책 reason 없음 → 0
         good_descs = np.vstack([idx_descs, ex_descs])
         good_aggs = np.vstack([idx_aggs, ex_aggs])
     else:
         good_descs = idx_descs
         good_aggs = idx_aggs
+    good_descs_T = good_descs.T
+    good_aggs_T = good_aggs.T
 
-    # single-query scores
-    sq_desc = (dm @ good_descs.T).max(axis=1)
-    sq_reason = (am @ good_aggs.T).max(axis=1)
-    sq_fb = np.zeros(N, dtype=np.float32)
+    # sq_fb 항: 비-neutral 피드백 (sign, emb_f32)
+    fb_terms = []
     for bid, fb in fb_data.items():
         if liked_books.get(bid, {}).get("rating") == "neutral":
             continue
         sign = -1.0 if fb["is_dislike"] else 1.0
-        sq_fb += sign * (dm @ fb["emb"].astype(np.float32))
-    sq_scores = 3.0 * sq_desc + 2.0 * sq_reason + 2.0 * sq_fb
+        fb_terms.append((sign, fb["emb"].astype(np.float32)))
 
-    # per-book scores
-    pb_scores = np.zeros(N, dtype=np.float32)
+    # pb 항: desc-공간 (coef, q) / agg-공간 (coef, q). dm[idx]/am[idx] 는 f16 슬라이스를 1회 업캐스트.
+    pb_desc_terms = []  # (coef, q_f32)
+    pb_agg_terms = []
     for bid in good_ids:
         idx = bid_to_idx.get(bid)
         if idx is None:
             continue
-        pb_scores += 3.0 * (dm @ dm[idx])
-        pb_scores += 2.0 * (am @ am[idx])
+        pb_desc_terms.append((3.0, desc_matrix_f16[idx].astype(np.float32)))
+        pb_agg_terms.append((2.0, agg_reason_matrix_f16[idx].astype(np.float32)))
     for bid in bad_ids:
         idx = bid_to_idx.get(bid)
         if idx is None:
             continue
-        pb_scores -= 1.5 * (dm @ dm[idx])
-    # 주입책 desc 항 (인덱스 밖이라 위 루프가 건너뜀). fb 항은 아래 fb_data 루프가
-    # bid_to_idx 가드 없이 주입책 fb 도 이미 반영하므로 여기서 추가하지 않는다(이중계산 방지).
+        pb_desc_terms.append((-1.5, desc_matrix_f16[idx].astype(np.float32)))
+    # 주입책 desc 항(인덱스 밖). fb 항은 아래 fb_terms 가 무가드로 반영 — 이중계산 금지.
     for bid in extra_good:
-        pb_scores += 3.0 * (dm @ extra_query[bid].desc.astype(np.float32))
+        pb_desc_terms.append((3.0, extra_query[bid].desc.astype(np.float32)))
     for bid in extra_bad:
-        pb_scores -= 1.5 * (dm @ extra_query[bid].desc.astype(np.float32))
-    for bid, fb in fb_data.items():
-        if liked_books.get(bid, {}).get("rating") == "neutral":
-            continue
-        sign = -1.0 if fb["is_dislike"] else 1.0
-        pb_scores += sign * 2.0 * (dm @ fb["emb"].astype(np.float32))
+        pb_desc_terms.append((-1.5, extra_query[bid].desc.astype(np.float32)))
+    for sign, emb in fb_terms:
+        pb_desc_terms.append((sign * 2.0, emb))
+
+    # ── 행블록 루프: dm/am 을 블록 단위로만 f32 업캐스트(transient = O(block)) ──
+    sq_scores = np.empty(N, dtype=np.float32)
+    pb_scores = np.zeros(N, dtype=np.float32)
+    for s in range(0, N, STAGE1_CHUNK):
+        e = min(s + STAGE1_CHUNK, N)
+        dm_blk = desc_matrix_f16[s:e].astype(np.float32)
+        am_blk = agg_reason_matrix_f16[s:e].astype(np.float32)
+        b = e - s
+
+        sq_desc_blk = (dm_blk @ good_descs_T).max(axis=1)
+        sq_reason_blk = (am_blk @ good_aggs_T).max(axis=1) if good_aggs.shape[0] else np.zeros(b, np.float32)
+        sq_fb_blk = np.zeros(b, dtype=np.float32)
+        for sign, emb in fb_terms:
+            sq_fb_blk += sign * (dm_blk @ emb)
+        sq_scores[s:e] = 3.0 * sq_desc_blk + 2.0 * sq_reason_blk + 2.0 * sq_fb_blk
+
+        pb_blk = np.zeros(b, dtype=np.float32)
+        for coef, q in pb_desc_terms:
+            pb_blk += coef * (dm_blk @ q)
+        for coef, q in pb_agg_terms:
+            pb_blk += coef * (am_blk @ q)
+        pb_scores[s:e] = pb_blk
 
     # normalize + combine
     sq_valid = sq_scores[sq_scores > -900]
