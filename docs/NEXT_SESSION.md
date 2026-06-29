@@ -1,86 +1,72 @@
-# 다음 세션 — 미해결 항목 전체 (2026-06-28 기준)
+# 다음 세션 핸드오프 (2026-06-29 갱신)
 
-> 이 세션에서 **"유저가 고른 어떤 책에서든 취향 추출"(통합 취향 모델)**을 설계→리뷰→구현→머지→배포→prod E2E까지 완료(merge `403c18b`).
-> 아래는 그 외 **아직 해결되지 않은 모든 항목**을 한 곳에 모은 것. 우선순위순.
-> 상세 맥락은 pm-agent 메모리 `project_status.md`(handoff #8~) 및 각 스펙 참조.
-
----
-
-## 🔴 P1 — 추천 품질의 다음 레버
-
-### 1. 추천 후보풀 커버리지 ("베스트셀러가 아닌"의 완전 실현)
-- **문제**: 이번 작업으로 *취향 벡터*는 유저 책에서 정확히 뽑지만, 추천 *대상 풀*은 여전히 정적 인덱스(`index.pkl`, 06-26 빌드, 대중서 편향). 취향이 맞아도 니치 책으로 이어지지 않음.
-- **할 일**: 유저/타유저가 추가한 인덱스 밖 책(이미 `book_v3_vectors`에 embed-once됨)을 정적 인덱스 *후보*로 편입 + 대중·니치 한국서 보강.
-- **게이트**: 대량 Supabase egress + OpenAI 재임베딩 + 인덱스 재빌드(수동 배포). Eden 승인 필요 (`feedback_supabase_egress` 메모리).
-- **참고**: 이번 스펙 §3 OUT #1 (`docs/superpowers/specs/2026-06-28-user-taste-extraction-design.md`).
-
-### 2. provisional 책 재임베딩 보강 배치
-- **문제**: 유저가 카카오 짧은 설명으로 추가한 책은 `book_v3_vectors.provisional=TRUE`로 임시 임베딩됨(이번 세션 신설). 품질이 얕음.
-- **할 일**: YES24/알라딘이 `rich_description`(≥200자) 채우면 provisional 행을 재임베딩하는 배치. daily-pipeline enrich 잡에 연결. (= handoff #3의 보류된 "B/embed-once 레버": `book_v3_vectors.source_text` vs 현재 `rich_description` 비교로 진짜 바뀐 것만.)
-- **게이트**: OpenAI 재임베딩 비용.
+> 이번 세션: **후보풀 커버리지(#1) 완수 + prod OOM 핫픽스 + 무료 인프라 한계 우회**까지 라이브 배포.
+> `book_v3_vectors` 9,483권(=DB 전체 100%)이 추천 후보풀에 들어가 prod LIVE. memory 335MB(<512).
 
 ---
 
-## 🟠 P2 — User journey 완성도 (콜드스타트·온보딩 체감)
+## ✅ 이번 세션 완료 (전부 prod 배포·검증됨)
 
-### 3. [앱] 추천 진행 인디케이터 — "맞춤 추천까지 좋아요 N권 더!"
-- **설계 완료**(backlog `docs/backlog-2026-06-26-home-and-recs.md` [#4 설계]), 앱 구현만 남음.
-- 홈 추천 placeholder 자리에 `bookshelfProvider`의 `rating=='good'` 개수 = likeCount로 진행 표시 (클라 계산, 서버 호출 X).
-  - `likeCount < 6`: "맞춤 추천까지 좋아요 {6-likeCount}권 더!" + 진행 바.
-- ⚠️ tier 임계(6)는 서버 `engine/tier.py`와 **단일 출처**로(상수 공유/서버 메타). 하드코딩 6 두 곳 드리프트 주의.
-- 현재 앱은 정적 텍스트 "피드백을 더 남기면…"만 노출(`home_screen.dart` `_RecommendationPlaceholder`).
+### 1. 후보풀 커버리지 = "DB의 모든 책을 가진 정보 최대로 추천" (Eden 지시 실현)
+- **스펙/계획**: `docs/superpowers/specs/2026-06-28-candidate-pool-coverage-design.md`(v3, 3라운드 적대적 리뷰), `docs/superpowers/plans/2026-06-28-candidate-pool-coverage.md`.
+- **C1** 배치/라이브 임베딩 폴백 통일: `build_desc_source`(scripts) ≡ `_pick_source_text`(engine) — rich≥200 → 카카오 description → title+author+genre, `clean_html` 양쪽. (동등성 테스트 `tests/fixtures/source_tier_cases.json`)
+- **C2** `generate_book_v3_vectors.py` rich 게이트 제거 → `books` 전체 임베딩.
+- **C3** `source_tier`(rich/kakao_desc/minimal) 컬럼(마이그 `20260628000001`) + 인덱스 운반(`VectorIndex._candidate_tier`).
+- **C4** 스코어러 **positive-part 차등 down-weight**(stage2 + /similar), minimal은 /similar 제외. `config.SOURCE_TIER_PENALTY={rich:1.0,kakao_desc:0.95,minimal:0.85}`, `SIMILAR_MIN_TIER`.
+- **C5** `scripts/reembed_provisional.py` — tier 라벨 교정 + rich 승격 재임베딩, daily-pipeline enrich 배선.
+- **임베딩 결과(DB)**: book_v3_vectors **9,483 = 100%** (rich 4774 / kakao_desc 3696 / minimal 1013).
+- **stage1 청크**(`STAGE1_CHUNK=1024`): 요청당 f32 업캐스트 transient를 O(block) 고정.
 
-### 4. [서버] 홈 큐레이션 항상 ≥3개 보장 + pull-to-refresh 재샘플링
-- **설계 완료**(backlog [#2]), 서버 구현 남음. Render 자동배포.
-- (a) `home.py` `_drop_empty_sections` 후 curation/trending < 3이면 `_sample_curation(general)`로 채워 ≥3 보장(중복 테마 제외).
-- (b) **pull-to-refresh 재샘플링**: 현재 `home_section_cache`가 `input_hash=user_state.updated_at+시간버킷`이라 같은 시간엔 동일 반환 → 앱 새로고침해도 큐레이션 안 바뀜. force-refresh 파라미터로 캐시 우회+재샘플링 필요. (앱 #3 pull 제스처는 이미 구현됨, 서버 재샘플링이 짝.)
-  - 단 **개인 추천(personal)**은 `recommendation_cache`(input_hash 키, 시간버킷 아님)라 이번 취향추출 결과는 새로고침에 정상 반영됨. 이 항목은 *큐레이션 섹션* 한정.
+### 2. prod OOM 핫픽스 (M1)
+- `code_rev=oom-mem-relief-20260629`. dead l1/l2(W=0) 단일 zero strip + inline 동시성 `_COMPUTE_SEM` 2→1.
 
-### 5. [앱] 구글 로그인 `flow_state_not_found` 수정
-- 앱 시작 시 unhandled (이전 OAuth 딥링크 잔여). 카카오는 완전 동작(handoff #7). 구글만 미해결.
-
-### 6. 큐레이션 첫 노출 지연
-- 첫 `/home`은 `home_section_cache` 미스라 계산(서버 warm이어도 수초). pre-warm or 로딩 스켈레톤.
-
----
-
-## 🟡 P3 — 추천 고도화 (Phase 2 성격)
-
-### 7. 취향 발견 surfacing — "이 책의 ~한 점이 취향에 맞아요"
-- 핵심가치 #2(취향 발견)의 유저 가시화. 현재 매칭된 reason은 *내부 계산만* 되고 노출 안 됨.
-- 매칭 reason 문자열을 추천 카드에 표시(저비용 — 데이터는 이미 twostage에서 계산됨). Phase 2.
-
-### 8. C 레버 — 피드백→공유 `book_love_reasons` 축적
-- user 리뷰(rating=good)를 LLM reason 추출 배치로(source='user_feedback', user_mention_count) → **모두를 위한** 책 벡터를 시간이 지날수록 정교화(ARCHITECTURE §5 미구현). 현재는 그 유저 추천만 개선(feedback_embedding).
-- Phase 2 큰 작업, 지속 OpenAI 비용.
+### 3. 메모리 — free Render 512MB 안에 9,483 인덱스 안착 (핵심 난관)
+- **desc 3중복 dedup**: per-book `BookVectors.desc` strip(빌드) + 로드 시 번들 matrix `attach_desc_matrix`(중복 빌드 회피) → desc 1벌(−72MB). stage2는 `index.desc_of()`로 matrix 조회. (strip 전후 점수 maxdiff=0 검증)
+- **`MALLOC_ARENA_MAX=2`** (Dockerfile): glibc 단편화 억제(Linux RSS가 Mac 대비 150MB+ 부풀던 주원인).
+- **결과: /health memory_mb 335** (책 2.4배인데 기존 3904 인덱스 352보다 낮음).
 
 ---
 
-## 🐛 P3 — 알려진 버그 / 정리
+## 🔧 이번 세션에서 확립한 인프라 사실 (다음 세션 필수 — 메모리에도 저장)
 
-### 9. input_hash 리뷰 *수정* staleness
-- `compute_input_hash`가 `has_fb`(0/1)만 봄 → 리뷰/태그를 *수정*해도(feedback_embedding 이미 존재) hash 불변 → 재계산 누락. **첫 피드백은 정상**(0→1로 hash 변경). 수정 케이스만 영향.
+### 무료 Supabase 대용량 벡터 read 한계 + 우회
+- **PostgREST(REST)로 235MB 벡터(9483×2000) read 불가** — 57014(statement timeout)/522/연결풀 포화로 빌드 3회 실패 + **DB 전체 응답불능까지 감.** ([[feedback_supabase_egress]] 그대로 — 재빌드 반복 egress가 원인.)
+- **우회 = 직접 pooler 연결(psycopg3)**: `postgres.<ref>@aws-1-ap-south-1.pooler.supabase.com:6543` (transaction), `SUPABASE_DB_PASSWORD`(.env+GH secret). **psycopg2 금지**(transaction pooler와 "client encoding" 핸드셰이크 버그) → `psycopg[binary]`(v3). keyset 페이지네이션(`book_id > %s::uuid`, 빈문자열 금지).
+- **DB 연결풀 포화 시**: Management API로 프로젝트 재시작(`POST /v1/projects/<ref>/restart`, `SUPABASE_ACCESS_TOKEN`) → 풀 클리어.
 
-### 10. curation_cache DISTINCT ON title 마이그레이션 (handoff #3 A 후속)
-- 서빙 응답은 작품단위 dedup(engine/dedup.py) 적용됐으나, 큐레이션 테마 섹션(`curation_cache`)은 SQL cron 함수(`refresh_curation_cache_all`, `array_agg`)라 중복 판본 dedup 별도 마이그레이션 필요.
+### 인덱스 재빌드 = `index-direct.yml` 워크플로 (신규, 정본)
+- 직접 psycopg read + **기존 pkl reason 재사용**(재임베딩 0·OpenAI 0·DB 부하 최소) + Actions가 LFS 커밋. `recommendation-server/scripts/index_rebuild_direct.py`.
+- **로컬 LFS push 불가**(업스트림 ~190MB에서 i/o timeout). 인덱스(281MB→dedup후 더 작음) 배포는 **반드시 Actions**로.
+- ⚠️ **구 `build_index.py`(REST)는 9483 규모에서 DB 죽임 — 쓰지 말 것.** daily-pipeline build-and-recompute는 commit DISARMED 상태. 재빌드는 `gh workflow run index-direct.yml --ref main`.
 
-### 11. (cosmetic) feature 브랜치 정리
-- `feature/user-taste-extraction` 머지됨(403c18b). 로컬+origin 브랜치 삭제 가능.
-
----
-
-## 🏢 비즈니스/출시 게이트 (Eden 결정 대기 — handoff #6)
-
-### 12. iOS 스토어 출시
-- **App Store/TestFlight = Apple Developer Program $99/년 필수**(우회 불가). Eden 계정 가입 → Xcode 서명·아카이브·업로드.
-- **개인정보처리방침 URL** 필수(소셜로그인/리뷰 수집). 초안은 작성 가능.
-- 무료 대안 = 폰 직접설치(7일 만료, 주기적 재설치): `cd ~/curation_build/app && flutter run --release -d <iphone>` (빌드는 iCloud 밖 로컬 카피에서 — codesign detritus 회피).
+### git/배포
+- main = 모든 작업 + Actions가 커밋한 9483 `index.pkl`(github-actions bot). **로컬 main은 뒤처짐 + 로컬 data/index.pkl dirty(내 로컬빌드, 폐기) → 다음 세션 `git fetch && git reset --hard origin/main` 권장.**
+- feature/candidate-pool-coverage 머지됨(삭제 가능).
 
 ---
 
-## 운영 메모 (다음 세션 빠른 시작)
-- **prod 라이브**: 추천서버 https://curation-recommendation.onrender.com, `/health` version=v4-prestacked, mem ~351/512.
-- **레포 auto-deploy**: main push → recommendation-server Render 배포 + 마이그레이션 apply-migrations 자동. 로컬 검증(서버 `pytest tests/`) 먼저.
-- **git push**: 활성계정 `hyhuh0910` 필요(eden-huh_karrot은 권한 X). **EMU라 PR API 막힘** → push 권한으로 직접 머지. keychain 잠기면 `gh auth setup-git` + credential.helper로 `gh auth token --user hyhuh0910` 주입. 끝나면 기본계정 복원.
-- **prod 쓰기**(E2E 등): auto-mode 분류기가 차단 → Eden 명시 승인 필요. 방법=메모리 `ref_prod_e2e_throwaway`(throwaway 유저 자급, 끝나면 cleanup — book_v3_vectors가 books FK라 v3 먼저 삭제; 백그라운드 recompute가 cleanup 후 재임베딩하는 레이스 주의).
-- **DB 쓰기경로 검증**: dry-run은 트리거/CHECK/FK 못 잡음 → mode=small 실쓰기 or throwaway prod E2E (CLAUDE.md).
+## 🔲 남은 이슈 (다음 세션, 우선순위순)
+
+### P1 — 라이브 검증
+1. **prod E2E 검증 (미실시)**: throwaway 유저([[ref_prod_e2e_throwaway]])로 ① rich 없는 책만 좋아요 → /recommend 비어있지 않고 그 책 기반 ② **niche-thin > 평범-rich 가드**(down-weight 0.85가 좋은 니치책을 묻지 않는지 — R2 product 리뷰 핵심) ③ tier1 /similar이 thin seed로 비지 않음 ④ memory OOM 0. (코드는 단위테스트+dedup 동등성으로 검증됨, 라이브 E2E만 남음.)
+2. **reembed_provisional 실동작 확인**: daily-pipeline enrich에서 kakao_desc/minimal 행이 rich 확보 시 승격되는지 + backfill 임시라벨('kakao_desc')이 실제 tier로 교정되는지.
+
+### P2 — 후속 레버 (커버리지 스펙 OUT 항목)
+3. **down-weight 계수 튜닝**: 0.95/0.85가 적정인지 E2E 품질로(niche 역전 방지).
+4. **취향 발견 surfacing**: 매칭 reason "이 책의 ~한 점이 맞아요" 노출(Phase 2).
+5. **book_love_reasons C-lever**: 유저 피드백→공유 책 reason 누적·정제([[feedback_data_lifecycle_refine]]의 미적용 영역).
+6. **tier0 콜드스타트 큐레이션/트렌딩**: 여전히 loan_count(인기) 순 — "베스트셀러 아닌"의 콜드스타트 미달(별도 설계).
+7. **input_hash 리뷰 *수정* staleness**(기존 버그): 리뷰/태그 수정 시 재계산 누락.
+
+### P3 — 정리/주의
+8. **메모리 헤드룸**: 현재 335/512(여유 ~177). desc dedup + arena=2가 load-bearing → 향후 인덱스 성장 시 /health memory 재확인 필수. 더 키우면 prestacked(169MB reason)이 다음 한계.
+9. **build_index.py(REST) 정리**: index-direct.yml로 일원화하거나 build_index를 직접연결로 전환(현재 방치 시 9483 규모에서 실패).
+10. **임시파일/브랜치 정리**: /tmp/extract_v3.py·local_index_build.py(일회성), feature 브랜치.
+
+---
+
+## 운영 메모 (빠른 시작)
+- **prod**: https://curation-recommendation.onrender.com `/health` → books_loaded=9483, memory_mb~335, code_rev=oom-mem-relief-20260629.
+- **git push**: `hyhuh0910` 계정. keychain 잠기면 `git -c credential.helper='!f() { test "$1" = get && echo username=hyhuh0910 && echo "password=$(gh auth token --user hyhuh0910)"; }; f' push`.
+- **인덱스 재빌드**: `gh workflow run index-direct.yml --ref main` (직접연결, 안전). 절대 REST build_index.py 쓰지 말 것.
+- **prod 쓰기/대량작업**: auto-mode classifier가 차단 → Eden 명시 승인 필요(이번 세션처럼).
