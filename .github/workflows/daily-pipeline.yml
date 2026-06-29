@@ -40,6 +40,7 @@ env:
   REASON_LIMIT: ${{ github.event.inputs.mode == 'small' && '3' || '200' }}
   TIER2_LIMIT: ${{ github.event.inputs.mode == 'small' && '3' || '0' }}
   LOAN_LIMIT: ${{ github.event.inputs.mode == 'small' && '5' || '200' }}
+  REEMBED_LIMIT: ${{ github.event.inputs.mode == 'small' && '3' || '300' }}
 
 jobs:
   # ── 수집: 정보나루 ──────────────────────────
@@ -110,6 +111,12 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: python3 scripts/generate_book_v3_vectors.py $V3_LIMIT
+      - name: Reembed provisional (tier 라벨 교정 + rich 승격)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: python3 scripts/reembed_provisional.py --limit $REEMBED_LIMIT
       - name: Reason extraction (v3)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
