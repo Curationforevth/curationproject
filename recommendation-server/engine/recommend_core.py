@@ -15,10 +15,12 @@ from engine.twostage import stage1_hybrid, batch_score_prestacked
 from config import STAGE1_TOP_N, CACHE_TOP_N
 
 
-# 무료 512MB 메모리 가드: Tier2 스코어링은 후보 reason 임시할당(~70MB/건)이 있어
-# 동시 다발이면 OOM. 동시 inline 계산을 2건으로 제한(2*70+인덱스277 ≈ 417MB < 512).
-# 슬롯이 없으면 호출측이 백그라운드 재계산 + fallback 으로 우회(첫화면 안 막힘).
-_COMPUTE_SEM = asyncio.Semaphore(2)
+# 무료 512MB 메모리 가드: stage1 이 인덱스 전체를 f32 로 업캐스트(dm/am, N×2000×4)
+# = N 에 비례하는 요청당 transient. 동시 2건이면 그 spike 가 2배 → 라이브 OOM 관측
+# (2026-06-29). 동시 inline 계산을 1건으로 제한해 transient peak 를 반감한다. 슬롯이
+# 없으면 호출측이 백그라운드 재계산 + fallback 으로 우회(첫화면 안 막힘). 환경변수로 튜닝 가능.
+import os as _os
+_COMPUTE_SEM = asyncio.Semaphore(int(_os.environ.get("INLINE_COMPUTE_CONCURRENCY", "1")))
 
 
 async def try_compute_inline(app_state, liked_books: dict, fb_data: dict,
