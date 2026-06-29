@@ -20,12 +20,13 @@ class HomeScreen extends ConsumerWidget {
     return Scaffold(
       backgroundColor: AppColors.surface,
       body: SafeArea(
+        // 0권이어도 _HomeContent 를 그린다 — 서버 /home(트렌딩+큐레이션) 콜드스타트
+        // 피드를 즉시 보여줘 "죽은 빈 홈"을 없앤다. 신규 유저는 라우터가 /onboarding 으로
+        // 먼저 보내고(아래 redirect), 온보딩을 건너뛴 0권 유저만 이 피드를 본다.
         child: bookshelfAsync.when(
           loading: () => const Center(child: CircularProgressIndicator()),
           error: (e, _) => Center(child: Text('오류: $e')),
-          data: (books) => books.isEmpty
-              ? _EmptyHome()
-              : _HomeContent(),
+          data: (books) => _HomeContent(),
         ),
       ),
     );
@@ -33,68 +34,7 @@ class HomeScreen extends ConsumerWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Empty state
-// ---------------------------------------------------------------------------
-
-class _EmptyHome extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 40),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              '서재를 시작해볼까요?',
-              style: const TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.w500,
-                color: AppColors.textPrimary,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '책을 등록하고 취향을 발견해보세요',
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w300,
-                color: AppColors.textSecondary,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 32),
-            GestureDetector(
-              onTap: () => context.push('/register'),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 32,
-                  vertical: 14,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.primary,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Text(
-                  '시작하기',
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w500,
-                    color: AppColors.textOnPrimary,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Main content (has books)
+// Main content (server feed; renders at 0 books too)
 // ---------------------------------------------------------------------------
 
 class _HomeContent extends ConsumerWidget {
