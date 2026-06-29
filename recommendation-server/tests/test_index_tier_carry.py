@@ -58,3 +58,17 @@ def test_set_candidate_tiers_missing_source_tier_defaults_rich():
     idx = _idx()
     bi.set_candidate_tiers(idx, {"a": {}, "b": {"source_tier": None}})
     assert idx._candidate_tier == {}, "source_tier 없음/None → rich 취급(sparse 생략)"
+
+
+def test_old_pickle_without_candidate_tier_loads_and_no_penalty():
+    """구 pkl(=_candidate_tier 속성 없는 VectorIndex)이 unpickle 후 무크래시·무감점 (B2)."""
+    import pickle
+    idx = _idx()
+    del idx.__dict__["_candidate_tier"]   # 구 pkl 시뮬: 속성 자체가 없음
+    del idx.__dict__["_penalty_vec"]
+    del idx.__dict__["_exclude_similar"]
+    restored = pickle.loads(pickle.dumps(idx))
+    assert not hasattr(restored, "_candidate_tier")  # __init__ 미실행 → 부재
+    restored.build_desc_matrix()                     # getattr 폴백으로 크래시 없음
+    res = dict(restored.similar_by_vector(np.array([1, 0], dtype=np.float32), limit=10))
+    assert abs(res["a"] - 1.0) < 1e-4 and "a" in res  # 무감점·무제외

@@ -80,3 +80,32 @@ class TestDedupSimilar:
         raw = [("b1", 0.8), ("b1_dup", 0.7), ("b2", 0.6)]
         out = dedup_similar(raw, self.META, "seed", limit=1)
         assert [bid for bid, _ in out] == ["b1"]
+
+
+class TestPenaltyDedupInteraction:
+    """source_tier 페널티가 같은 작품의 rich 판본을 thin 판본 위에 두어,
+    dedup 이 rich 판본을 생존시키는지(통합) — niche 판본이 rich 를 밀어내지 않음."""
+
+    def test_penalty_keeps_rich_edition_over_thin_same_work(self):
+        import numpy as np
+        from engine.index import VectorIndex
+
+        q = np.array([1, 0, 0, 0], dtype=np.float32)
+        idx = VectorIndex(dim=4)
+        for bid in ("rich_ed", "thin_ed"):
+            idx.add_book(bid, reasons=[], desc=q,
+                         l1=np.zeros(4, np.float32), l2=np.zeros(4, np.float32))
+        idx._candidate_tier = {"thin_ed": "kakao_desc"}  # 같은 desc, 한쪽만 thin
+        idx.build_desc_matrix()
+
+        raw = idx.similar_by_vector(q, exclude_ids=set(), limit=10)
+        # 페널티로 rich_ed(1.0) 가 thin_ed(0.95) 보다 위
+        assert raw[0][0] == "rich_ed"
+
+        meta = {
+            "rich_ed": {"title": "동물농장", "author": "조지 오웰"},
+            "thin_ed": {"title": "동물농장 (개정판)", "author": "조지 오웰 (지은이)"},
+        }
+        out = dedup_similar(raw, meta, seed_id="other", limit=5)
+        ids = [bid for bid, _ in out]
+        assert ids == ["rich_ed"], "같은 작품 → rich 판본 생존, thin 판본 접힘"
