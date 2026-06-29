@@ -61,10 +61,11 @@ async def similar_union(
     vectors = []
     seed_ids = set()
     for bid in payload.book_ids:
-        bv = index.get_book(bid)
-        if bv is None:
+        # desc_of: strip(dedup) 인덱스에선 per-book desc=None → _desc_matrix 에서 조회.
+        desc = index.desc_of(bid)
+        if desc is None:
             continue
-        vectors.append(bv.desc)
+        vectors.append(desc)
         seed_ids.add(bid)
 
     if not vectors:
