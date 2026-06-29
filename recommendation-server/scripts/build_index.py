@@ -31,9 +31,10 @@ from config import (
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 OUTPUT_PATH = os.path.join(OUTPUT_DIR, "index.pkl")
 PAGE_SIZE_META = 1000
-# v3 desc_embedding(2000차원)은 행당 페이로드가 커, 풀이 커지면(9483행) 1000행/페이지가
-# httpx ReadTimeout 유발(2026-06-29 빌드 실패). 작은 페이지 + 긴 타임아웃 + 재시도로 견고화.
-PAGE_SIZE_VECTOR = 250
+# v3 desc_embedding(2000차원)은 행당 페이로드가 커, 풀이 커지면(9483행) 큰 페이지가
+# ReadTimeout/statement timeout(57014) 유발(2026-06-29). 작은 페이지 + keyset + 긴 타임아웃
+# + 재시도 + service_role statement_timeout 60s(마이그레이션)로 견고화.
+PAGE_SIZE_VECTOR = 150
 # NOTE: recommendation-server 는 scripts/lib 와 별도 패키지.
 # scripts.lib.retry.with_retry 와 의도적으로 독립된 retry 로직 사용.
 # 변경 시 scripts/lib/retry.py 의 SQLSTATE whitelist 와 동기화 필요 없음
@@ -129,6 +130,36 @@ def _embed_batch(texts: list[str]) -> list[list[float]]:
     return out
 
 
+def _fetch_keyset(client, table: str, select: str, key_col: str, page_size: int) -> list:
+    """keyset 페이지네이션 — offset 스캔 없이 key_col(=unique) 오름차순으로 페이지.
+
+    deep-offset 의 server-side 지연을 제거(O(limit)/페이지). 대용량 벡터 테이블에서
+    statement timeout(57014) 회피. key_col 은 반드시 unique 여야 행 누락이 없다.
+    """
+    all_rows = []
+    last = ""
+    while True:
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                rows = (client.table(table).select(select).order(key_col)
+                        .gt(key_col, last).limit(page_size).execute().data)
+                break
+            except Exception as e:
+                print(f"  [keyset retry {attempt}/{MAX_RETRIES}] {str(e)[:90]}", flush=True)
+                if attempt == MAX_RETRIES:
+                    raise
+                time.sleep(RETRY_BACKOFF * attempt)
+        if not rows:
+            break
+        all_rows.extend(rows)
+        last = rows[-1][key_col]
+        print(f"  keyset {table}: +{len(rows)} (total {len(all_rows)})", flush=True)
+        if len(rows) < page_size:
+            break
+        time.sleep(PAGE_SLEEP)
+    return all_rows
+
+
 def _fetch_paginated(sb, table: str, select: str, page_size: int,
                      order_col: str = "id", filters=None) -> list:
     all_rows = []
@@ -215,11 +246,11 @@ def build(dry_run: bool = False, incremental: bool = False):
 
     def _fetch_v3_task():
         client = _mk_client()
-        print("[build] Loading v3 vectors...", flush=True)
-        raw = _fetch_paginated(
+        print("[build] Loading v3 vectors (keyset)...", flush=True)
+        raw = _fetch_keyset(
             client, "book_v3_vectors",
             "book_id,desc_embedding,l1_genre_id,l2_genre_id,source_tier",
-            PAGE_SIZE_VECTOR, order_col="book_id")
+            "book_id", PAGE_SIZE_VECTOR)
         v3 = {v["book_id"]: v for v in raw}
         print(f"  → {len(v3)} v3 vectors", flush=True)
         return v3
