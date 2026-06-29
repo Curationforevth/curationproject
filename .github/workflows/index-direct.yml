@@ -50,9 +50,12 @@ jobs:
           idx, meta, built, pre, dm, am, bo = load_index()
           n = sum(len(r) for r in pre.values()) if pre else 0
           mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
-          print(f"books={len(idx.book_ids)} reasons={n} peakRSS~={mb:.0f}MB")
-          if mb > 450:
-              print(f"::error::RSS {mb:.0f}MB > 450 — abort deploy"); sys.exit(1)
+          # ru_maxrss = unpickle peak 포함 과대측정. Render 한도 512MB 기준 게이트.
+          # 9483 인덱스 steady ~404(로컬 실측). peak<500 이면 Render(512) 부팅 생존.
+          print(f"::notice::INDEX_RSS books={len(idx.book_ids)} reasons={n} peakRSS={mb:.0f}MB")
+          print(f"INDEX_RSS_MB={mb:.0f}")
+          if mb > 500:
+              print(f"::error::RSS {mb:.0f}MB > 500 — abort (Render 512 OOM 위험). desc-dedup 필요."); sys.exit(1)
           PY
 
       - name: Commit and push index.pkl
