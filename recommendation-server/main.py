@@ -14,7 +14,7 @@ from api.curation import router as curation_router
 # home-harden: 앱이 /home 을 직접 렌더(큐레이션/트렌딩 노출)하게 되므로 견고화 —
 # 빈 책-섹션 제거(앱 빈 줄 방지) + Supabase 쿼리 _safe 래핑(한 쿼리 실패해도 500 X).
 # 직전 feedback-async·dedup-works·cache-livehash 포함.
-CODE_REV = "home-harden-20260626"
+CODE_REV = "oom-mem-relief-20260629"
 
 
 @asynccontextmanager
@@ -35,6 +35,9 @@ async def lifespan(app: FastAPI):
     # desc 행렬을 시작 시 1회 빌드 — Tier2 two-stage 선필터 + /similar 가 재사용.
     # (요청 중에 빌드하면 이벤트루프 블로킹.)
     index.build_desc_matrix()
+    # dead l1/l2(W_L1=W_L2=0) 단일 zero 공유로 회수 — 재빌드 없이 현재 인덱스에 즉시
+    # 적용(무료 512MB OOM 완화). build_desc_matrix 는 desc 만 쓰므로 순서 무관.
+    index.strip_unused_genre_vectors()
     v4 = prestacked is not None
     app.state.books_loaded = len(index.book_ids)
     if v4:

@@ -58,6 +58,19 @@ class VectorIndex:
     def get_book(self, book_id: str) -> Optional[BookVectors]:
         return self._books.get(book_id)
 
+    def strip_unused_genre_vectors(self):
+        """모든 책의 l1/l2 를 단일 공유 zero 벡터로 치환해 메모리를 회수한다.
+
+        W_L1=W_L2=0(config) 이라 l1/l2 는 스코어링에서 절대 안 쓰임(dead). 책당 l1+l2
+        (f16 2000d ≈ 8KB)가 인덱스에 상주 → N권이면 수십 MB 낭비. 단일 zero 공유로
+        ~0 으로 줄여 무료 512MB OOM 을 완화한다(스코어 결과 불변: 곱해지는 가중치가 0).
+        load 직후 호출하면 재빌드 없이 현재 인덱스에도 즉시 적용된다.
+        """
+        z = np.zeros(self.dim, dtype=self.dtype)
+        for bv in self._books.values():
+            bv.l1 = z
+            bv.l2 = z
+
     @staticmethod
     def cosine_sim(a: np.ndarray, b: np.ndarray) -> float:
         return float(np.dot(a, b))

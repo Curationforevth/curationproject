@@ -10,6 +10,22 @@ def _norm(v):
     return a / np.linalg.norm(a)
 
 
+def test_strip_unused_genre_vectors_shares_zero_and_frees():
+    """W_L1=W_L2=0 이라 dead 인 l1/l2 를 단일 공유 zero 로 치환(메모리 회수, OOM 완화)."""
+    idx = VectorIndex(dim=4)
+    idx.add_book("a", reasons=[], desc=_norm([1, 0, 0, 0]),
+                 l1=_norm([1, 0, 0, 0]), l2=_norm([0, 1, 0, 0]))
+    idx.add_book("b", reasons=[], desc=_norm([0, 1, 0, 0]),
+                 l1=_norm([0, 0, 1, 0]), l2=_norm([0, 0, 0, 1]))
+    idx.strip_unused_genre_vectors()
+    a, b = idx.get_book("a"), idx.get_book("b")
+    # 모든 책의 l1/l2 가 동일한 단일 객체를 공유(메모리 1개)
+    assert a.l1 is b.l1 is a.l2 is b.l2
+    assert a.l1.shape == (4,) and not a.l1.any()  # zero 벡터
+    # desc 는 보존(스코어링이 읽음)
+    assert np.allclose(a.desc, _norm([1, 0, 0, 0]))
+
+
 class TestVectorIndex:
     def test_add_and_get_book_vectors(self):
         idx = VectorIndex(dim=4)
