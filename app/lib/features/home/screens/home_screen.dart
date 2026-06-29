@@ -313,11 +313,16 @@ class _RecommendationSection extends ConsumerWidget {
             ),
             error: (_, __) => _RecommendationPlaceholder(),
             data: (result) {
-              if (!result.hasFeedback || result.recommendations.isEmpty) {
+              // 추천이 있으면 무조건 보여준다. 갓 온보딩한 유저는 feedback_embedding 이
+              // 없어 has_feedback=false 지만 취향벡터로 계산된 추천은 존재한다 — 이를
+              // has_feedback 으로 가리던 버그를 제거(온보딩 직후 추천이 안 보이던 원인).
+              if (result.recommendations.isEmpty) {
                 return _RecommendationPlaceholder(
-                  message: result.hasFeedback
-                      ? '아직 추천할 책이 없어요'
-                      : '피드백을 더 남기면 맞춤 추천이 시작돼요',
+                  message: result.computing
+                      ? '맞춤 추천을 준비하고 있어요…'
+                      : (result.totalLiked >= 6
+                          ? '아직 추천할 책이 없어요'
+                          : '읽은 책을 더 추가하면 맞춤 추천이 시작돼요'),
                 );
               }
               return SizedBox(
