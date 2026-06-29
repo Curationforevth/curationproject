@@ -1,0 +1,64 @@
+name: Build Index (direct connection)
+
+# 무료 Supabase 가 PostgREST 로 235MB 벡터 serving 시 과부하(57014/522)로 죽는 문제를
+# 회피: 직접 psycopg(pooler)로 v3 keyset read + 기존 pkl reason 재사용(재임베딩 0).
+# Actions 네트워크로 LFS 커밋(로컬 281MB 업로드 불가 회피). 수동 dispatch 전용.
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: pip install numpy python-dotenv "psycopg[binary]"
+
+      - name: Build index (direct connection)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          cd recommendation-server
+          python3 scripts/index_rebuild_direct.py
+
+      - name: Measure index RSS (Linux proxy for Render 512MB)
+        run: |
+          cd recommendation-server
+          python3 - <<'PY'
+          import resource, sys
+          sys.path.insert(0, ".")
+          from engine.loader import load_index
+          idx, meta, built, pre, dm, am, bo = load_index()
+          n = sum(len(r) for r in pre.values()) if pre else 0
+          mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+          print(f"books={len(idx.book_ids)} reasons={n} peakRSS~={mb:.0f}MB")
+          if mb > 450:
+              print(f"::error::RSS {mb:.0f}MB > 450 — abort deploy"); sys.exit(1)
+          PY
+
+      - name: Commit and push index.pkl
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add recommendation-server/data/index.pkl
+          git diff --cached --quiet || git commit -m "chore: rebuild index.pkl (direct, 9483 coverage)"
+          git push
