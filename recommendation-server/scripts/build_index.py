@@ -257,21 +257,15 @@ def build(dry_run: bool = False, incremental: bool = False):
               f"(build-time embedded)", flush=True)
         return by_book
 
-    # Group A: 가벼운 테이블 2개 동시
-    print("[build] Group A: books + genres (parallel)...", flush=True)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
-        f_meta = ex.submit(_fetch_books_meta_task)
-        f_genres = ex.submit(_fetch_genres_task)
-        books_meta = f_meta.result()
-        genre_embs = f_genres.result()
-
-    # Group B: 무거운 테이블 2개 동시
-    print("[build] Group B: v3 + reasons (parallel)...", flush=True)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
-        f_v3 = ex.submit(_fetch_v3_task)
-        f_reasons = ex.submit(_fetch_reasons_task)
-        v3_map = f_v3.result()
-        reasons_by_book = f_reasons.result()
+    # 순차 fetch (2026-06-29): 풀이 9483 으로 커지며 v3(235MB)+reason 을 병렬로 읽으면
+    # 무료 Supabase 가 과부하로 Cloudflare 522(Connection timed out) → 빌드 실패. 순차로
+    # 부하를 분산하고, **v3 를 reason(OpenAI 비용) 보다 먼저** fetch 해 v3 실패 시 reason
+    # 임베딩 비용이 0 이 되게 한다(과거 병렬은 v3 실패해도 reason $5 를 낭비).
+    print("[build] Sequential fetch (free-tier 522 회피 + reason 비용 보호)...", flush=True)
+    books_meta = _fetch_books_meta_task()
+    genre_embs = _fetch_genres_task()
+    v3_map = _fetch_v3_task()
+    reasons_by_book = _fetch_reasons_task()
 
     total_reasons = sum(len(v) for v in reasons_by_book.values())
 
