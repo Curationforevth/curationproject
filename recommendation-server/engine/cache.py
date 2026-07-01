@@ -36,6 +36,21 @@ def _age_seconds(iso_ts: str) -> float:
         return float("inf")
 
 
+def rec_cache_reusable(cache: Optional[dict], ub_hash: str, built_at: str) -> bool:
+    """recommendation_cache 를 재사용(재계산 없이 서빙)해도 되는지 판정.
+
+    True 조건: computing 중 아님 + 추천 있음 + input_hash 가 현재 user_books 와 일치 +
+    인덱스 빌드 이후 계산됨(computed_at > built_at). 마지막 조건이 핵심 — 이게 없으면
+    인덱스 재빌드 후에도 옛 인덱스로 계산된 추천을 계속 서빙한다(/recommend 와 동일 기준).
+    """
+    if not cache:
+        return False
+    return (not cache.get("computing")
+            and bool(cache.get("recommendations"))
+            and cache.get("input_hash") == ub_hash
+            and cache.get("computed_at", "") > (built_at or ""))
+
+
 # ---------------------------------------------------------------------------
 # compute_input_hash
 # ---------------------------------------------------------------------------

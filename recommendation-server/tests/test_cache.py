@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 from engine.cache import (compute_input_hash, save_cache_if_current,
                           recompute_recommendations, _age_seconds,
-                          STUCK_COMPUTING_SEC)
+                          rec_cache_reusable, STUCK_COMPUTING_SEC)
 
 
 # ---------------------------------------------------------------------------
@@ -224,3 +224,38 @@ class TestRecomputeStuckGuard:
 
     def test_stuck_threshold_is_positive(self):
         assert STUCK_COMPUTING_SEC > 0
+
+
+# ---------------------------------------------------------------------------
+# rec_cache_reusable — /home·/recommend 공통 재사용 판정.
+# 핵심: computed_at > built_at 미충족(인덱스 재빌드 후 옛 계산본)이면 재사용 금지 →
+# /home 이 재계산하게. (실측: Eden 추천이 인덱스 빌드 이전 계산본이라 stale 서빙되던 gap.)
+# ---------------------------------------------------------------------------
+
+class TestRecCacheReusable:
+    HASH = "abc123"
+    BUILT = "2026-06-29T09:50:00+00:00"
+    FRESH = {"computing": False, "recommendations": [{"book_id": "b"}],
+             "input_hash": HASH, "computed_at": "2026-06-30T00:00:00+00:00"}
+
+    def test_reusable_when_fresh(self):
+        assert rec_cache_reusable(self.FRESH, self.HASH, self.BUILT) is True
+
+    def test_none_cache(self):
+        assert rec_cache_reusable(None, self.HASH, self.BUILT) is False
+
+    def test_computing(self):
+        c = {**self.FRESH, "computing": True}
+        assert rec_cache_reusable(c, self.HASH, self.BUILT) is False
+
+    def test_no_recommendations(self):
+        c = {**self.FRESH, "recommendations": []}
+        assert rec_cache_reusable(c, self.HASH, self.BUILT) is False
+
+    def test_hash_mismatch(self):
+        assert rec_cache_reusable(self.FRESH, "other", self.BUILT) is False
+
+    def test_computed_before_index_build_not_reusable(self):
+        # 캐시가 인덱스 빌드 이전 계산본 → 재사용 금지(재계산 유도). 이게 이번 핵심 수정.
+        stale = {**self.FRESH, "computed_at": "2026-06-29T01:34:00+00:00"}
+        assert rec_cache_reusable(stale, self.HASH, self.BUILT) is False
