@@ -5,8 +5,13 @@ Supabase 의존 함수(load_cache, save_cache_if_current, recompute_recommendati
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
+from types import SimpleNamespace
+
 import pytest
-from engine.cache import compute_input_hash, save_cache_if_current
+from engine.cache import (compute_input_hash, save_cache_if_current,
+                          recompute_recommendations, _age_seconds,
+                          rec_cache_reusable, STUCK_COMPUTING_SEC)
 
 
 # ---------------------------------------------------------------------------
@@ -165,3 +170,92 @@ class TestSaveCacheIfCurrent:
         saved = _saved_cache_rows(store)
         assert saved and saved[-1]["input_hash"] == h
         assert saved[-1]["computing"] is False
+
+
+# ---------------------------------------------------------------------------
+# recompute_recommendations — stuck computing 데드락 가드
+# computing 이 STUCK_COMPUTING_SEC 넘게 켜져 있으면(중단된 재계산) skip 하지 않고
+# 재계산을 재시도해야 한다. (실측: 한 유저가 이틀간 computing=true 로 고정돼 모든
+# 재계산이 skip → /home 이 매번 인라인 재계산 ~8~17s. computed_at 나이로 stuck 판정.)
+# ---------------------------------------------------------------------------
+
+def _iso(dt: datetime) -> str:
+    return dt.isoformat()
+
+
+class TestRecomputeStuckGuard:
+    def test_age_seconds_parses_and_infinite_on_garbage(self):
+        assert _age_seconds("") == float("inf")
+        assert _age_seconds("not-a-date") == float("inf")
+        recent = _iso(datetime.now(timezone.utc))
+        assert _age_seconds(recent) < 5
+
+    def test_skips_when_computing_flag_is_fresh(self, monkeypatch):
+        fresh = _iso(datetime.now(timezone.utc))
+        store = {
+            "tables": {"recommendation_cache": [
+                {"computing": True, "computed_at": fresh, "recommendations": []}
+            ]},
+            "upserts": [],
+        }
+        monkeypatch.setattr("engine.cache.get_supabase", lambda: _FakeSB(store))
+        # 신선한 computing → 가드에서 즉시 return, 아무 upsert(재계산 착수) 없어야 한다.
+        recompute_recommendations("u1", app_state=None)
+        assert store["upserts"] == [], "신선한 computing 은 중복 재계산 skip 이어야"
+
+    def test_proceeds_when_computing_flag_is_stuck(self, monkeypatch):
+        stale = "2020-01-01T00:00:00+00:00"  # STUCK_COMPUTING_SEC 훨씬 초과
+        store = {
+            "tables": {
+                "recommendation_cache": [
+                    {"computing": True, "computed_at": stale, "recommendations": []}
+                ],
+                "user_books": [],  # 착수 후 빈 데이터 분기로 조기 종료(무거운 스코어링 회피)
+            },
+            "upserts": [],
+        }
+        monkeypatch.setattr("engine.cache.get_supabase", lambda: _FakeSB(store))
+        app_state = SimpleNamespace(prestacked_reasons=None)
+        recompute_recommendations("u1", app_state)
+        # stuck 이므로 skip 하지 않고 진행 → computing 플래그 세팅 + 빈 데이터 리셋 upsert.
+        rows = _saved_cache_rows(store)
+        assert rows, "stuck computing 은 재계산을 재시도(진행)해야 한다"
+        assert rows[-1]["computing"] is False, "빈 데이터 분기에서 computing 을 해제해야"
+
+    def test_stuck_threshold_is_positive(self):
+        assert STUCK_COMPUTING_SEC > 0
+
+
+# ---------------------------------------------------------------------------
+# rec_cache_reusable — /home·/recommend 공통 재사용 판정.
+# 핵심: computed_at > built_at 미충족(인덱스 재빌드 후 옛 계산본)이면 재사용 금지 →
+# /home 이 재계산하게. (실측: Eden 추천이 인덱스 빌드 이전 계산본이라 stale 서빙되던 gap.)
+# ---------------------------------------------------------------------------
+
+class TestRecCacheReusable:
+    HASH = "abc123"
+    BUILT = "2026-06-29T09:50:00+00:00"
+    FRESH = {"computing": False, "recommendations": [{"book_id": "b"}],
+             "input_hash": HASH, "computed_at": "2026-06-30T00:00:00+00:00"}
+
+    def test_reusable_when_fresh(self):
+        assert rec_cache_reusable(self.FRESH, self.HASH, self.BUILT) is True
+
+    def test_none_cache(self):
+        assert rec_cache_reusable(None, self.HASH, self.BUILT) is False
+
+    def test_computing(self):
+        c = {**self.FRESH, "computing": True}
+        assert rec_cache_reusable(c, self.HASH, self.BUILT) is False
+
+    def test_no_recommendations(self):
+        c = {**self.FRESH, "recommendations": []}
+        assert rec_cache_reusable(c, self.HASH, self.BUILT) is False
+
+    def test_hash_mismatch(self):
+        assert rec_cache_reusable(self.FRESH, "other", self.BUILT) is False
+
+    def test_computed_before_index_build_not_reusable(self):
+        # 캐시가 인덱스 빌드 이전 계산본 → 재사용 금지(재계산 유도). 이게 이번 핵심 수정.
+        stale = {**self.FRESH, "computed_at": "2026-06-29T01:34:00+00:00"}
+        assert rec_cache_reusable(stale, self.HASH, self.BUILT) is False

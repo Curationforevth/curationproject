@@ -24,7 +24,8 @@ from engine.home_cache import (
     current_hour_bucket, compute_home_input_hash,
     load_home_cache, save_home_cache_if_current,
 )
-from engine.cache import load_cache, compute_input_hash, recompute_recommendations
+from engine.cache import (load_cache, compute_input_hash, recompute_recommendations,
+                          rec_cache_reusable)
 from engine.recommend_core import try_compute_inline
 from engine.user_embed import resolve_extra_query_vectors, needs_background_embed
 from engine.dedup import dedup_by_work, dedup_similar
@@ -324,9 +325,11 @@ async def get_home(
     if tier == 2:
         rec_cache = load_cache(user_id)
         ub_hash = compute_input_hash(user_books)
-        if (rec_cache and not rec_cache.get("computing")
-                and rec_cache.get("recommendations")
-                and rec_cache.get("input_hash") == ub_hash):
+        built_at = getattr(request.app.state, "built_at", None) or ""
+        # computed_at > built_at 포함(rec_cache_reusable) — /recommend 와 동일 기준. 이게
+        # 없으면 인덱스 재빌드 후에도 /home 이 옛 인덱스로 계산된 추천을 계속 서빙한다
+        # (실측: Eden 추천이 인덱스 빌드 이전 계산본이라 stale 서빙). 재빌드 시 재계산 유도.
+        if rec_cache_reusable(rec_cache, ub_hash, built_at):
             recommend_scored = [(r["book_id"], r.get("score", 0.0))
                                 for r in rec_cache["recommendations"]]
         else:
