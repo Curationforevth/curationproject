@@ -42,10 +42,14 @@ class RecommendationResult {
   final bool hasFeedback;
   final int totalLiked;
 
+  /// 서버가 캐시미스로 백그라운드 재계산 중 (recs 비어있어도 곧 채워짐).
+  final bool computing;
+
   const RecommendationResult({
     required this.recommendations,
     required this.hasFeedback,
     required this.totalLiked,
+    this.computing = false,
   });
 }
 
@@ -137,11 +141,12 @@ class RecommendationService {
       final books = (json['recommendations'] as List<dynamic>)
           .map((e) => RecommendedBook.fromJson(e as Map<String, dynamic>))
           .toList();
-      final meta = json['meta'] as Map<String, dynamic>;
+      final meta = (json['meta'] as Map<String, dynamic>?) ?? const {};
       return RecommendationResult(
         recommendations: books,
-        hasFeedback: meta['has_feedback'] as bool,
-        totalLiked: meta['total_liked'] as int,
+        hasFeedback: meta['has_feedback'] as bool? ?? false,
+        totalLiked: meta['total_liked'] as int? ?? 0,
+        computing: meta['computing'] as bool? ?? false,
       );
     }
     throw Exception('Recommendation failed: ${response.statusCode}');

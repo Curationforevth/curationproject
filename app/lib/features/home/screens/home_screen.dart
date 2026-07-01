@@ -5,6 +5,8 @@ import '../../../core/models/user_book.dart';
 import '../../../core/services/recommendation_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../bookshelf/providers/bookshelf_provider.dart';
+import '../../onboarding/providers/onboarding_provider.dart';
+import '../../onboarding/screens/onboarding_screen.dart';
 import '../providers/home_provider.dart';
 import '../providers/recommendation_provider.dart';
 import '../widgets/book_detail_bottom_sheet.dart';
@@ -20,12 +22,18 @@ class HomeScreen extends ConsumerWidget {
     return Scaffold(
       backgroundColor: AppColors.surface,
       body: SafeArea(
+        // 서재가 비어있고 아직 온보딩을 마치거나 건너뛰지 않았으면 온보딩을 띄운다.
+        // 그 외엔 _HomeContent — 0권이어도(온보딩 건너뜀) 서버 /home(트렌딩+큐레이션)
+        // 콜드스타트 피드를 보여줘 "죽은 빈 홈"을 없앤다.
         child: bookshelfAsync.when(
           loading: () => const Center(child: CircularProgressIndicator()),
           error: (e, _) => Center(child: Text('오류: $e')),
-          data: (books) => books.isEmpty
-              ? _EmptyHome()
-              : _HomeContent(),
+          data: (books) {
+            if (books.isEmpty && !ref.watch(onboardingDismissedProvider)) {
+              return const OnboardingScreen();
+            }
+            return _HomeContent();
+          },
         ),
       ),
     );
@@ -33,68 +41,7 @@ class HomeScreen extends ConsumerWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Empty state
-// ---------------------------------------------------------------------------
-
-class _EmptyHome extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 40),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              '서재를 시작해볼까요?',
-              style: const TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.w500,
-                color: AppColors.textPrimary,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '책을 등록하고 취향을 발견해보세요',
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w300,
-                color: AppColors.textSecondary,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 32),
-            GestureDetector(
-              onTap: () => context.push('/register'),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 32,
-                  vertical: 14,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.primary,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Text(
-                  '시작하기',
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w500,
-                    color: AppColors.textOnPrimary,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Main content (has books)
+// Main content (server feed; renders at 0 books too)
 // ---------------------------------------------------------------------------
 
 class _HomeContent extends ConsumerWidget {
@@ -366,11 +313,16 @@ class _RecommendationSection extends ConsumerWidget {
             ),
             error: (_, __) => _RecommendationPlaceholder(),
             data: (result) {
-              if (!result.hasFeedback || result.recommendations.isEmpty) {
+              // 추천이 있으면 무조건 보여준다. 갓 온보딩한 유저는 feedback_embedding 이
+              // 없어 has_feedback=false 지만 취향벡터로 계산된 추천은 존재한다 — 이를
+              // has_feedback 으로 가리던 버그를 제거(온보딩 직후 추천이 안 보이던 원인).
+              if (result.recommendations.isEmpty) {
                 return _RecommendationPlaceholder(
-                  message: result.hasFeedback
-                      ? '아직 추천할 책이 없어요'
-                      : '피드백을 더 남기면 맞춤 추천이 시작돼요',
+                  message: result.computing
+                      ? '맞춤 추천을 준비하고 있어요…'
+                      : (result.totalLiked >= 6
+                          ? '아직 추천할 책이 없어요'
+                          : '읽은 책을 더 추가하면 맞춤 추천이 시작돼요'),
                 );
               }
               return SizedBox(
