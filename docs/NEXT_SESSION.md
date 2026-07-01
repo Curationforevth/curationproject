@@ -2,7 +2,7 @@
 
 > 이번 세션: **새로고침 속도·새 큐레이션 + 추천 캐시 데드락 근본수정(배포 완료)** +
 > **책등(서재) 대개편** — 한글 세로쓰기 룰 확립, golden 실렌더 검증, 폰 설치까지.
-> ✅ **책등 변경 커밋·머지 완료 (PR #30, `79133b0`).** 다음 세션 1순위 = 폰 재빌드 + 서재 최종 확인.
+> ✅ **책등 변경 커밋·머지 완료 (PR #30, `79133b0`) + 2컬럼 좌우 여백 보정 (PR #31, `2db1d00`).** 폰 재빌드·설치·Eden 육안 승인까지 완료. 다음 세션 1순위 = 추천 fresh 앱검증.
 
 ---
 
@@ -33,21 +33,20 @@
 - 균일 폰트, **폰트축소·잘림 없음**(FittedBox/scaleDown 금지 — 책마다 크기 다르면 안 됨), Semantics(전체 제목/저자) 접근성.
 - 책등 높이 190, 비율 66/28/6.
 - **서재 선반 = 여러 선반 줄바꿈**(가로 무한스크롤 → 세로, PRODUCT_PLAN 5-3 "한 선반 5~7권, 넘치면 아래 선반"). `bookshelf_row.dart` LayoutBuilder row-packing.
-- **검증**: `test/book_spine_golden_test.dart`가 AppleGothic 로드해 실렌더 golden(`test/goldens/spine_shelf.png`) 생성 → 저자까지 눈으로 확인. analyze 클린, 테스트 통과. **폰 설치 완료**(Eden 확인 중).
+- **검증**: `test/book_spine_golden_test.dart`가 AppleGothic 로드해 실렌더 golden(`test/goldens/spine_shelf.png`) 생성 → 저자까지 눈으로 확인. analyze 클린, 테스트 7/7 통과. **폰 재빌드·설치·Eden 육안 승인 완료.**
+
+### 5. 2컬럼 책등 좌우 여백 보정 ✅ **커밋·머지 완료 (PR #31, `2db1d00`)** — `book_spine.dart`, `test/goldens/spine_shelf.png`
+- **문제**: 세로 조판이 2컬럼 이상이 되는 책등에서 텍스트가 좌우 가장자리에 붙음.
+- **수정**: `_spineColumns`/`_columnsFor`(=`_verticalText` 패킹 미러)로 컬럼 수(제목·저자 max) 산출 → 2컬럼+ 이면 `(cols-1)*3px`(상한 8px)만 책등 폭에 가산해 좌우 여백 확보. **단일 컬럼 폭 불변, 폰트축소/잘림 없음**(폭으로만 여백). flex 66/28/6 상수화. golden 재생성·폰 재빌드·Eden 승인.
+- **폰 설치 주의**: iOS 실기기 `flutter run --release` 초기 "Could not run ... Runner.app" 실패는 **폰 잠금**이 원인 — 잠금 해제 후 재시도하면 성공(서명/프로비저닝 문제 아님).
 
 ---
 
-## 🔴 다음 세션 1순위: 폰 재빌드 + 서재 최종 확인
-책등 커밋·머지 완료(PR #30). 책등은 **클라 전용**이라 서버 배포 무관, **앱 재빌드 필요**:
-```
-rsync -a --delete "<iCloud>/app/lib/" ~/curation_build/app/lib/   # iCloud → 빌드폴더 동기화 먼저
-cd ~/curation_build/app && flutter run --release -d 00008140-001C34580A0B001C
-```
-그다음 Eden이 폰 서재에서 책등/선반 최종 확인 → 문제시 golden 루프(`flutter test --update-goldens test/book_spine_golden_test.dart`).
+## 🔴 다음 세션 1순위: 추천 fresh 앱검증
+책등 작업 마무리됨(PR #30·#31, 폰 확인 완료). 다음은 추천 신선도 확인:
+- 앱에서 책 추가/평가 변경 → `input_hash` 변경 → 서버 자연 재계산(데드락 수정으로 안 멈춤) → **다양한 추천**(호러·SF·미스터리 등 다면적) 뜨는지. 이미 가진 책은 추천서 제거되는지도.
 
 ## 🔲 남은 것
-- **폰 재빌드 후** Eden이 폰 서재에서 책등/선반 최종 확인 → 문제시 golden 루프.
-- 추천 fresh 확인: 앱에서 책 추가/평가 변경 → 서버 재계산 → 다양한 추천 뜨는지(이미 가진 책 제거).
 - (선택) force-refresh 트레이드오프 재검토 / /home DB 쿼리 병렬화로 웜 지연 단축(리스크: 공유 sync 클라).
 
 ## 📌 이번 세션 핵심 학습 (memory `feedback_root_not_bandaid`에도 저장)
