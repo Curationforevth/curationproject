@@ -18,6 +18,23 @@ from config import CACHE_TOP_N, get_supabase
 
 logger = logging.getLogger(__name__)
 
+# computing 플래그가 이 시간(초)보다 오래 켜져 있으면 stuck(중단된 재계산)으로 보고
+# 재계산을 재시도한다. 정상 재계산은 수~십수초라 넉넉한 마진. 이게 없으면 서버 재시작/
+# OOM 으로 재계산이 중단됐을 때 computing 이 영구 true 로 고정돼 이후 모든 재계산이
+# skip → 캐시가 영영 안 풀리는 데드락(실측: 한 유저가 이틀간 stuck → 매 /home 재계산).
+STUCK_COMPUTING_SEC = 180
+
+
+def _age_seconds(iso_ts: str) -> float:
+    """ISO8601 타임스탬프의 경과 초. 파싱 실패 시 inf(=오래된 것으로 간주 → 재계산 허용)."""
+    try:
+        dt = datetime.fromisoformat(iso_ts)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - dt).total_seconds()
+    except Exception:
+        return float("inf")
+
 
 # ---------------------------------------------------------------------------
 # compute_input_hash
@@ -159,11 +176,19 @@ def recompute_recommendations(user_id: str, app_state) -> None:
 
     sb = get_supabase()
 
-    # 이미 computing 중이면 skip
+    # 이미 computing 중이면 skip — 단 stuck(중단돼 오래 켜진) 플래그는 예외로 재시도한다.
+    # (서버 재시작/OOM 로 재계산이 죽으면 computing 이 영구 true 로 남아 이후 모든
+    #  재계산이 skip → 캐시가 영영 안 풀리는 데드락. computed_at 나이로 stuck 판정.)
     existing = load_cache(user_id)
     if existing and existing.get("computing"):
-        logger.info("recompute: already computing for %s — skipping", user_id)
-        return
+        age = _age_seconds(existing.get("computed_at", ""))
+        if age < STUCK_COMPUTING_SEC:
+            logger.info("recompute: already computing for %s — skipping", user_id)
+            return
+        logger.warning(
+            "recompute: stale computing flag for %s (%.0fs old) — treating as stuck, retrying",
+            user_id, age,
+        )
 
     # computing 플래그 설정 — 기존 recommendations 는 보존(stale-serve 폴백 유지).
     # (blank 하면 inline 저장 skip 과 겹쳐 임베딩(수초) 동안 thin-only 가 됨.)
