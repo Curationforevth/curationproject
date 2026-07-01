@@ -6,6 +6,12 @@ import 'package:curation_app/core/theme/app_colors.dart';
 import 'package:curation_app/core/widgets/book_spine.dart';
 import 'package:curation_app/core/widgets/bookshelf_row.dart';
 
+/// 책등은 세로쓰기라 제목/저자를 글자별로 그린다. 전체 문자열은 Semantics label 로
+/// 노출되므로(접근성) 그 라벨로 찾는다.
+Finder _spineLabel(String label) => find.byWidgetPredicate(
+      (w) => w is Semantics && w.properties.label == label,
+    );
+
 void main() {
   group('AppColors', () {
     test('spineColorFromTitle returns consistent colors', () {
@@ -34,8 +40,9 @@ void main() {
         ),
       );
 
-      expect(find.text('채식주의자'), findsOneWidget);
-      expect(find.text('한강'), findsOneWidget);
+      // 세로쓰기는 글자별 렌더 → 전체 제목/저자는 Semantics label 로 노출(접근성).
+      expect(_spineLabel('채식주의자'), findsOneWidget);
+      expect(_spineLabel('한강'), findsOneWidget);
     });
 
     testWidgets('calls onTap', (tester) async {
@@ -53,7 +60,7 @@ void main() {
         ),
       );
 
-      await tester.tap(find.text('테스트'));
+      await tester.tap(find.byType(BookSpine));
       expect(tapped, isTrue);
     });
   });
@@ -99,8 +106,8 @@ void main() {
         ),
       );
 
-      expect(find.text('채식주의자'), findsOneWidget);
-      expect(find.text('소년이 온다'), findsOneWidget);
+      expect(_spineLabel('채식주의자'), findsOneWidget);
+      expect(_spineLabel('소년이 온다'), findsOneWidget);
     });
   });
 
