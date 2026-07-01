@@ -5,6 +5,23 @@ import '../models/user_book.dart';
 import '../utils/color_extractor.dart';
 import '../utils/font_assigner.dart';
 
+/// 등록 시 `books` 행을 어떻게 식별할지 결정하는 순수 전략.
+///
+/// 화차 중복 버그의 근본 수정 지점:
+/// - 추천/홈/비슷한책은 `RecommendedBook.toBook()`/`HomeBook.toBook()`로 오며
+///   **기존 `books.id`는 싣지만 isbn·source는 null**이다. 이때 id를 무시하고 isbn만
+///   보면 insert 경로로 null-isbn 복제행을 새로 만들어 같은 책이 중복 등록된다.
+///   → id가 있으면 그 행을 그대로 재사용해야 한다.
+/// - 외부 검색(카카오)은 id가 비어있고 isbn이 있다 → isbn 기준 upsert.
+enum BookRef { reuseId, upsertByIsbn, insertNew }
+
+@visibleForTesting
+BookRef resolveBookRef(Book book) {
+  if (book.id.isNotEmpty) return BookRef.reuseId;
+  if (book.isbn != null && book.isbn!.isNotEmpty) return BookRef.upsertByIsbn;
+  return BookRef.insertNew;
+}
+
 class BookRegistrationService {
   final SupabaseClient _supabase;
 
@@ -16,23 +33,25 @@ class BookRegistrationService {
     final userId = _supabase.auth.currentUser?.id;
     if (userId == null) throw Exception('로그인이 필요합니다');
 
-    // 1. books upsert — id 제외하여 DB가 UUID 자동 생성
-    final upsertData = book.toJsonForUpsert();
-    final List<dynamic> upsertResult;
-
-    if (book.isbn != null && book.isbn!.isNotEmpty) {
-      upsertResult = await _supabase
-          .from('books')
-          .upsert(upsertData, onConflict: 'isbn')
-          .select('id');
-    } else {
-      upsertResult = await _supabase
-          .from('books')
-          .insert(upsertData)
-          .select('id');
+    // 1. books 행 식별 (resolveBookRef 전략)
+    final String bookId;
+    switch (resolveBookRef(book)) {
+      case BookRef.reuseId:
+        // 내부소스(추천/홈/유사)는 이미 존재하는 books 행을 참조 → 그 id 재사용.
+        // 새 행(특히 null-isbn 복제행) 생성 금지. 값 보강은 아래 백그라운드가 담당.
+        bookId = book.id;
+        break;
+      case BookRef.upsertByIsbn:
+        final r = await _supabase
+            .from('books')
+            .upsert(book.toJsonForUpsert(), onConflict: 'isbn')
+            .select('id');
+        bookId = r.first['id'] as String;
+        break;
+      case BookRef.insertNew:
+        bookId = await _insertOrReuseByTitleAuthor(book);
+        break;
     }
-
-    final bookId = upsertResult.first['id'] as String;
 
     // 2. user_books insert
     final userBookResult = await _supabase.from('user_books').insert({
@@ -46,6 +65,25 @@ class BookRegistrationService {
     // 3. 비동기 백그라운드 — 실패해도 사용자 흐름 차단하지 않음
     _enrichBookAsync(bookId, book);
     return userBookId;
+  }
+
+  /// id·isbn 둘 다 없는 예외 경로: 같은 title+author 행이 있으면 재사용, 없으면 insert.
+  /// (null-isbn 복제행 양산 방지 — 최소 방어.)
+  Future<String> _insertOrReuseByTitleAuthor(Book book) async {
+    final existing = await _supabase
+        .from('books')
+        .select('id')
+        .eq('title', book.title)
+        .eq('author', book.author ?? '')
+        .limit(1);
+    if ((existing as List).isNotEmpty) {
+      return existing.first['id'] as String;
+    }
+    final inserted = await _supabase
+        .from('books')
+        .insert(book.toJsonForUpsert())
+        .select('id');
+    return inserted.first['id'] as String;
   }
 
   /// 유저 서재에 해당 ISBN의 책이 있는지 확인
