@@ -8,10 +8,17 @@ final recommendationServiceProvider = Provider<RecommendationService>((ref) {
   return RecommendationService();
 });
 
+/// 당겨서 새로고침 여부. onRefresh 가 true 로 켜고 invalidate → homeFeedProvider 가
+/// force-refresh 로 서버 시간캐시를 건너뛰어 새 큐레이션을 받는다. await 후 다시 false.
+/// (watch 가 아니라 read 로 소비 — 값 변경만으로 provider 를 재빌드하지 않는다.)
+final homeForceRefreshProvider = StateProvider<bool>((ref) => false);
+
 /// 홈 피드 — 큐레이션/트렌딩/맞춤추천/비슷한책 섹션. 피드백 후 무효화되면 재요청.
 final homeFeedProvider = FutureProvider<HomeFeed>((ref) async {
   final service = ref.watch(recommendationServiceProvider);
-  final feed = await service.getHome();
+  final feed = await service.getHome(
+    forceRefresh: ref.read(homeForceRefreshProvider),
+  );
   // 노출 임프레션 로깅(섹션 책들).
   final bookIds = <String>[
     for (final s in feed.sections) ...s.books.map((b) => b.bookId),

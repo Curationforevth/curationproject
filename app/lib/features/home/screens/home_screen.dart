@@ -55,15 +55,31 @@ class _HomeContent extends ConsumerWidget {
       // 세션 중엔 자동 리뉴얼하지 않고, 당겨서 새로고침할 때만 추천/홈피드를 갱신한다.
       // 서재(bookshelfProvider)는 무효화하지 않는다 — 그러면 그걸 watch 하는 홈 전체가
       // 로딩으로 무너져 새로고침이 안 먹는 것처럼 보였다(서재는 추가/피드백 시 자체 갱신).
+      //
+      // ① force-refresh 로 서버 시간캐시를 건너뛰어 큐레이션을 새로 받는다.
+      // ② /home 과 /recommend 를 순차가 아니라 병렬로 await → 대기시간 ~절반.
+      //    (둘 다 무료티어 콜드스타트/계산이 느려 순차면 합산돼 너무 오래 걸렸다.)
       onRefresh: () async {
+        ref.read(homeForceRefreshProvider.notifier).state = true;
         ref.invalidate(homeFeedProvider);
         ref.invalidate(recommendationsProvider);
         try {
-          await ref.read(homeFeedProvider.future);
-        } catch (_) {}
-        try {
-          await ref.read(recommendationsProvider.future);
-        } catch (_) {}
+          await Future.wait([
+            Future(() async {
+              try {
+                await ref.read(homeFeedProvider.future);
+              } catch (_) {}
+            }),
+            Future(() async {
+              try {
+                await ref.read(recommendationsProvider.future);
+              } catch (_) {}
+            }),
+          ]);
+        } finally {
+          // 새로고침이 끝나면 플래그를 내려 이후 자동 로드는 캐시(빠름)를 쓰게 한다.
+          ref.read(homeForceRefreshProvider.notifier).state = false;
+        }
       },
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),

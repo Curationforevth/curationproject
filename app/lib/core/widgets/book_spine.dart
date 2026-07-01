@@ -121,8 +121,13 @@ class BookSpine extends StatelessWidget {
                 padding: const EdgeInsets.only(top: 10, left: 5, right: 4),
                 child: RotatedBox(
                   quarterTurns: 1,
+                  // 책등은 식별용 — 긴 제목은 글자 중간에서 하드클립되지 않도록 한 줄
+                  // 말줄임(…)으로 처리한다. 전체 제목은 탭 시 책 상세에서 확인.
                   child: Text(
                     book.title,
+                    maxLines: 1,
+                    softWrap: false,
+                    overflow: TextOverflow.ellipsis,
                     style: _titleTextStyle(color: titleColor, fontSize: 10),
                   ),
                 ),
@@ -140,6 +145,9 @@ class BookSpine extends StatelessWidget {
                         quarterTurns: 1,
                         child: Text(
                           book.author!,
+                          maxLines: 1,
+                          softWrap: false,
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             color: authorColor,
                             fontSize: 7,
