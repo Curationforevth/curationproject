@@ -10,6 +10,8 @@ class BookScore(BaseModel):
     title: str
     author: str
     cover_url: Optional[str]
+    # 취향 발견 surfacing: 이 책의 대표 "좋아할 이유"(book_love_reasons). 없으면 None.
+    reason: Optional[str] = None
 
 
 class RecommendResponse(BaseModel):

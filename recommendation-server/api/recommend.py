@@ -8,6 +8,7 @@ from engine.cache import (compute_input_hash, load_cache,
 from engine.recommend_core import try_compute_inline
 from engine.user_embed import resolve_extra_query_vectors, needs_background_embed
 from engine.dedup import dedup_by_work
+from engine.reasons import attach_reasons
 from engine.utils import to_np
 from config import DEFAULT_RECOMMEND_LIMIT, get_supabase
 
@@ -82,7 +83,7 @@ async def get_recommendations(
         # 캐시 히트: hash 일치 + 인덱스 빌드 이후 계산된 것
         if (cache.get("input_hash") == input_hash
                 and cache.get("computed_at", "") > (getattr(request.app.state, "built_at", None) or "")):
-            recs = _dedup_cached(cache["recommendations"], limit)
+            recs = attach_reasons(sb, _dedup_cached(cache["recommendations"], limit))
             return RecommendResponse(
                 user_id=user_id, recommendations=recs,
                 meta={
@@ -95,7 +96,7 @@ async def get_recommendations(
 
         # C3: 백그라운드 재계산 진행 중이면 stale 캐시라도 반환 (중복 계산 방지)
         if cache.get("computing") and cache.get("recommendations"):
-            recs = _dedup_cached(cache["recommendations"], limit)
+            recs = attach_reasons(sb, _dedup_cached(cache["recommendations"], limit))
             return RecommendResponse(
                 user_id=user_id, recommendations=recs,
                 meta={
@@ -152,8 +153,9 @@ async def get_recommendations(
             background_tasks.add_task(save_cache_if_current, user_id, recs_for_cache,
                                       input_hash, total_liked, total_disliked, has_feedback)
         recs = dedup_by_work(recs, lambda b: (b.title, b.author))
+        recs = attach_reasons(sb, recs[:limit])
         return RecommendResponse(
-            user_id=user_id, recommendations=recs[:limit],
+            user_id=user_id, recommendations=recs,
             meta={"total_liked": total_liked, "total_disliked": total_disliked,
                   "has_feedback": has_feedback},
         )
