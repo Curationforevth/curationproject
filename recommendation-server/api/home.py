@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 
 from auth import verify_jwt
 from config import get_supabase
@@ -230,6 +230,7 @@ async def get_home(
     user_id: str,
     request: Request,
     background_tasks: BackgroundTasks,
+    refresh: bool = Query(False),
     current_user: str = Depends(verify_jwt),
 ):
     if current_user != user_id:
@@ -260,7 +261,12 @@ async def get_home(
     input_hash = compute_home_input_hash(us.get("updated_at", ""), hour_bucket)
     cache = load_home_cache(user_id)
 
-    if cache and cache.get("input_hash") == input_hash:
+    # refresh=1 (당겨서 새로고침) 이면 hour-bucket 캐시 히트를 건너뛰고 섹션을 재조립한다.
+    # → 큐레이션이 weighted_sample_one 으로 매번 새로 샘플링돼 "새 큐레이션"이 나온다.
+    # 비싼 Tier2 personal_recommend 는 아래에서 recommendation_cache 를 그대로 재사용하므로
+    # (요청경로 재스코어링 없음) force-refresh 여도 저렴하다. 재조립 결과는 background 로
+    # home_cache 에 덮어써 이후 일반 로드가 같은 큐레이션을 일관되게 보게 한다.
+    if not refresh and cache and cache.get("input_hash") == input_hash:
         # cache hit path도 impression + history 로깅 (스펙 §7.3 CTR 정확성)
         background_tasks.add_task(
             _log_impressions_and_history,

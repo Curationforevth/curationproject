@@ -175,11 +175,15 @@ class RecommendationService {
 
   /// 홈 피드 — 큐레이션/트렌딩/맞춤추천/비슷한책 섹션을 한 번에 받는다.
   /// (서버가 빈 섹션은 제거하고, 한 쿼리 실패해도 가능한 섹션만 돌려줌.)
-  Future<HomeFeed> getHome() async {
+  ///
+  /// [forceRefresh] 가 true 면 `?refresh=1` 로 서버의 시간(hour) 캐시를 건너뛰게 해
+  /// 큐레이션을 새로 샘플링받는다 (당겨서 새로고침 전용). 일반 로드는 캐시를 써 빠르다.
+  Future<HomeFeed> getHome({bool forceRefresh = false}) async {
     final userId = _userId;
     if (userId == null || _token == null) throw Exception('Not authenticated');
 
-    final uri = Uri.parse('$_baseUrl/home/$userId');
+    final uri = Uri.parse(
+        '$_baseUrl/home/$userId${forceRefresh ? '?refresh=1' : ''}');
     final response =
         await http.get(uri, headers: _headers).timeout(_timeout);
 
