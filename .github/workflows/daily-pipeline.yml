@@ -1,12 +1,17 @@
-# 일일 파이프라인 — 단계별 독립 job, 가능한 병렬 실행.
+# 일일 파이프라인 — 단계별 job.
 #
-# 의존성 구조:
-#   [병렬] discovery, collect, enrich, refresh-loan-count  ← 각각 독립적으로 실행 가능
-#   [순차] build-and-recompute ← discovery, collect, enrich 완료 후
+# ⚠️ 직렬화(2026-06-29): 예전엔 4잡을 전부 병렬 실행했는데, 무료 Supabase 가
+# 동시 부하로 statement timeout(57014)을 뿜어 모든 잡이 느려지고 enrich 의 reason
+# 추출이 에러로 죽고 discovery/refresh-loan-count 가 타임아웃났다(마지막 풀 success
+# 06-25). 근본원인 = 동시 DB 과부하. → `needs` + `if: always()` 로 직렬화해 한 번에
+# 한 잡만 DB 를 쓰게 한다. 핵심가치(추천 엔진)에 직결된 **enrich 를 맨 앞**에 둬
+# 깨끗한 DB 용량을 먼저 주고, 인기신호 작업(discovery/refresh-loan-count)은 뒤로.
+# (새벽 3시 + Actions 무료라 wall-clock 손해는 비용이 아니다.)
 #
-# enrich는 이미 DB에 있는 rich_description 보유 책을 처리하므로
-# discovery/collect 완료를 기다릴 필요 없음.
-# YES24 스크래핑은 별도 workflow (daily-scrape.yml, 2시간마다).
+# 실행 순서: enrich → collect → discovery → refresh-loan-count → (수동)build-and-recompute
+# enrich 는 needs 없이 맨 먼저(이미 DB 의 rich_description 책 처리, 대기 불필요).
+# if: always() 라 앞 잡이 실패해도 뒤 잡은 이어짐(직렬화만, 성공 게이팅 아님).
+# YES24 스크래핑은 별도 workflow (daily-scrape.yml).
 
 name: Daily Pipeline
 
@@ -43,10 +48,12 @@ env:
   REEMBED_LIMIT: ${{ github.event.inputs.mode == 'small' && '3' || '300' }}
 
 jobs:
-  # ── 수집: 정보나루 ──────────────────────────
+  # ── 수집: 정보나루 (enrich·collect 뒤) ──────
   discovery:
+    needs: [collect]
+    if: ${{ always() }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25  # 직렬화로 DB 경합 없어졌지만 tier1 usageAnalysis 다량 대비 상향
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -58,7 +65,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           DATA4LIBRARY_API_KEY: ${{ secrets.DATA4LIBRARY_API_KEY }}
-        run: python3 scripts/data4library_discovery_collector.py --tier 1
+        run: python3 -u scripts/data4library_discovery_collector.py --tier 1
       - name: Backfill genre (알라딘 → genre NULL 책)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -66,8 +73,10 @@ jobs:
           ALADIN_TTB_KEY: ${{ secrets.ALADIN_TTB_KEY }}
         run: python3 scripts/backfill_genre.py --limit $GENRE_LIMIT
 
-  # ── 수집: 알라딘 + 보강 + Tier 1 임베딩 ────
+  # ── 수집: 알라딘 + 보강 + Tier 1 임베딩 (enrich 뒤) ────
   collect:
+    needs: [enrich]
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -136,10 +145,12 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: python3 scripts/backfill_feedback_embedding.py
 
-  # ── 대출 수 갱신: 기존 책 loan_count 순환 갱신 ──────
+  # ── 대출 수 갱신: 기존 책 loan_count 순환 갱신 (맨 뒤) ──────
   refresh-loan-count:
+    needs: [discovery]
+    if: ${{ always() }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15  # 직렬 실행 + limit 200 usageAnalysis 대비 상향(기존 10 은 타임아웃)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -151,7 +162,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           DATA4LIBRARY_API_KEY: ${{ secrets.DATA4LIBRARY_API_KEY }}
-        run: python3 scripts/refresh_loan_count.py --limit $LOAN_LIMIT
+        run: python3 -u scripts/refresh_loan_count.py --limit $LOAN_LIMIT
 
   # ── 마무리: 인덱스 빌드 + 취향 재계산 (수동 전용) ──
   build-and-recompute:
