@@ -9,7 +9,8 @@ import '../theme/app_colors.dart';
 /// - 부제 제거: 책등엔 본제목·대표저자만 (부제는 표지에만).
 /// - 균일 폰트: 모든 책 같은 크기(책마다 글자 크기 다르게 하지 않음, scaleDown 금지).
 /// - 한글 정방향 세로쓰기(위→아래). 라틴/숫자는 회전 없이 정자.
-/// - 단일 컬럼 우선, 넘치면 우종서(오른→왼)로 다음 컬럼 — 잘림·축소 없이 임의 길이 처리.
+/// - 단일 컬럼 우선, 넘치면 좌종서(왼→오른)로 다음 컬럼 — 잘림·축소 없이 임의 길이 처리.
+///   2컬럼 이상이면 텍스트가 가장자리에 붙지 않게 책등 폭을 소량만 넓혀 좌우 여백 확보.
 /// 전체 제목은 탭 → 책 상세에서 확인.
 class BookSpine extends StatelessWidget {
   final Book book;
@@ -28,10 +29,61 @@ class BookSpine extends StatelessWidget {
   static const double _authorFs = 8.0;
   static const double _lineH = 1.06;
 
-  /// 페이지 수 기반 책등 너비 (30~50px).
+  // 블록 세로 비율 (제목 66% · 저자 28% · 액센트 6%).
+  static const int _titleFlex = 66;
+  static const int _authorFlex = 28;
+  static const int _accentFlex = 6;
+
+  /// 페이지 수 기반 책등 너비 (30~50px). 2컬럼 이상이면 좌우 숨쉴 여백을 위해 소량 가산.
   double get _width {
     final pages = book.pageCount ?? 250;
-    return (pages / 8).clamp(30, 50).toDouble();
+    final base = (pages / 8).clamp(30, 50).toDouble();
+    final cols = _spineColumns;
+    if (cols < 2) return base;
+    // 균일 폰트·잘림 없음 유지 — 폭으로만 여백 확보. 티 안 나게 컬럼당 소량, 상한 8px.
+    final extra = ((cols - 1) * 3.0).clamp(0.0, 8.0);
+    return base + extra;
+  }
+
+  /// 세로 조판 시 필요한 컬럼 수(제목·저자 중 큰 값) — 폭 결정용.
+  /// `_verticalText` 의 word-aware 패킹과 동일 로직이어야 함(둘을 동기화 유지).
+  int get _spineColumns {
+    final titleCols =
+        _columnsFor(_spineTitle, _titleFs, height * _titleFlex / 100 - 14);
+    final a = _spineAuthor;
+    final authorCols =
+        a == null ? 1 : _columnsFor(a, _authorFs, height * _authorFlex / 100 - 7);
+    return titleCols > authorCols ? titleCols : authorCols;
+  }
+
+  /// 주어진 텍스트를 세로 컬럼으로 쌓을 때 필요한 컬럼 수(`_verticalText` 미러).
+  int _columnsFor(String text, double fs, double availH) {
+    if (availH <= 0) return 1;
+    final lineH = fs * _lineH;
+    final spaceGap = fs * 0.45;
+    var cols = 1;
+    var h = 0.0;
+    var placed = false;
+    for (final word in text.split(RegExp(r'\s+')).where((w) => w.isNotEmpty)) {
+      final chars = word.characters.length;
+      if (placed && h + spaceGap + chars * lineH > availH) {
+        cols++;
+        h = 0;
+        placed = false;
+      } else if (placed) {
+        h += spaceGap;
+      }
+      for (var i = 0; i < chars; i++) {
+        if (placed && h + lineH > availH) {
+          cols++;
+          h = 0;
+          placed = false;
+        }
+        h += lineH;
+        placed = true;
+      }
+    }
+    return cols;
   }
 
   /// 책등 표시용 본제목 — 부제/병기/시리즈 번호 제거.
@@ -220,7 +272,7 @@ class BookSpine extends StatelessWidget {
           children: [
             // 주색 블록 (66%) — 제목 dominant (세로쓰기, 중앙 정렬)
             Expanded(
-              flex: 66,
+              flex: _titleFlex,
               child: Container(
                 width: double.infinity,
                 color: primaryColor,
@@ -237,7 +289,7 @@ class BookSpine extends StatelessWidget {
             ),
             // 보조색 블록 (28%) — 저자 secondary (세로쓰기, 하단)
             Expanded(
-              flex: 28,
+              flex: _authorFlex,
               child: Container(
                 width: double.infinity,
                 color: secondaryColor,
@@ -263,7 +315,7 @@ class BookSpine extends StatelessWidget {
             ),
             // 액센트 띠 (6%)
             Expanded(
-              flex: 6,
+              flex: _accentFlex,
               child: Container(width: double.infinity, color: accentColor),
             ),
           ],
