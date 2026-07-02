@@ -71,6 +71,20 @@ final authorGroupsProvider = Provider<Map<String, List<UserBook>>>((ref) {
   return grouped;
 });
 
+/// 서재에서 특정 book_id 의 UserBook 조회(없으면 null).
+///
+/// 홈 진입 시 이미 로드된 bookshelfProvider 를 재사용 — 추가 네트워크 0.
+/// 로딩/에러 중엔 null 을 반환해 호출측이 "새 책" UI 로 폴백한다(잘못돼도
+/// 데이터 계층 resolveShelfWrite 가 전이/no-op 로 안전).
+final userBookForProvider = Provider.family<UserBook?, String>((ref, bookId) {
+  final books = ref.watch(bookshelfProvider).valueOrNull;
+  if (books == null) return null;
+  for (final ub in books) {
+    if (ub.bookId == bookId) return ub;
+  }
+  return null;
+});
+
 final registrationServiceProvider =
     Provider<BookRegistrationService>((ref) => BookRegistrationService());
 
