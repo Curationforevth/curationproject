@@ -115,7 +115,12 @@ def test_recompute_empty_user_clears_cache(monkeypatch):
 
 
 def test_computing_flag_preserves_existing_recommendations(monkeypatch):
-    """§4.5 R2 NEW#1: computing=True 세팅 시 기존 recs 를 비우지 않는다(stale-serve 보존)."""
+    """§4.5 R2 NEW#1: computing=True 세팅 시 기존 recs 를 비우지 않는다(stale-serve 보존).
+
+    PR-C(2026-07-02)부터 보존 메커니즘 = 기존 행 UPDATE 로 recs 미접촉
+    (과거: recs 를 upsert 로 되보내 보존 — payload 낭비). upsert 로 빈 recs 를
+    보내 blank 하는 회귀를 잡는 건 동일.
+    """
     dim = 8
     app_state = types.SimpleNamespace(
         index=VectorIndex(dim=dim), prestacked_reasons={}, bid_order=["x"],
@@ -136,8 +141,7 @@ def test_computing_flag_preserves_existing_recommendations(monkeypatch):
 
     cache_mod.recompute_recommendations("U3", app_state)
 
-    # 첫 recommendation_cache upsert = computing 플래그 → recommendations 보존돼야 함
-    assert sb.cache_upserts, "computing 플래그 upsert 가 있어야 함"
-    flag_upsert = sb.cache_upserts[0]
-    assert flag_upsert.get("computing") is True
-    assert flag_upsert.get("recommendations") == prior, "기존 recs 가 보존돼야 함(blank 금지)"
+    # 기존 행이 있으므로 upsert 로 recs 를 blank 하면 안 된다 — UPDATE(미접촉) 보존.
+    for row in sb.cache_upserts:
+        assert row.get("recommendations") != [], \
+            "기존 recs 를 빈 리스트 upsert 로 blank 하면 안 됨(stale-serve 보존)"
