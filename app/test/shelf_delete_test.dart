@@ -230,6 +230,12 @@ void main() {
       await tester.tap(find.text('실행 취소'));
       await tester.pump();
       expect(restoreCalled, isTrue);
+
+      // 강제 해제 타이머(4초) 소진 + 스낵바가 실제로 닫히는지 —
+      // accessibleNavigation 환경에서 영원히 남던 회귀 방지.
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+      expect(find.text('삭제했어요'), findsNothing);
     });
   });
 }

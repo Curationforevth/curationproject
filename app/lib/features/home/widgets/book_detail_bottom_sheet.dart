@@ -158,9 +158,10 @@ class _BookDetailBottomSheetState extends ConsumerState<BookDetailBottomSheet> {
     );
 
     if (rootContext.mounted) {
-      ScaffoldMessenger.of(
+      showTimedSnackBar(
         rootContext,
-      ).showSnackBar(const SnackBar(content: Text('알겠어요, 이런 책은 덜 보여드릴게요')));
+        const SnackBar(content: Text('알겠어요, 이런 책은 덜 보여드릴게요')),
+      );
     }
   }
 
@@ -211,7 +212,14 @@ class _BookDetailBottomSheetState extends ConsumerState<BookDetailBottomSheet> {
         color: AppColors.surface,
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      child: Column(
+      // 스크롤 + 최대높이: 미보유 책은 상태 버튼 3개로 시트가 길어져 하단
+      // ('관심 없어요', 비슷한 책)이 화면 밖으로 넘치면 그려는 지되 터치가
+      // 안 잡히는 문제가 있었다(Eden 실기기 리포트). 넘치면 스크롤로 도달.
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(context).height * 0.85,
+      ),
+      child: SingleChildScrollView(
+        child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           // 드래그 핸들
@@ -346,6 +354,7 @@ class _BookDetailBottomSheetState extends ConsumerState<BookDetailBottomSheet> {
           // 하단 안전 여백
           SizedBox(height: MediaQuery.of(context).padding.bottom + 24),
         ],
+        ),
       ),
     );
   }
@@ -520,10 +529,19 @@ class NotInterestedAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 회색 텍스트만 있으면 비활성 버튼처럼 보인다(Eden 리포트) — 아웃라인으로
+    // "눌리는 것"임을 드러내되 destructive 톤은 피한다(보조 액션).
     return Center(
-      child: TextButton(
+      child: OutlinedButton(
         onPressed: onTap,
-        style: TextButton.styleFrom(foregroundColor: AppColors.textSecondary),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppColors.textSecondary,
+          side: const BorderSide(color: AppColors.border),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+        ),
         child: const Text(
           '관심 없어요',
           style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
@@ -533,10 +551,28 @@ class NotInterestedAction extends StatelessWidget {
   }
 }
 
+/// 스낵바를 띄우고 [duration] 후 **타이머로 강제 해제**한다.
+///
+/// iOS 보조 내비게이션(AssistiveTouch/VoiceOver → accessibleNavigation=true)
+/// 환경에서 Flutter 는 액션 있는 스낵바를 자동 해제하지 않는다 — '삭제했어요'가
+/// 영원히 남고, 큐에 쌓인 다음 스낵바('알겠어요…')까지 막던 실기기 문제(Eden
+/// 리포트)의 근본수정. 표시 전에 기존 스낵바도 청소해 큐 블로킹을 끊는다.
+void showTimedSnackBar(
+  BuildContext context,
+  SnackBar bar, {
+  Duration duration = const Duration(seconds: 4),
+}) {
+  final messenger = ScaffoldMessenger.of(context);
+  messenger.clearSnackBars();
+  final controller = messenger.showSnackBar(bar);
+  Timer(duration, controller.close);
+}
+
 /// 삭제 직후 스낵바 — "삭제했어요" + "실행 취소" 액션. [onUndo] 는 탭 시
-/// 호출측(restoreToShelf 등)이 스냅숏 복원을 담당한다.
+/// 호출측(restoreToShelf 등)이 스냅숏 복원을 담당한다. 4초 후 자동 해제.
 void showDeletedSnackBar(BuildContext context, {required VoidCallback onUndo}) {
-  ScaffoldMessenger.of(context).showSnackBar(
+  showTimedSnackBar(
+    context,
     SnackBar(
       content: const Text('삭제했어요'),
       action: SnackBarAction(label: '실행 취소', onPressed: onUndo),
