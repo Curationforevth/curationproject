@@ -16,7 +16,7 @@ Eden feedback_batch_operations 준수:
 - 결과 count 로깅
 """
 from __future__ import annotations
-import os, sys
+import os, re, sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -25,6 +25,22 @@ from config import get_supabase
 MIN_GENRE_BOOKS = 10
 MIN_AUTHOR_BOOKS = 3
 MIN_KEYWORD_BOOKS = 5
+
+
+def normalize_primary_author(raw: str) -> str | None:
+    """대표 저자 정규화 — DB 함수 normalize_primary_author 와 동일 규칙
+    (마이그레이션 20260702000000, 앱 author_format.dart 와 3층 동기 — 동등성 테스트로 고정).
+
+    콤마 앞 첫 저자 → 괄호(역할 표기) 제거 → 꼬리 역할어('지음' 류) 제거 → trim.
+    소스별 표기('한강' vs '한강 (지은이)' vs '요한 하리 지음')를 하나로 병합해
+    by_author 매칭·카운트가 표기 차이로 새지 않게 한다.
+    """
+    if not raw:
+        return None
+    primary = raw.split(",")[0]
+    primary = re.sub(r"\s*\([^)]*\)", "", primary)
+    primary = re.sub(r"\s+(지음|옮김|엮음|글|그림)\s*$", "", primary).strip()
+    return primary or None
 
 
 def _fetch_all(sb, table, select, filter_fn=None, batch_size=1000):
@@ -113,7 +129,8 @@ def generate_author(sb, existing: set, dry_run: bool = False) -> int:
                       lambda q: q.not_.is_("author", "null"))
     print(f"  fetched {len(rows)} books")
     from collections import Counter
-    counts = Counter(r["author"] for r in rows)
+    # 정규화 기준 집계 — 표기 변형('한강 (지은이)' 등) 카운트 병합 + 테마 제목 오염 방지
+    counts = Counter(a for a in (normalize_primary_author(r["author"]) for r in rows) if a)
     created = 0
     for author, cnt in counts.items():
         if cnt < MIN_AUTHOR_BOOKS:

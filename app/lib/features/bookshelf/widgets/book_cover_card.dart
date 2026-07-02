@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/models/book.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/utils/author_format.dart';
 
 /// 표지 이미지 기반 책 카드 (커버 피드용)
 class BookCoverCard extends StatelessWidget {
@@ -61,7 +62,7 @@ class BookCoverCard extends StatelessWidget {
             // 저자
             if (book.author != null && book.author!.isNotEmpty)
               Text(
-                book.author!,
+                displayAuthor(book.author),
                 style: TextStyle(
                   fontSize: 11,
                   color: AppColors.textSecondary,

@@ -106,9 +106,19 @@ def assemble_sections_for_user(
     index,
     recommend_scored: Optional[list] = None,
 ) -> list[dict]:
-    """Tier별 섹션 구성 규칙에 따라 실제 books 리스트를 조립한다."""
+    """Tier별 섹션 구성 규칙에 따라 실제 books 리스트를 조립한다.
+
+    섹션 간 책 중복 제거: 같은 책이 인접 섹션에 반복 노출되면(실측: '한강 컬렉션'
+    직후 '화제의 책'에 같은 책 2권) 화면 다양성이 무너진다 — 템플릿 순서 = 우선순위로
+    앞 섹션에 나온 책은 뒤 섹션에서 제외(후보가 넉넉한 소스는 다음 후보로 채움).
+    """
     templates = sections_for_tier(tier)
     sections: list[dict] = []
+    seen_bids: set = set()
+
+    def _register(section: dict) -> dict:
+        seen_bids.update(b["book_id"] for b in section.get("books", []))
+        return section
 
     # 최근 좋아한 책 id (similar seed)
     latest_liked_bid = None
@@ -133,48 +143,54 @@ def assemble_sections_for_user(
                 b = _book_dict(bid, books_meta, score=score)
                 if b:
                     books.append(b)
-            sections.append({
+            sections.append(_register({
                 "id": section_id, "type": "personal_recommend",
                 "title": "당신을 위한 추천", "books": books,
                 "algorithm_version": "h10_stage0",
-            })
+            }))
 
         elif stype == "similar":
             if latest_liked_bid and latest_liked_bid in books_meta:
                 seed_title = books_meta[latest_liked_bid].get("title", "")
-                books = _similar_books_from_seed(index, books_meta, latest_liked_bid)
-                sections.append({
+                books = [b for b in
+                         _similar_books_from_seed(index, books_meta, latest_liked_bid)
+                         if b["book_id"] not in seen_bids]
+                sections.append(_register({
                     "id": section_id, "type": "similar",
                     "title": similar_section_title(seed_title),
                     "seed_book_id": latest_liked_bid,
                     "books": books,
-                })
+                }))
             else:
                 # fallback: general curation
-                sections.append(_sample_curation(
+                sections.append(_register(_sample_curation(
                     active_themes, top_authors, top_l1s, tier, recent_curation_ids,
                     curation_cache_by_id, books_meta, personalization_override="general",
-                    section_id=section_id,
-                ))
+                    section_id=section_id, exclude_bids=seen_bids,
+                )))
 
         elif stype == "curation":
-            sections.append(_sample_curation(
+            sections.append(_register(_sample_curation(
                 active_themes, top_authors, top_l1s, tier, recent_curation_ids,
                 curation_cache_by_id, books_meta,
                 personalization_override=tpl.get("personalization"),
-                section_id=section_id,
-            ))
+                section_id=section_id, exclude_bids=seen_bids,
+            )))
 
         elif stype == "trending":
             books = []
-            for row in fallback_books[:10]:
+            for row in fallback_books:  # 30개 후보 — 중복 제외하고 10개 채움
+                if row["book_id"] in seen_bids:
+                    continue
                 b = _book_dict(row["book_id"], books_meta)
                 if b:
                     books.append(b)
-            sections.append({
+                if len(books) >= 10:
+                    break
+            sections.append(_register({
                 "id": section_id, "type": "trending",
                 "title": "화제의 책", "books": books,
-            })
+            }))
 
         elif stype == "category_nav":
             sections.append({
@@ -187,7 +203,9 @@ def assemble_sections_for_user(
 def _sample_curation(
     active_themes, top_authors, top_l1s, tier, recent_ids,
     cache_by_id, books_meta, *, personalization_override=None, section_id,
+    exclude_bids=None,
 ) -> dict:
+    exclude_bids = exclude_bids or set()
     # 개인화 필터
     pool = [t for t in active_themes
             if personalization_override is None
@@ -207,10 +225,14 @@ def _sample_curation(
 
     book_ids = cache_by_id.get(picked["id"], [])
     books: list[dict] = []
-    for bid in book_ids[:10]:
+    for bid in book_ids:  # 앞 섹션과 중복 제외하며 10개 채움
+        if bid in exclude_bids:
+            continue
         b = _book_dict(bid, books_meta)
         if b:
             books.append(b)
+        if len(books) >= 10:
+            break
 
     return {
         "id": f"curation_{picked['id']}",

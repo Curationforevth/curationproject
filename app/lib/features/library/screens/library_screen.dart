@@ -6,6 +6,7 @@ import '../../../core/models/user_book.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/bookshelf_row.dart';
 import '../../bookshelf/providers/bookshelf_provider.dart';
+import '../../../core/utils/author_format.dart';
 
 class LibraryScreen extends ConsumerWidget {
   const LibraryScreen({super.key});
@@ -295,7 +296,7 @@ class _ReadingCard extends ConsumerWidget {
                 if (book.author != null && book.author!.isNotEmpty) ...[
                   const SizedBox(height: 2),
                   Text(
-                    book.author!,
+                    displayAuthor(book.author),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(

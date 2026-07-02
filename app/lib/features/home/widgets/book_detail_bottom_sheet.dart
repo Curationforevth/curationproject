@@ -10,6 +10,7 @@ import '../../../core/services/recommendation_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../bookshelf/providers/bookshelf_provider.dart';
 import '../providers/recommendation_provider.dart';
+import '../../../core/utils/author_format.dart';
 
 /// 책 상세 바텀시트 — 커버 피드에서 탭했을 때 표시
 class BookDetailBottomSheet extends ConsumerStatefulWidget {
@@ -196,7 +197,7 @@ class _BookDetailBottomSheetState
                       const SizedBox(height: 4),
                       if (book.author != null && book.author!.isNotEmpty)
                         Text(
-                          book.author!,
+                          displayAuthor(book.author),
                           style: const TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w300,
