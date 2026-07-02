@@ -145,6 +145,15 @@ def save_cache_if_current(
                 "save_cache_if_current: live state moved past computed input "
                 "for user %s — skipping stale write", user_id
             )
+            # computing 을 반드시 내린다 — 계산 중 유저가 좋아요를 더 바꾸면 그 변경의
+            # /recompute 트리거는 computing=true 에 걸려 skip 됐다. 여기서 안 내리면
+            # 다음 트리거까지 캐시가 STUCK 가드(180s)에 갇히는 잠재 데드락(저장은
+            # 어차피 skip 이므로 플래그만 해제 → 다음 트리거/캐시미스가 즉시 재계산).
+            try:
+                get_supabase().table("recommendation_cache").update(
+                    {"computing": False}).eq("user_id", user_id).execute()
+            except Exception:
+                pass
             return
     except Exception as exc:
         # live 확인 실패 시 보수적으로 저장 진행 — stale 캐시보다 최신 결과가 낫다.
@@ -220,15 +229,19 @@ def recompute_recommendations(user_id: str, app_state) -> None:
         )
 
     # computing 플래그 설정 — 기존 recommendations 는 보존(stale-serve 폴백 유지).
-    # (blank 하면 inline 저장 skip 과 겹쳐 임베딩(수초) 동안 thin-only 가 됨.)
+    # 기존 행은 UPDATE 로 플래그 컬럼만 갱신(recs 를 되보내는 upsert 는 왕복 payload 만
+    # 키움 — 미접촉이 곧 보존). 행이 없을 때만 최소 행 upsert.
     try:
-        sb.table("recommendation_cache").upsert(
-            {"user_id": user_id, "computing": True,
-             "input_hash": "__computing__",
-             "recommendations": (existing or {}).get("recommendations", []),
-             "computed_at": datetime.now(timezone.utc).isoformat()},
-            on_conflict="user_id",
-        ).execute()
+        flag_cols = {"computing": True, "input_hash": "__computing__",
+                     "computed_at": datetime.now(timezone.utc).isoformat()}
+        if existing:
+            sb.table("recommendation_cache").update(flag_cols).eq(
+                "user_id", user_id).execute()
+        else:
+            sb.table("recommendation_cache").upsert(
+                {"user_id": user_id, "recommendations": [], **flag_cols},
+                on_conflict="user_id",
+            ).execute()
     except Exception as exc:
         logger.warning("recompute: failed to set computing flag for %s: %s", user_id, exc)
     _mark("flag")
@@ -260,15 +273,18 @@ def recompute_recommendations(user_id: str, app_state) -> None:
         for r in rated:
             r["user_id"] = user_id  # ensure_feedback_embedded 가 키로 사용
         ensure_feedback_embedded(rated, sb)                              # C3 (태그+리뷰)
-        ensure_books_embedded([r["book_id"] for r in rated], sb)        # C1 (유저 책)
+        # C1: 인덱스 밖 rated 책만 — 인덱스 내 책은 빌드가 book_v3_vectors 에서 만들어
+        # 존재가 보장되므로 조회 자체를 skip(평상시 SELECT 1회 절약, 전부 인덱스 내면 0콜).
+        bid_order_set = set(app_state.bid_order or [])
+        ensure_books_embedded(
+            [r["book_id"] for r in rated if r["book_id"] not in bid_order_set], sb)
         _mark("embed")
 
-        # post-embedding 재read → input_hash 가 live(has_fb 반영)와 일치(코히런스).
-        ub_res = sb.table("user_books").select(
-            "book_id,rating,feedback_embedding"
-        ).eq("user_id", user_id).execute()
+        # 재read(구 db2) 제거 — ensure_feedback_embedded 가 성공분을 행에 in-place
+        # 반영하므로 이 시점의 ub_res.data 가 곧 스코어링 입력. 그 상태를 그대로
+        # 해싱해야 hash 와 스코어 입력이 정확히 일치(코히런스). 계산 중 유저 변경의
+        # staleness 는 save_cache_if_current 의 live 체크가 가드.
         input_hash = compute_input_hash(ub_res.data)
-        _mark("db2")
 
         liked_books: dict = {}
         fb_data: dict = {}
@@ -289,7 +305,6 @@ def recompute_recommendations(user_id: str, app_state) -> None:
                 fb_data[bid] = {"emb": to_np(fb_emb), "is_dislike": rating == "bad"}
 
         # C2: 정적 인덱스 밖 좋/싫 책 벡터를 DB 에서 읽어 쿼리로 주입 (OpenAI 없음).
-        bid_order_set = set(app_state.bid_order or [])
         extra_query = resolve_extra_query_vectors(
             list(liked_books.keys()), bid_order_set, sb)
         _mark("extra")

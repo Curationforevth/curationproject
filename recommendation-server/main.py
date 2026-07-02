@@ -11,10 +11,9 @@ from api.home import router as home_router
 from api.curation import router as curation_router
 
 # 배포 검증용 코드 리비전 마커. /health 로 어떤 코드가 라이브인지 관측한다.
-# twostage-vectorized: Phase 2 계산 단축 — stage1 선형항 접기 + stage2 reduceat
-# 벡터화(점수보존, 동등성 검증 완료) + BLAS 스레드 1 고정(0.1 vCPU 경합 제거).
-# baseline: s1=47~48s, s2=15~17s (recompute-timings 계측, 2026-07-02).
-CODE_REV = "twostage-vectorized-20260702"
+# recompute-io-slim: recompute DB 왕복 축소(재read 제거·인덱스밖 필터·flag UPDATE)
+# + save skip 시 computing 해제(잠재 데드락). 직전 twostage-vectorized(63.5s→2.76s).
+CODE_REV = "recompute-io-slim-20260702"
 
 
 @asynccontextmanager
