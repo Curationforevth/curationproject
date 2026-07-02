@@ -207,6 +207,27 @@ class TestStage2Equivalence:
         index, bids, ps, dm, am, extra, rng = _make_world(7)
         assert batch_score_prestacked(index, {}, {}, bids, ps) == {}
 
+    def test_stage2_chunking_is_block_invariant(self, monkeypatch):
+        """STAGE2_CHUNK 블록 분할은 무분할과 동일 결과(후보별 점수 상호 독립).
+
+        단 BLAS GEMM 이 행렬 크기별로 커널 블로킹을 달리해 마지막 ulp(~1e-7)는
+        달라질 수 있음 — 허용오차 1e-5 + 상위권 순위 불변으로 고정.
+        빈-reason 후보가 블록 경계·블록 전체를 차지하는 경우 포함.
+        """
+        import engine.twostage as ts
+        index, bids, ps, dm, am, extra, rng = _make_world(7)
+        liked, fb = _make_user(bids, rng)
+        cands = [b for b in bids if b not in liked]
+        monkeypatch.setattr(ts, "STAGE2_CHUNK", 10_000)  # 단일 블록
+        single = batch_score_prestacked(index, liked, fb, cands, ps, extra_query=extra)
+        monkeypatch.setattr(ts, "STAGE2_CHUNK", 3)       # 다중 블록(경계 다수)
+        chunked = batch_score_prestacked(index, liked, fb, cands, ps, extra_query=extra)
+        assert set(single) == set(chunked)
+        for cid in single:
+            assert abs(single[cid] - chunked[cid]) < 1e-5, f"{cid}: 블록 분할이 점수를 바꿈"
+        top10 = lambda d: sorted(d, key=d.get, reverse=True)[:10]
+        assert top10(single) == top10(chunked)
+
     def test_tier_penalty_applied_identically(self):
         """kakao_desc/minimal 후보의 positive-part 페널티가 신규 경로에도 동일."""
         index, bids, ps, dm, am, extra, rng = _make_world(7, with_tier=True)

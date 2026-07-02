@@ -22,6 +22,13 @@ from config import (W_REASON, W_DESC, W_L1, W_L2, W_FB_DESC,
 # f16→f32 는 무손실이고 모든 reduction 이 행단위라 블록 처리는 전체 처리와 bit-identical.
 STAGE1_CHUNK = 1024
 
+# stage2 후보 블록 크기 — 후보 reasons f32 concat(CR)이 top_n 에 비례해 커지는 걸
+# O(block)으로 고정. 후보풀은 reason-rich 책으로 편향돼(평균 4.7개 대비 ~15개)
+# top_n=700 무분할 시 transient ~175MB(실측) → 348MB 상주와 합쳐 512MB 초과 위험.
+# 후보별 점수는 상호 독립이라 블록 분할은 결과 동일(BLAS 커널 블로킹 차이로
+# 마지막 ulp ~1e-7 만 허용 — 불변성 테스트로 고정).
+STAGE2_CHUNK = 150
+
 
 def stage1_hybrid(
     liked_books: dict,
@@ -177,7 +184,34 @@ def batch_score_prestacked(
     w_fb_desc: float = W_FB_DESC,
     extra_query: dict | None = None,
 ) -> dict:
-    """Stage 2 정밀 스코어링 — 완전 벡터화.
+    """Stage 2 정밀 스코어링 — 후보를 STAGE2_CHUNK 블록으로 나눠 벡터화 스코어링.
+
+    후보별 점수는 상호 독립이라 블록 분할은 무분할과 bit-identical. 분할 이유는
+    메모리(STAGE2_CHUNK 주석) — 쿼리측 준비(작음)만 블록마다 반복된다.
+    """
+    scores: dict = {}
+    for s in range(0, len(candidate_ids), STAGE2_CHUNK):
+        scores.update(_batch_score_block(
+            index, liked_books, fb_data, candidate_ids[s:s + STAGE2_CHUNK],
+            prestacked_reasons, w_reason=w_reason, w_desc=w_desc,
+            w_l1=w_l1, w_l2=w_l2, w_fb_desc=w_fb_desc, extra_query=extra_query))
+    return scores
+
+
+def _batch_score_block(
+    index: VectorIndex,
+    liked_books: dict,
+    fb_data: dict,
+    candidate_ids: list,
+    prestacked_reasons: dict,          # {bid: (n_reasons, dim) float16}
+    w_reason: float = W_REASON,
+    w_desc: float = W_DESC,
+    w_l1: float = W_L1,
+    w_l2: float = W_L2,
+    w_fb_desc: float = W_FB_DESC,
+    extra_query: dict | None = None,
+) -> dict:
+    """한 후보 블록의 완전 벡터화 스코어링 (batch_score_prestacked 가 감쌈).
 
     기준선(twostage_reference.batch_score_prestacked_reference)과 점수 동일
     (max|Δ|<1e-4, float 합산 순서 기인). 과거 구현은 후보 C × 쿼리책 (G+B) 이중
