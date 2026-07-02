@@ -22,3 +22,10 @@ jobs:
           # config.py가 import 시점에 OPENAI_API_KEY를 필수로 요구하므로 (이 스크립트는
           # OpenAI를 직접 쓰진 않지만) cluster-themes 워크플로우와 동일하게 전달.
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      # 신규 keyword 테마 LLM 품질 게이트 — 미정제(템플릿 desc)만 심사하므로 증분.
+      # 주간 신규 소량 × gpt-4o-mini ≈ 무시 가능 비용(2026-07-02 Eden 승인).
+      - run: cd recommendation-server && python scripts/curate_theme_quality.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
