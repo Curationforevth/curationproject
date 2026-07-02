@@ -22,6 +22,28 @@ BookRef resolveBookRef(Book book) {
   return BookRef.insertNew;
 }
 
+/// 서재(user_books) 등록/전이 순수 전략.
+///
+/// user_books 는 (user_id, book_id) UNIQUE — 무조건 INSERT 하면 이미 서재에 있는
+/// 책(북마크해둔 책 등)에 '읽었어요'를 누를 때 23505 duplicate key 로 터진다
+/// (화차 fix 가 books.id 를 올바르게 재사용하면서 드러난 잠복 결함 — 그전엔
+/// null-isbn 복제행이 생기며 "성공"으로 위장됐다).
+/// - 기존 행이 있으면 status 전이(UPDATE). rating/피드백은 미접촉 보존.
+/// - wishlist 로의 강등은 금지: 이미 서재에 있는 책의 북마크는 no-op
+///   (finished+rating 행을 wishlist 로 내리면 wishlist_no_rating CHECK 위반이기도).
+enum ShelfWrite { insertNew, updateStatus, keepExisting }
+
+@visibleForTesting
+ShelfWrite resolveShelfWrite({
+  required String? existingStatus,
+  required BookStatus requested,
+}) {
+  if (existingStatus == null) return ShelfWrite.insertNew;
+  if (requested == BookStatus.wantToRead) return ShelfWrite.keepExisting;
+  if (existingStatus == requested.toJson()) return ShelfWrite.keepExisting;
+  return ShelfWrite.updateStatus;
+}
+
 class BookRegistrationService {
   final SupabaseClient _supabase;
 
@@ -53,18 +75,70 @@ class BookRegistrationService {
         break;
     }
 
-    // 2. user_books insert
-    final userBookResult = await _supabase.from('user_books').insert({
-      'user_id': userId,
-      'book_id': bookId,
-      'status': status.toJson(),
-    }).select('id');
+    // 2. user_books 등록/전이 — 기존 행이 있으면 INSERT 대신 상태 전이
+    //    (resolveShelfWrite 전략, 23505 duplicate key 근본 방지).
+    final existing = await _supabase
+        .from('user_books')
+        .select('id,status')
+        .eq('user_id', userId)
+        .eq('book_id', bookId)
+        .maybeSingle();
 
-    final userBookId = userBookResult.first['id'] as String;
+    final String userBookId;
+    switch (resolveShelfWrite(
+      existingStatus: existing?['status'] as String?,
+      requested: status,
+    )) {
+      case ShelfWrite.keepExisting:
+        userBookId = existing!['id'] as String;
+        break;
+      case ShelfWrite.updateStatus:
+        userBookId = existing!['id'] as String;
+        await _supabase
+            .from('user_books')
+            .update({'status': status.toJson()}).eq('id', userBookId);
+        break;
+      case ShelfWrite.insertNew:
+        userBookId = await _insertUserBook(userId, bookId, status);
+        break;
+    }
 
     // 3. 비동기 백그라운드 — 실패해도 사용자 흐름 차단하지 않음
     _enrichBookAsync(bookId, book);
     return userBookId;
+  }
+
+  /// user_books INSERT + 레이스 폴백: select(없음)→insert 사이에 다른 탭/기기가
+  /// 먼저 넣었으면 23505 — 그 행에 같은 전이 전략을 적용한다(더블탭 안전).
+  Future<String> _insertUserBook(
+      String userId, String bookId, BookStatus status) async {
+    try {
+      final r = await _supabase.from('user_books').insert({
+        'user_id': userId,
+        'book_id': bookId,
+        'status': status.toJson(),
+      }).select('id');
+      return r.first['id'] as String;
+    } on PostgrestException catch (e) {
+      if (e.code != '23505') rethrow;
+      final row = await _supabase
+          .from('user_books')
+          .select('id,status')
+          .eq('user_id', userId)
+          .eq('book_id', bookId)
+          .single();
+      final id = row['id'] as String;
+      if (resolveShelfWrite(
+            existingStatus: row['status'] as String?,
+            requested: status,
+          ) ==
+          ShelfWrite.updateStatus) {
+        await _supabase
+            .from('user_books')
+            .update({'status': status.toJson()}).eq('id', id);
+      }
+      return id;
+    }
   }
 
   /// id·isbn 둘 다 없는 예외 경로: 같은 title+author 행이 있으면 재사용, 없으면 insert.
