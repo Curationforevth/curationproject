@@ -11,9 +11,9 @@ from api.home import router as home_router
 from api.curation import router as curation_router
 
 # 배포 검증용 코드 리비전 마커. /health 로 어떤 코드가 라이브인지 관측한다.
-# recompute-io-slim: recompute DB 왕복 축소(재read 제거·인덱스밖 필터·flag UPDATE)
-# + save skip 시 computing 해제(잠재 데드락). 직전 twostage-vectorized(63.5s→2.76s).
-CODE_REV = "recompute-io-slim-20260702"
+# scorer-reduceat-fix: v3 폴백 reduceat 말미 빈 세그먼트 IndexError 수정(PR#38).
+# 직전 recompute-io-slim(DB 왕복 축소) → twostage-vectorized(63.5s→2.76s).
+CODE_REV = "scorer-reduceat-fix-20260702"
 
 
 @asynccontextmanager
