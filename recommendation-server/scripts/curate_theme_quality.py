@@ -124,11 +124,28 @@ def _judge_batch(keywords: list[str]) -> dict:
     return actions
 
 
+def _fetch_all_active_keyword(sb, batch_size: int = 1000) -> list[dict]:
+    """활성 keyword 테마 전체 — range 페이지네이션.
+
+    (교훈: supabase-py 기본 응답은 1000행 캡 — 페이지네이션 없이 fetch 하면
+    앞 1000행 창만 처리해 '완료된 척'한다. 첫 실행이 이 함정으로 절반만 정제했음.)
+    """
+    rows, start = [], 0
+    while True:
+        res = sb.table("curation_themes").select(
+            "id,target_keyword,title,description"
+        ).eq("theme_type", "keyword").eq("is_active", True).range(
+            start, start + batch_size - 1).execute()
+        data = res.data or []
+        rows.extend(data)
+        if len(data) < batch_size:
+            return rows
+        start += batch_size
+
+
 def main(dry_run: bool = False):
     sb = get_supabase()
-    rows = sb.table("curation_themes").select(
-        "id,target_keyword,title,description"
-    ).eq("theme_type", "keyword").eq("is_active", True).execute().data or []
+    rows = _fetch_all_active_keyword(sb)
     todo = [r for r in rows if is_unrefined(r)]
     print(f"[theme_quality] active keyword themes: {len(rows)}, 미정제: {len(todo)}, "
           f"dry_run={dry_run}")

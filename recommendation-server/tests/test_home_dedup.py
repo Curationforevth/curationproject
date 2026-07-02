@@ -36,7 +36,7 @@ class TestNormalizePrimaryAuthor:
 
 
 def _meta(bids):
-    return {b: {"title": f"t{b}", "author": f"a{b}", "cover_url": None} for b in bids}
+    return {b: {"title": f"t{b}", "author": f"a{b}", "cover_url": "http://cover"} for b in bids}
 
 
 class TestCrossSectionDedup:
@@ -50,6 +50,42 @@ class TestCrossSectionDedup:
         )
         defaults.update(kw)
         return assemble_sections_for_user(**defaults)
+
+    def test_coverless_books_excluded_and_backfilled(self):
+        """홈=비주얼 서가 — 커버 없는 책은 제외하고 다음 후보로 채운다."""
+        covered = [f"c{i}" for i in range(12)]
+        coverless = [f"n{i}" for i in range(5)]
+        meta = _meta(covered)
+        meta.update({b: {"title": b, "author": "a", "cover_url": None} for b in coverless})
+        sections = self._assemble(
+            active_themes=[],
+            curation_cache_by_id={},
+            fallback_books=[{"book_id": b} for b in coverless + covered],
+            books_meta=meta,
+        )
+        trend = next(s for s in sections if s["type"] == "trending")
+        ids = {b["book_id"] for b in trend["books"]}
+        assert not (ids & set(coverless)), "커버 없는 책이 홈에 노출되면 안 됨"
+        assert len(ids) == 10, "다음 후보로 10개를 채워야 함"
+
+    def test_curation_pool_requires_cache(self):
+        """캐시가 아직 없는(갓 생성된) 테마는 뽑지 않는다 — 빈 섹션 방지."""
+        books = [f"b{i}" for i in range(10)]
+        themes = [
+            {"id": 1, "title": "캐시없음", "personalization": "general",
+             "priority": 100.0, "click_rate": 0.0, "shown_count": 0},
+            {"id": 2, "title": "캐시있음", "personalization": "general",
+             "priority": 0.001, "click_rate": 0.0, "shown_count": 0},
+        ]
+        sections = self._assemble(
+            active_themes=themes,
+            curation_cache_by_id={2: books},  # 1번은 캐시 없음(가중치 압도적이어도)
+            fallback_books=[],
+            books_meta=_meta(books),
+        )
+        cur = [s for s in sections if s["type"] == "curation" and s.get("books")]
+        assert cur, "렌더 가능한 테마가 뽑혀야 함"
+        assert all(s["title"] == "캐시있음" for s in cur)
 
     def test_trending_excludes_books_shown_in_curation(self):
         """큐레이션에 나온 책이 바로 아래 trending 에 반복되지 않는다(실측 케이스)."""
