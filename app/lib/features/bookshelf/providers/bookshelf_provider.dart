@@ -25,8 +25,7 @@ final bookshelfProvider = FutureProvider<List<UserBook>>((ref) async {
 });
 
 /// 상태별 그룹핑
-final booksByStatusProvider =
-    Provider<Map<BookStatus, List<UserBook>>>((ref) {
+final booksByStatusProvider = Provider<Map<BookStatus, List<UserBook>>>((ref) {
   final booksAsync = ref.watch(bookshelfProvider);
   final books = booksAsync.valueOrNull ?? [];
 
@@ -46,9 +45,7 @@ final bookCountProvider = Provider<int>((ref) {
 final unreviewedBooksProvider = Provider<List<UserBook>>((ref) {
   final byStatus = ref.watch(booksByStatusProvider);
   final readBooks = byStatus[BookStatus.read] ?? [];
-  return readBooks
-      .where((ub) => ub.book != null && ub.rating == null)
-      .toList();
+  return readBooks.where((ub) => ub.book != null && ub.rating == null).toList();
 });
 
 /// 작가별 그룹핑 (2권+ 필터)
@@ -85,11 +82,16 @@ final userBookForProvider = Provider.family<UserBook?, String>((ref, bookId) {
   return null;
 });
 
-final registrationServiceProvider =
-    Provider<BookRegistrationService>((ref) => BookRegistrationService());
+final registrationServiceProvider = Provider<BookRegistrationService>(
+  (ref) => BookRegistrationService(),
+);
 
 /// 서재에 책 추가. 등록된 userBookId를 반환.
-Future<String> addBookToShelf(WidgetRef ref, Book book, BookStatus status) async {
+Future<String> addBookToShelf(
+  WidgetRef ref,
+  Book book,
+  BookStatus status,
+) async {
   final service = ref.read(registrationServiceProvider);
   final userBookId = await service.registerBook(book, status);
   ref.invalidate(bookshelfProvider);
@@ -109,4 +111,109 @@ Future<void> reorderBooks(WidgetRef ref, List<UserBook> reordered) async {
         .eq('id', reordered[i].id);
   }
   ref.invalidate(bookshelfProvider);
+}
+
+// ---------------------------------------------------------------------------
+// 서재 삭제 + 실행 취소 (설계:
+// docs/superpowers/specs/2026-07-02-shelf-remove-not-interested-design.md)
+// ---------------------------------------------------------------------------
+
+/// 삭제 전 UserBook 행 전체(id 포함)를 스냅숏 Map 으로 뜬다 — 실행 취소 시
+/// 그대로 재 INSERT 하기 위함. UserBook.toJson() 은 id 를 뺀 upsert-only 형태라
+/// 별도로 둔다(순수 함수 — 테스트 가능).
+Map<String, dynamic> userBookSnapshot(UserBook ub) {
+  return {
+    'id': ub.id,
+    'user_id': ub.userId,
+    'book_id': ub.bookId,
+    'status': ub.status.toJson(),
+    'shelf_order': ub.shelfOrder,
+    'rating': ub.rating,
+    'emotion_tags': ub.emotionTags,
+    'review_text': ub.reviewText,
+  };
+}
+
+/// 스냅숏으로부터 재삽입용 payload 를 만든다. [includeId] 가 false 면 id 를 빼
+/// DB 가 새 id 를 발급하게 한다(23505 폴백 — 원래 id 가 이미 다른 행에 쓰였을 때).
+Map<String, dynamic> restoreInsertPayload(
+  Map<String, dynamic> snapshot, {
+  required bool includeId,
+}) {
+  final payload = Map<String, dynamic>.from(snapshot);
+  if (!includeId) payload.remove('id');
+  return payload;
+}
+
+/// user_books 행 DELETE. 삭제 전 스냅숏(모든 컬럼)을 반환 — 실행 취소 복원용.
+///
+/// WidgetRef 가 아니라 ProviderContainer 를 받는다: 호출측(바텀시트)이 pop 된
+/// 뒤에도(2초 지연 invalidate, 스낵바 실행 취소) 동작해야 하는데, 폐기된 위젯의
+/// ref 는 StateError 를 던진다. container 는 위젯 수명과 무관.
+Future<Map<String, dynamic>> removeFromShelf(
+  ProviderContainer container,
+  UserBook userBook,
+) async {
+  final supabase = Supabase.instance.client;
+  final snapshot = await removeFromShelfWith(supabase, userBook);
+  container.invalidate(bookshelfProvider);
+  // 서재가 바뀌었으니 서버가 추천을 선제 재계산하게 fire-and-forget 트리거
+  // (addBookToShelf 와 동일 패턴). await 하지 않는다.
+  unawaited(container.read(recommendationServiceProvider).triggerRecompute());
+  // 추천 섹션만 2초 지연 후 재조회 — feedback_flow_provider.dart submit() 의
+  // 지연 invalidate 패턴과 동일(recompute 가 서버에 computing 플래그를 세울
+  // 시간을 준다). computing=true 응답은 _RecommendationPoller 가 폴링한다.
+  unawaited(
+    Future<void>.delayed(const Duration(seconds: 2)).then((_) {
+      container.invalidate(recommendationsProvider);
+    }),
+  );
+  return snapshot;
+}
+
+/// removeFromShelf 의 Supabase 호출부만 분리 — 테스트에서 fake client 주입용.
+Future<Map<String, dynamic>> removeFromShelfWith(
+  SupabaseClient client,
+  UserBook userBook,
+) async {
+  final snapshot = userBookSnapshot(userBook);
+  await client.from('user_books').delete().eq('id', userBook.id);
+  return snapshot;
+}
+
+/// 삭제 전 스냅숏 그대로 user_books 행을 복원(실행 취소). id 재사용을 먼저
+/// 시도하고, 23505(이미 다른 행이 그 id 를 씀)면 id 를 빼고 재삽입한다.
+Future<void> restoreToShelf(
+  ProviderContainer container,
+  Map<String, dynamic> snapshot,
+) async {
+  final supabase = Supabase.instance.client;
+  await restoreToShelfWith(supabase, snapshot);
+  container.invalidate(bookshelfProvider);
+  unawaited(container.read(recommendationServiceProvider).triggerRecompute());
+  unawaited(
+    Future<void>.delayed(const Duration(seconds: 2)).then((_) {
+      container.invalidate(recommendationsProvider);
+    }),
+  );
+}
+
+/// restoreToShelf 의 Supabase 호출부만 분리 — 테스트에서 fake client 주입용.
+Future<void> restoreToShelfWith(
+  SupabaseClient client,
+  Map<String, dynamic> snapshot,
+) async {
+  try {
+    await client
+        .from('user_books')
+        .insert(restoreInsertPayload(snapshot, includeId: true));
+  } on PostgrestException catch (e) {
+    if (e.code == '23505') {
+      await client
+          .from('user_books')
+          .insert(restoreInsertPayload(snapshot, includeId: false));
+    } else {
+      rethrow;
+    }
+  }
 }

@@ -15,7 +15,8 @@ import numpy as np
 from engine.index import VectorIndex
 from config import (W_REASON, W_DESC, W_L1, W_L2, W_FB_DESC,
                     REASON_WEIGHT_WITH_FB, REASON_WEIGHT_WITHOUT_FB,
-                    FB_REASON_WEIGHT, SOURCE_TIER_PENALTY)
+                    FB_REASON_WEIGHT, SOURCE_TIER_PENALTY,
+                    W_WISHLIST_DESC, W_NOT_INTERESTED_DESC)
 
 # stage1 의 f32 업캐스트(dm/am)를 행블록으로 처리해 요청당 transient 를 O(block)으로
 # 고정(N 무관). 무료 512MB 에서 후보풀이 커져도 OOM 안 나게 하는 핵심(2026-06-29 OOM).
@@ -38,14 +39,21 @@ def stage1_hybrid(
     bid_order: list[str],
     top_n: int = 700,
     extra_query: dict | None = None,
+    wishlist_ids: list[str] | None = None,
+    not_interested_ids: set[str] | None = None,
 ) -> list[str]:
     # extra_query: 정적 인덱스(bid_order) 밖 좋/싫 책의 BookVectors. desc 만 query 로
     # 주입한다(fb 는 아래 fb_data 루프가 무가드로 이미 반영 — 이중계산 금지).
+    # wishlist_ids/not_interested_ids: 추천 화면 행동 신호 (2026-07-02, config 주석 참고).
+    # 기본 None = 신호 없음 → 기존과 동일 동작 (동등성 테스트 보전).
     extra_query = extra_query or {}
+    wishlist_ids = wishlist_ids or []
+    not_interested_ids = not_interested_ids or set()
 
     good_ids = [bid for bid, d in liked_books.items() if d["rating"] == "good"]
     bad_ids = [bid for bid, d in liked_books.items() if d["rating"] == "bad"]
-    read_ids = set(liked_books.keys())
+    # 관심없음 책은 서재 책과 동일하게 후보에서 완전 제외된다.
+    read_ids = set(liked_books.keys()) | not_interested_ids
 
     if not good_ids:
         return []
@@ -106,6 +114,19 @@ def stage1_hybrid(
         pb_desc_terms.append((3.0, extra_query[bid].desc.astype(np.float32)))
     for bid in extra_bad:
         pb_desc_terms.append((-1.5, extra_query[bid].desc.astype(np.float32)))
+    # 행동 신호 desc 항 — wishlist 약한 긍정 / not_interested 약한 부정 (config 주석).
+    # wishlist 는 인덱스 밖이면 extra_query 로 주입, NI 는 추천에서 온 책이라 인덱스 내
+    # 전제(밖이면 skip — 제외 마스크는 이미 적용됨).
+    for bid in wishlist_ids:
+        idx = bid_to_idx.get(bid)
+        if idx is not None:
+            pb_desc_terms.append((W_WISHLIST_DESC, desc_matrix_f16[idx].astype(np.float32)))
+        elif bid in extra_query:
+            pb_desc_terms.append((W_WISHLIST_DESC, extra_query[bid].desc.astype(np.float32)))
+    for bid in not_interested_ids:
+        idx = bid_to_idx.get(bid)
+        if idx is not None:
+            pb_desc_terms.append((W_NOT_INTERESTED_DESC, desc_matrix_f16[idx].astype(np.float32)))
     for sign, emb in fb_terms:
         pb_desc_terms.append((sign * 2.0, emb))
 
@@ -183,6 +204,8 @@ def batch_score_prestacked(
     w_l2: float = W_L2,
     w_fb_desc: float = W_FB_DESC,
     extra_query: dict | None = None,
+    wishlist_ids: list[str] | None = None,
+    not_interested_ids: set[str] | None = None,
 ) -> dict:
     """Stage 2 정밀 스코어링 — 후보를 STAGE2_CHUNK 블록으로 나눠 벡터화 스코어링.
 
@@ -194,7 +217,8 @@ def batch_score_prestacked(
         scores.update(_batch_score_block(
             index, liked_books, fb_data, candidate_ids[s:s + STAGE2_CHUNK],
             prestacked_reasons, w_reason=w_reason, w_desc=w_desc,
-            w_l1=w_l1, w_l2=w_l2, w_fb_desc=w_fb_desc, extra_query=extra_query))
+            w_l1=w_l1, w_l2=w_l2, w_fb_desc=w_fb_desc, extra_query=extra_query,
+            wishlist_ids=wishlist_ids, not_interested_ids=not_interested_ids))
     return scores
 
 
@@ -210,6 +234,8 @@ def _batch_score_block(
     w_l2: float = W_L2,
     w_fb_desc: float = W_FB_DESC,
     extra_query: dict | None = None,
+    wishlist_ids: list[str] | None = None,
+    not_interested_ids: set[str] | None = None,
 ) -> dict:
     """한 후보 블록의 완전 벡터화 스코어링 (batch_score_prestacked 가 감쌈).
 
@@ -337,6 +363,26 @@ def _batch_score_block(
     else:
         desc_score = np.zeros(C, dtype=np.float32)
 
+    # ── 2b. 행동 신호 desc 항 (2026-07-02, config 주석): wishlist 약긍정 / NI 약부정.
+    # max-over-signal-books — "그 결에 가장 가까운 정도"로 반영. NI 책 자체는 stage1
+    # 에서 이미 후보 제외됐고, 이 항은 '비슷한 결'의 순위를 낮춘다.
+    def _signal_desc_rows(bids, allow_extra):
+        rows = []
+        for bid in bids or []:
+            d = index.desc_of(bid)
+            if d is None and allow_extra and bid in extra_query:
+                d = extra_query[bid].desc
+            if d is not None:
+                rows.append(d.astype(np.float32))
+        return rows
+
+    wl_rows = _signal_desc_rows(wishlist_ids, allow_extra=True)
+    wl_score = ((CD @ np.stack(wl_rows).T).max(axis=1)
+                if wl_rows else np.zeros(C, dtype=np.float32))
+    ni_rows = _signal_desc_rows(not_interested_ids, allow_extra=False)
+    ni_score = ((CD @ np.stack(ni_rows).T).max(axis=1)
+                if ni_rows else np.zeros(C, dtype=np.float32))
+
     # ── 3/4. l1_score / l2_score (w=0이면 skip — prod 기본) ──
     if w_l1 != 0:
         good_l1s = [good_books[bid].l1.astype(np.float32) for bid in good_ids if bid in good_books]
@@ -374,7 +420,9 @@ def _batch_score_block(
              + w_desc * desc_score
              + w_l1 * l1_score
              + w_l2 * l2_score
-             + w_fb_desc * fb_desc_score)
+             + w_fb_desc * fb_desc_score
+             + W_WISHLIST_DESC * wl_score
+             + W_NOT_INTERESTED_DESC * ni_score)
 
     # source_tier 차등 down-weight (positive-part — 음수 점수는 미변경해
     # 0쪽으로 올려 랭크가 상승하는 버그 방지, B1). 페널티는 후보에만(쿼리책 무관).

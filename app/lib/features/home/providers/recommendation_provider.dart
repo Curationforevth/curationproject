@@ -21,6 +21,13 @@ final homeFeedRetryProvider = StateProvider<int>((ref) => 0);
 /// 10회(6초 간격, 최대 60초) 소진되면 수동 "다시 시도" 버튼으로 전환한다.
 final recomputePollProvider = StateProvider<int>((ref) => 0);
 
+/// "관심 없어요" 를 누른 책 id 셋 — 추천/비슷한책/화제의책 카드를 그리는
+/// 위젯들이 이 셋에 있는 book_id 를 즉시 필터링한다(optimistic hide).
+/// 서버 서빙 필터(user_book_signals)가 정본이라 재조회 후에도 다시 안 뜨지만,
+/// 재조회 전(다음 recompute/캐시 갱신 전)까지의 즉시 반영용 — 세션 로컬,
+/// 영속화하지 않는다(v1 범위: 되돌리기 UI 없음).
+final hiddenBookIdsProvider = StateProvider<Set<String>>((ref) => {});
+
 /// 홈 피드 — 큐레이션/트렌딩/맞춤추천/비슷한책 섹션. 피드백 후 무효화되면 재요청.
 final homeFeedProvider = FutureProvider<HomeFeed>((ref) async {
   final service = ref.watch(recommendationServiceProvider);
@@ -43,8 +50,9 @@ final homeFeedProvider = FutureProvider<HomeFeed>((ref) async {
   return feed;
 });
 
-final recommendationsProvider =
-    FutureProvider<RecommendationResult>((ref) async {
+final recommendationsProvider = FutureProvider<RecommendationResult>((
+  ref,
+) async {
   final service = ref.watch(recommendationServiceProvider);
   final result = await service.getRecommendations(limit: 10);
   unawaited(
@@ -58,16 +66,15 @@ final recommendationsProvider =
 });
 
 final similarBooksProvider =
-    FutureProvider.family<List<RecommendedBook>, String>(
-        (ref, bookId) async {
-  final service = ref.watch(recommendationServiceProvider);
-  final books = await service.getSimilarBooks(bookId, limit: 10);
-  unawaited(
-    ImpressionLogger(Supabase.instance.client).logImpressions(
-      bookIds: books.map((b) => b.bookId).toList(),
-      source: 'similar',
-      algorithmVersion: 'h10_stage0',
-    ),
-  );
-  return books;
-});
+    FutureProvider.family<List<RecommendedBook>, String>((ref, bookId) async {
+      final service = ref.watch(recommendationServiceProvider);
+      final books = await service.getSimilarBooks(bookId, limit: 10);
+      unawaited(
+        ImpressionLogger(Supabase.instance.client).logImpressions(
+          bookIds: books.map((b) => b.bookId).toList(),
+          source: 'similar',
+          algorithmVersion: 'h10_stage0',
+        ),
+      );
+      return books;
+    });
