@@ -26,10 +26,7 @@ from engine.home_cache import (
 )
 from engine.cache import (load_cache, compute_input_hash, recompute_recommendations,
                           rec_cache_reusable)
-from engine.recommend_core import try_compute_inline
-from engine.user_embed import resolve_extra_query_vectors, needs_background_embed
 from engine.dedup import dedup_by_work, dedup_similar
-from engine.utils import to_np
 
 import logging
 
@@ -333,30 +330,16 @@ async def get_home(
             recommend_scored = [(r["book_id"], r.get("score", 0.0))
                                 for r in rec_cache["recommendations"]]
         else:
-            # 캐시 없음/stale → 메모리 가드 슬롯 있으면 즉시 계산(첫 로드에 개인화).
-            liked_books = {ub["book_id"]: {"rating": ub.get("rating", "neutral")} for ub in user_books}
-            fb_data = {}
-            for ub in user_books:
-                emb = ub.get("feedback_embedding")
-                if emb:
-                    fb_data[ub["book_id"]] = {"emb": to_np(emb), "is_dislike": ub.get("rating") == "bad"}
-            # C4 술어 + 인덱스 밖 책 즉시 반영(이미 임베딩된 것, OpenAI 없음).
-            bid_set = set(getattr(request.app.state, "bid_order", None) or [])
-            needs_bg = needs_background_embed(user_books, bid_set)
-            extra_query = resolve_extra_query_vectors(
-                [ub["book_id"] for ub in user_books], bid_set, sb) if bid_set else {}
-            recommend_scored = await try_compute_inline(
-                request.app.state, liked_books, fb_data, extra_query=extra_query)
-            if recommend_scored is None:
-                # 슬롯 없음(동시 다발) → 백그라운드 + 이번 응답엔 비움(다음 로드 반영).
-                background_tasks.add_task(recompute_recommendations, user_id, request.app.state)
-                recommend_scored = []
-                recs_pending = True
-            elif needs_bg:
-                # inline 성공했지만 미임베딩 책/피드백 있음 → 백그라운드 임베딩+보강.
-                # 빈약본 캐시 방지(recs_pending=True 면 home_cache 미저장) → 다음 로드에 보강본.
-                background_tasks.add_task(recompute_recommendations, user_id, request.app.state)
-                recs_pending = True
+            # 캐시 없음/stale → 요청경로에서 스코어링하지 않는다(무료 단일 CPU 8~17s 블로킹
+            # 금지 — /recommend 와 동일 원칙). 백그라운드 재계산을 트리거하고 이번 응답은
+            # personal_recommend 를 비운다(trending/curation 으로 fallback). 다음 로드에서
+            # warm 캐시로 채워진다. 좋아요 변경 시엔 /recompute 가 선제로 이미 돌고 있어
+            # 대개 곧 준비된다. (인라인 스코어링이 /home 을 8~17s 막고, 타임아웃 시 큐레이션
+            # 섹션까지 사라지던 원인 제거.)
+            background_tasks.add_task(
+                recompute_recommendations, user_id, request.app.state)
+            recommend_scored = []
+            recs_pending = True
 
     sections = assemble_sections_for_user(
         tier=tier, stage=stage, total_likes=total_likes,
