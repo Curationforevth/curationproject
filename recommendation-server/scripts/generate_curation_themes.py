@@ -1,7 +1,12 @@
 """recommendation-server/scripts/generate_curation_themes.py
 
-Rule-based curation_themes 생성/갱신 (genre_combo, author, keyword).
-weekly 실행. idempotent upsert via theme_key.
+Rule-based curation_themes 생성 (genre_combo, author, keyword).
+weekly 실행. **insert-only** — 기존 theme_key 행은 미접촉.
+
+과거엔 theme_key upsert 로 전체 갱신했으나, LLM 품질 게이트
+(curate_theme_quality.py)가 title/description 리라이트 + 저품질 is_active=false
+처리를 하므로 upsert 는 매주 리라이트를 리셋하고 kill 된 테마를 부활시키는
+함정이었다 → 신규 키만 insert 하고 기존 행 관리는 품질 게이트에 위임한다.
 
 Cluster 타입은 별도 monthly script.
 
@@ -41,7 +46,13 @@ def _fetch_all(sb, table, select, filter_fn=None, batch_size=1000):
     return rows
 
 
-def _upsert_theme(sb, *, theme_key, theme_type, title, description, parameters,
+def existing_theme_keys(sb) -> set:
+    """이미 존재하는 theme_key 집합 — insert-only 판단용 (비활성 포함: kill 부활 금지)."""
+    rows = _fetch_all(sb, "curation_themes", "theme_key")
+    return {r["theme_key"] for r in rows}
+
+
+def _insert_theme(sb, *, theme_key, theme_type, title, description, parameters,
                   personalization, target_l1=None, target_author=None, target_keyword=None,
                   priority=1.0):
     row = {
@@ -58,10 +69,10 @@ def _upsert_theme(sb, *, theme_key, theme_type, title, description, parameters,
         "priority": priority,
         "is_active": True,
     }
-    sb.table("curation_themes").upsert(row, on_conflict="theme_key").execute()
+    sb.table("curation_themes").insert(row).execute()
 
 
-def generate_genre_combo(sb) -> int:
+def generate_genre_combo(sb, existing: set, dry_run: bool = False) -> int:
     # books WHERE l1 IS NOT NULL AND l2 IS NOT NULL GROUP BY l1,l2 HAVING COUNT>=10
     # supabase-py 는 raw SQL 실행 불가 → RPC 또는 전체 fetch 후 in-memory aggregation
     # 여기선 전체 fetch (활성 ~9K rows).
@@ -74,10 +85,16 @@ def generate_genre_combo(sb) -> int:
     for (l1, l2), cnt in counts.items():
         if cnt < MIN_GENRE_BOOKS:
             continue
+        key = f"genre_combo|{l1}|{l2}"
+        if key in existing:
+            continue  # 기존 행 미접촉(품질 게이트 관리 영역)
+        if dry_run:
+            created += 1
+            continue
         try:
-            _upsert_theme(
+            _insert_theme(
                 sb,
-                theme_key=f"genre_combo|{l1}|{l2}",
+                theme_key=key,
                 theme_type="genre_combo",
                 title=f"{l1} · {l2}",
                 description=f"{l1} 중 {l2} 분류의 책들",
@@ -91,7 +108,7 @@ def generate_genre_combo(sb) -> int:
     return created
 
 
-def generate_author(sb) -> int:
+def generate_author(sb, existing: set, dry_run: bool = False) -> int:
     rows = _fetch_all(sb, "books", "author",
                       lambda q: q.not_.is_("author", "null"))
     print(f"  fetched {len(rows)} books")
@@ -101,10 +118,16 @@ def generate_author(sb) -> int:
     for author, cnt in counts.items():
         if cnt < MIN_AUTHOR_BOOKS:
             continue
+        key = f"author|{author}"
+        if key in existing:
+            continue
+        if dry_run:
+            created += 1
+            continue
         try:
-            _upsert_theme(
+            _insert_theme(
                 sb,
-                theme_key=f"author|{author}",
+                theme_key=key,
                 theme_type="author",
                 title=f"{author} 컬렉션",
                 description=f"{author} 작가의 책들",
@@ -118,7 +141,7 @@ def generate_author(sb) -> int:
     return created
 
 
-def generate_keyword(sb) -> int:
+def generate_keyword(sb, existing: set, dry_run: bool = False) -> int:
     # library_keywords TEXT[] → pg 배열 unnest 필요. in-memory.
     rows = _fetch_all(sb, "books", "library_keywords",
                       lambda q: q.not_.is_("library_keywords", "null"))
@@ -132,10 +155,16 @@ def generate_keyword(sb) -> int:
     for kw, cnt in counts.items():
         if cnt < MIN_KEYWORD_BOOKS:
             continue
+        key = f"keyword|{kw}"
+        if key in existing:
+            continue
+        if dry_run:
+            created += 1
+            continue
         try:
-            _upsert_theme(
+            _insert_theme(
                 sb,
-                theme_key=f"keyword|{kw}",
+                theme_key=key,
                 theme_type="keyword",
                 title=kw,
                 description=f"{kw} 관련 책들",
@@ -151,17 +180,19 @@ def generate_keyword(sb) -> int:
 
 def main(dry_run: bool = False):
     sb = get_supabase()
-    print(f"[generate_themes] dry_run={dry_run}")
-    if dry_run:
-        print("dry-run: counting only")
-    n_genre = generate_genre_combo(sb)
-    print(f"  genre_combo: {n_genre}")
-    n_author = generate_author(sb)
-    print(f"  author:      {n_author}")
-    n_keyword = generate_keyword(sb)
-    print(f"  keyword:     {n_keyword}")
+    print(f"[generate_themes] dry_run={dry_run} (insert-only — 기존 theme_key 미접촉)")
+    existing = existing_theme_keys(sb)
+    print(f"  existing themes: {len(existing)}")
+    n_genre = generate_genre_combo(sb, existing, dry_run)
+    print(f"  genre_combo 신규: {n_genre}")
+    n_author = generate_author(sb, existing, dry_run)
+    print(f"  author 신규:      {n_author}")
+    n_keyword = generate_keyword(sb, existing, dry_run)
+    print(f"  keyword 신규:     {n_keyword}")
     total = n_genre + n_author + n_keyword
-    print(f"  TOTAL upserts: {total}")
+    print(f"  TOTAL 신규 insert: {total}")
+    if n_keyword:
+        print("  → 신규 keyword 는 curate_theme_quality.py 가 심사/리라이트한다(워크플로 후속 스텝).")
 
 
 if __name__ == "__main__":
