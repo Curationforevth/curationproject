@@ -87,3 +87,24 @@ async def submit_feedback(
         req.review_text, request.app.state)
 
     return FeedbackResponse(status="ok")
+
+
+@router.post("/recompute/{user_id}", status_code=202)
+async def trigger_recompute(
+    user_id: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    current_user: str = Depends(verify_jwt),
+):
+    """좋아요 변경(담기/평가/삭제)을 앱이 Supabase 에 직접 쓴 뒤 fire-and-forget 으로 호출.
+
+    비싼 추천 재계산을 읽기(/recommend) 경로가 아니라 쓰기 시점에 선제로 돌려, 유저가
+    추천을 열 땐 캐시가 warm 이도록 한다(계산을 임계경로 밖으로). 앱이 Supabase 에 직접
+    쓰는 MVP 구조라 서버가 변경을 알 방법이 없던 gap 을 메운다. computing/stuck 가드가
+    중복 호출·데드락을 흡수한다(PR#29). 즉시 202 로 반환(비차단)."""
+    if current_user != user_id:
+        raise HTTPException(403, "본인 추천만 재계산할 수 있습니다")
+    if request.app.state.index is not None:
+        background_tasks.add_task(
+            recompute_recommendations, user_id, request.app.state)
+    return {"status": "recomputing"}

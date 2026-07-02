@@ -139,8 +139,9 @@ class FeedbackFlowNotifier extends StateNotifier<FeedbackFlowState> {
       }
 
       _ref.invalidate(bookshelfProvider);
-      // 추천/홈피드는 세션 중 자동 갱신하지 않는다 — 당겨서 새로고침(홈 pull-to-refresh)
-      // 에서만 갱신. 피드백은 user_books 에 즉시 반영되고, 다음 새로고침 때 서버가 재계산.
+      // 좋아요(평가)가 바뀌었으니 서버가 추천을 **선제 재계산**하게 fire-and-forget 트리거
+      // → 유저가 추천을 열 땐 캐시가 warm(계산을 읽기 경로 밖으로). await 하지 않는다.
+      unawaited(_ref.read(recommendationServiceProvider).triggerRecompute());
     } catch (e) {
       debugPrint('피드백 저장 실패: $e');
       state = state.copyWith(isSaving: false);
