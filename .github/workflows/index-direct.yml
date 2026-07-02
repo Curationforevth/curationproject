@@ -43,6 +43,16 @@ jobs:
       # RSS 측정 게이트 제거 — ru_maxrss 추측은 신뢰 불가했고 측정 스텝 자체가 불안정했다.
       # 판정은 배포 후 Render /health memory_mb (ground truth). OOM 시 즉시 revert.
 
+      # ⚠️ 순서 중요: 릴리즈 자산을 먼저 갱신하고 나서 commit/push 한다.
+      # push 가 Render 재배포를 트리거하고, 새 부팅은 이미지가 아니라
+      # Release(index-latest) 자산을 다운로드한다(loader.ensure_index_present)
+      # — push 가 먼저면 새 서버가 옛 인덱스를 받는 창이 생긴다.
+      - name: Upload index.pkl to rolling release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload index-latest recommendation-server/data/index.pkl --clobber
+
       - name: Commit and push index.pkl
         run: |
           git config user.name "github-actions[bot]"

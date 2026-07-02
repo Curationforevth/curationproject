@@ -18,7 +18,10 @@ CODE_REV = "behavior-signals-20260702"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    from engine.loader import load_index
+    from engine.loader import load_index, ensure_index_present
+    # 이미지에 index.pkl 을 넣지 않는다(.dockerignore, 배포 8.5~12분 → 2~3분대).
+    # 부팅 시 없으면 GitHub Release(index-latest)에서 다운로드(재시도·원자적).
+    ensure_index_present()
     index, books_meta, built_at, prestacked, desc_mat, agg_mat, bid_order = load_index()
     app.state.index = index
     app.state.books_meta = books_meta

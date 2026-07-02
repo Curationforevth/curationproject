@@ -5,3 +5,11 @@ tests/
 .env
 .gitignore
 *.md
+
+# index.pkl(256MB)을 이미지에 넣지 않는다 — 매 배포 8.5~12분의 주범.
+# 부팅 시 engine/loader.ensure_index_present() 가 GitHub Release(index-latest)
+# 에서 내려받는다. 로컬 잔재 해시/part 파일도 제외.
+data/*.pkl
+data/*.sha256*
+data/*.part
+scripts/
