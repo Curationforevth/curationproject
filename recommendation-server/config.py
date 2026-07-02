@@ -37,10 +37,12 @@ DEFAULT_RECOMMEND_LIMIT = 10
 DEFAULT_SIMILAR_LIMIT = 10
 
 # Two-stage 추천 파라미터
-STAGE1_TOP_N = 150  # 벡터화 stage2 의 후보 reason 스택 메모리(무료 512MB) 안전선.
-# 700 은 후보 reason 임시할당 peak ~250MB → 인덱스 277MB 와 합쳐 OOM(실측 사고).
-# 150 은 peak 델타 ~54MB → 인덱스 합 ~331MB 안전. 품질: full 대비 top-10 일치 10/10
-# (W_DESC=3 이 최대라 고득점=desc 상위, 선필터 누락 없음).
+STAGE1_TOP_N = 700  # stage2 정밀 스코어링이 보는 후보 수. 2026-07-02 Eden 승인으로
+# 150→700 확대: 실인덱스 80명 평가에서 GT(stage2 전권) 대비 recall@20 이
+# 현실형(취향 뭉침) 95%→98.9%, 랜덤형 77%→91%. 비용은 s2 레이턴시(쓰기경로
+# ~+2s, 읽기는 캐시라 무영향). 메모리는 과거 700 OOM(무분할 stage2, 후보가
+# reason-rich 편향이라 transient 175MB 실측)이 STAGE2_CHUNK 블록 처리로 해소됨
+# — 블록당 O(150) 고정이라 top_n 과 무관하게 안전.
 CACHE_TOP_N = 50
 
 _sb_client = None
