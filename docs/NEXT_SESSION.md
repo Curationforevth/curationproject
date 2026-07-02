@@ -34,15 +34,32 @@
 - `engine/twostage_reference.py` = 직전 구현 verbatim 보존(기준선). 스코어링을 의도적으로
   바꾸기 전까지 수정 금지 — 이후 어떤 최적화든 이 기준선과 비교하면 됨.
 
+### 4. PR#37 — recompute DB 왕복 축소 (`recompute-io-slim-20260702`, 같은 날 후속)
+- db2 재read 제거(ensure_* in-place 갱신 행이 곧 스코어링 입력 → 그대로 해싱=코히런스)
+  + ensure_books_embedded 인덱스-밖 필터(평상시 0콜) + flag 는 기존 행 UPDATE(recs 미전송).
+- **근본수정(부수 발견)**: save 가 live hash 불일치로 skip 할 때 computing 미해제 →
+  다음 트리거가 STUCK 180s 까지 갇히는 잠재 데드락 → skip 시 computing=false.
+- pytest **193**(I/O 계약 7 신규). prod 실측: I/O 1.4s→**0.86s**, embed skip 0.0 확인.
+  단 s1 이 0.75~1.6s 로 출렁(무료 CPU 이웃 소음) — warm total **2.3~3.3s** 밴드.
+  sub-2s 상시 달성은 스코어링 분산 탓에 미완(다음 레버는 f32 행렬 상주화인데 +152MB 라 불가).
+
+### 5. STAGE1_TOP_N 오프라인 평가 완료 (배포 없음 — Eden 결정 대기)
+GT=stage2 전권 스코어링 대비 recall@20, 실인덱스 80명(랜덤40+클러스터40):
+| top_n | 클러스터(현실형) avg/<90% | 랜덤 avg/<90% | prod s2 투영 |
+|---|---|---|---|
+| 150(현행) | 95.0% / 6/40 | 77.1% / 28/40 | 0.59s |
+| **300** | **98.0% / 2/40** | 85.8% / 17/40 | **+0.6s (~1.2s)** |
+| 500 | 98.8% / 1/40 | 89.9% / 13/40 | +1.3s |
+| 700 | 98.9% / 1/40 | 91.0% / 12/40 | +2.1s (수확체감) |
+- 메모리: 300 이면 CR transient ~11MB(안전). **권장=300**(현실형 98%, 레이턴시 +0.6s).
+- ⚠️별개 발견: 일부 유저 recall 이 top_n 을 올려도 45~85%에 고정 — stage1 하이브리드
+  랭킹 자체가 GT 상위책을 낮게 매기는 케이스(후속 품질 과제, min-max 정규화/pb 가중 의심).
+
 ## 🔲 다음 후보 (Eden 판단)
-1. **DB 왕복 축소 소PR** — 남은 total 2.76s 중 I/O 가 ~1.4s(5왕복). db2 재read 제거
-   (ensure_* 가 행을 in-place 갱신하므로 재read 없이 hash 계산 가능, cache.py) 등.
-   합격선 sub-2s 까지 -0.8s. 스코어링은 더 이상 병목 아님.
-2. **STAGE1_TOP_N 150→700 복원 검토** — stage2 가 싸져서 가능해짐(recall min 개선 레버).
-   단 **결과가 바뀌는 품질 변경** → verify_equivalence 하네스로 별도 평가 + Eden 승인.
-3. Eden 폰 체감 확인: 평가 → skeleton → 추천 갱신이 이제 ~3s 내인지.
-4. (기록) `scorer.py` v3 폴백의 reduceat 말미-빈-세그먼트 잠재 크래시 — prod 도달 불가
-   (v4 prestacked 상시)이지만 twostage 와 같은 패턴으로 수정 가능.
+1. **STAGE1_TOP_N 150→300 적용 여부** — 위 표. 결과가 바뀌는 품질 변경(승인 게이트).
+2. Eden 폰 체감 확인: 평가 → skeleton → 추천 갱신이 이제 ~3s 내인지.
+3. stage1 랭킹 미스 케이스(recall 고정 유저) 원인 분석 — 취향 산발 유저 품질 레버.
+4. (진행중 별도세션) `scorer.py` v3 폴백 reduceat 잠재 크래시 수정 칩.
 
 ## 환경 메모
 - gh 계정이 세션 중 **2회** `eden-huh_karrot` 로 리버트됨 — push 전 `gh api user --jq .login` 확인 필수.
