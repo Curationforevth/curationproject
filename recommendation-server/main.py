@@ -11,10 +11,9 @@ from api.home import router as home_router
 from api.curation import router as curation_router
 
 # 배포 검증용 코드 리비전 마커. /health 로 어떤 코드가 라이브인지 관측한다.
-# home-harden: 앱이 /home 을 직접 렌더(큐레이션/트렌딩 노출)하게 되므로 견고화 —
-# 빈 책-섹션 제거(앱 빈 줄 방지) + Supabase 쿼리 _safe 래핑(한 쿼리 실패해도 500 X).
-# 직전 feedback-async·dedup-works·cache-livehash 포함.
-CODE_REV = "oom-mem-relief-20260629"
+# recompute-timings: 재계산 스테이지별 계측(로그 + /health.last_recompute_timings) —
+# Phase 2 계산 단축의 전/후 비교 기준. 행동/점수 무변경.
+CODE_REV = "recompute-timings-20260702"
 
 
 @asynccontextmanager
@@ -78,4 +77,6 @@ async def health(request: Request):
         "memory_mb": mem_mb,
         "cache_hits": getattr(state, "cache_hits", 0),
         "cache_misses": getattr(state, "cache_misses", 0),
+        # 마지막 recompute 의 스테이지별 소요시간 — prod 병목 분해 관측용(로그 접근 불필요).
+        "last_recompute_timings": getattr(state, "last_recompute_timings", None),
     }

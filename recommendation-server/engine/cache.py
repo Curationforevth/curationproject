@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -191,10 +192,23 @@ def recompute_recommendations(user_id: str, app_state) -> None:
 
     sb = get_supabase()
 
+    # 스테이지별 소요시간(초). prod 재계산 8~17s 의 분해(I/O vs stage1 vs stage2)를
+    # 관측하기 위한 계측 — Phase 2 계산 단축의 전/후 비교 기준. 로그 한 줄 +
+    # app_state.last_recompute_timings(/health 노출)로 남긴다. 행동/점수 무변경.
+    t_start = time.perf_counter()
+    timings: dict = {}
+    _t = [t_start]
+
+    def _mark(key: str) -> None:
+        now = time.perf_counter()
+        timings[key] = round(now - _t[0], 3)
+        _t[0] = now
+
     # 이미 computing 중이면 skip — 단 stuck(중단돼 오래 켜진) 플래그는 예외로 재시도한다.
     # (서버 재시작/OOM 로 재계산이 죽으면 computing 이 영구 true 로 남아 이후 모든
     #  재계산이 skip → 캐시가 영영 안 풀리는 데드락. computed_at 나이로 stuck 판정.)
     existing = load_cache(user_id)
+    _mark("load_cache")
     if existing and existing.get("computing"):
         age = _age_seconds(existing.get("computed_at", ""))
         if age < STUCK_COMPUTING_SEC:
@@ -217,6 +231,7 @@ def recompute_recommendations(user_id: str, app_state) -> None:
         ).execute()
     except Exception as exc:
         logger.warning("recompute: failed to set computing flag for %s: %s", user_id, exc)
+    _mark("flag")
 
     if app_state.prestacked_reasons is None:
         # v3 폴백은 augment 미적용 — prod 는 v4-prestacked 라 도달 안 함. 회귀 가시화.
@@ -227,6 +242,7 @@ def recompute_recommendations(user_id: str, app_state) -> None:
         ub_res = sb.table("user_books").select(
             "book_id,rating,feedback_embedding,emotion_tags,review_text"
         ).eq("user_id", user_id).execute()
+        _mark("db1")
 
         if not ub_res.data:
             # 유저 데이터 없음 — 캐시 초기화
@@ -245,12 +261,14 @@ def recompute_recommendations(user_id: str, app_state) -> None:
             r["user_id"] = user_id  # ensure_feedback_embedded 가 키로 사용
         ensure_feedback_embedded(rated, sb)                              # C3 (태그+리뷰)
         ensure_books_embedded([r["book_id"] for r in rated], sb)        # C1 (유저 책)
+        _mark("embed")
 
         # post-embedding 재read → input_hash 가 live(has_fb 반영)와 일치(코히런스).
         ub_res = sb.table("user_books").select(
             "book_id,rating,feedback_embedding"
         ).eq("user_id", user_id).execute()
         input_hash = compute_input_hash(ub_res.data)
+        _mark("db2")
 
         liked_books: dict = {}
         fb_data: dict = {}
@@ -274,6 +292,7 @@ def recompute_recommendations(user_id: str, app_state) -> None:
         bid_order_set = set(app_state.bid_order or [])
         extra_query = resolve_extra_query_vectors(
             list(liked_books.keys()), bid_order_set, sb)
+        _mark("extra")
 
         prestacked = app_state.prestacked_reasons
         if prestacked is not None:
@@ -285,12 +304,15 @@ def recompute_recommendations(user_id: str, app_state) -> None:
                 top_n=STAGE1_TOP_N,
                 extra_query=extra_query,
             )
+            _mark("s1")
             scores = batch_score_prestacked(
                 app_state.index, liked_books, fb_data, candidates, prestacked,
                 extra_query=extra_query)
+            _mark("s2")
         else:
             scores = recommend_scores_two_stage(
                 app_state.index, liked_books, fb_data, top_n=STAGE1_TOP_N)
+            _mark("s2")
 
         sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:CACHE_TOP_N]
 
@@ -308,6 +330,18 @@ def recompute_recommendations(user_id: str, app_state) -> None:
             })
 
         save_cache_if_current(user_id, recs, input_hash, good_count, bad_count, has_feedback)
+        _mark("save")
+
+        timings["total"] = round(time.perf_counter() - t_start, 3)
+        timings["n_books"] = len(liked_books)
+        logger.info(
+            "recompute timings u=%s %s", user_id,
+            " ".join(f"{k}={v}" for k, v in timings.items()),
+        )
+        try:
+            app_state.last_recompute_timings = timings
+        except Exception:
+            pass
 
     except Exception as exc:
         logger.error("recompute_recommendations failed for user %s: %s", user_id, exc)
