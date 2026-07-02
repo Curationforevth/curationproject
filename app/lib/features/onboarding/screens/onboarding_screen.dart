@@ -1,13 +1,15 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/models/book.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../bookshelf/providers/bookshelf_provider.dart';
+import '../../home/providers/recommendation_provider.dart';
 import '../providers/onboarding_provider.dart';
 
 /// 온보딩 플로우 (서재 비어있고 미dismiss일 때 HomeScreen 이 렌더).
-/// Welcome → 책 그리드 선택 → 최애+감성태그 → 완료(user_books 배치 쓰기).
-/// 모든 단계 건너뛰기 가능(0권이어도 진행). 설계: docs/.../2026-03-26-onboarding-design.md
+/// Welcome → 책 그리드 선택(5권 이상) → 최애+감성태그 → 완료 연출 → 서재.
+/// 그리드는 5권 이상부터 진행 가능(PRODUCT_PLAN §4-1). 설계: docs/.../2026-03-26-onboarding-design.md
 class OnboardingScreen extends ConsumerStatefulWidget {
   const OnboardingScreen({super.key});
 
@@ -17,6 +19,7 @@ class OnboardingScreen extends ConsumerStatefulWidget {
 
 class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   static const int target = 6; // /recommend Tier2 임계와 정렬
+  static const int minRequired = 5; // PRODUCT_PLAN §4-1 "5권 이상 선택 시"
   static const List<String> _emotionOptions = [
     '잔잔한', '따뜻한', '긴장감', '몰입', '여운',
     '유쾌한', '무거운', '서정적', '속도감', '생각할거리',
@@ -27,6 +30,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   String? _favoriteId;
   final Set<String> _emotionTags = {};
   bool _submitting = false;
+  bool _done = false; // 저장 성공 → "서재가 시작됐어요" 완료 연출 표시 중
 
   void _toggle(Book b) {
     setState(() {
@@ -47,7 +51,19 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
             favoriteBookId: _favoriteId,
             favoriteEmotionTags: _emotionTags.toList(),
           );
-      _dismiss();
+      // 서재가 채워졌으니 서버가 추천을 선제 재계산하게 fire-and-forget 트리거
+      // (등록/피드백 경로와 동일 패턴, bookshelf_provider.dart:98 참고) →
+      // 유저가 홈에 도달할 즈음엔 캐시가 warm 이도록. await 하지 않는다.
+      unawaited(ref.read(recommendationServiceProvider).triggerRecompute());
+      // 저장 성공 → 바로 dismiss 하지 않고 "서재가 시작됐어요" 완료 연출을 먼저 보여준다
+      // (PRODUCT_PLAN §4-1). dismiss 는 완료 화면의 [시작하기] 탭에서 실행.
+      ref.invalidate(bookshelfProvider);
+      if (mounted) {
+        setState(() {
+          _submitting = false;
+          _done = true;
+        });
+      }
     } catch (e) {
       if (mounted) {
         setState(() => _submitting = false);
@@ -58,9 +74,8 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     }
   }
 
-  /// 서재 갱신 + dismiss → HomeScreen 이 _HomeContent 로 전환.
+  /// dismiss → HomeScreen 이 _HomeContent 로 전환. (서재 갱신은 저장 성공 시점에 이미 완료.)
   void _dismiss() {
-    ref.invalidate(bookshelfProvider);
     ref.read(onboardingDismissedProvider.notifier).state = true;
   }
 
@@ -72,11 +87,13 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         duration: const Duration(milliseconds: 250),
         child: _submitting
             ? const _Finishing()
-            : switch (_step) {
-                0 => _buildWelcome(),
-                1 => _buildGrid(),
-                _ => _buildFavorite(),
-              },
+            : _done
+                ? _buildDone()
+                : switch (_step) {
+                    0 => _buildWelcome(),
+                    1 => _buildGrid(),
+                    _ => _buildFavorite(),
+                  },
       ),
     );
   }
@@ -199,8 +216,14 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         ),
         _FooterBar(
           onSkip: _dismiss,
-          primaryLabel: '다음',
-          primaryEnabled: _selected.isNotEmpty,
+          // PRODUCT_PLAN §4-1 "5권 이상 선택 시" — 5권 미만이면 진행 불가.
+          // 미달일 땐 남은 권수를 라벨에 노출해 "무엇을 더 하면 되는지"를 명확히 한다.
+          primaryLabel: count >= minRequired
+              ? '다음'
+              : count == 0
+                  ? '읽은 책을 5권 이상 골라주세요'
+                  : '${minRequired - count}권만 더 골라주세요',
+          primaryEnabled: count >= minRequired,
           onPrimary: () => setState(() {
             _favoriteId ??= _selected.keys.first;
             _step = 2;
@@ -307,6 +330,11 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       ],
     );
   }
+
+  // ── 완료 연출: "서재가 시작됐어요" (PRODUCT_PLAN §4-1) ──────────────────────
+  Widget _buildDone() {
+    return _DoneCelebration(key: const ValueKey('done'), onStart: _dismiss);
+  }
 }
 
 // ── 작은 위젯들 ──────────────────────────────────────────────────────────────
@@ -323,6 +351,83 @@ class _Finishing extends StatelessWidget {
           SizedBox(height: 20),
           Text('서재를 만들고 있어요…',
               style: TextStyle(color: AppColors.primaryLight)),
+        ],
+      ),
+    );
+  }
+}
+
+/// 저장 성공 후 노출되는 완료 연출. AnimatedScale/Opacity 만으로 가벼운 등장
+/// 애니메이션을 준다(패키지 추가 없음, PRODUCT_PLAN §4-1 "당신의 서재가 시작됐어요").
+class _DoneCelebration extends StatefulWidget {
+  final VoidCallback onStart;
+  const _DoneCelebration({super.key, required this.onStart});
+
+  @override
+  State<_DoneCelebration> createState() => _DoneCelebrationState();
+}
+
+class _DoneCelebrationState extends State<_DoneCelebration> {
+  bool _visible = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // 첫 프레임 이후 트리거 — build 중 setState 방지 + 등장감 연출.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() => _visible = true);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 32),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          AnimatedScale(
+            scale: _visible ? 1.0 : 0.8,
+            duration: const Duration(milliseconds: 400),
+            curve: Curves.easeOutBack,
+            child: AnimatedOpacity(
+              opacity: _visible ? 1.0 : 0.0,
+              duration: const Duration(milliseconds: 400),
+              child: const Text('📚', style: TextStyle(fontSize: 56)),
+            ),
+          ),
+          const SizedBox(height: 24),
+          AnimatedOpacity(
+            opacity: _visible ? 1.0 : 0.0,
+            duration: const Duration(milliseconds: 400),
+            child: const Text(
+              '당신의 서재가 시작됐어요',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 24,
+                height: 1.3,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textPrimary,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          AnimatedOpacity(
+            opacity: _visible ? 1.0 : 0.0,
+            duration: const Duration(milliseconds: 400),
+            child: const Text(
+              '고른 책들이 서재에 꽂혔어요.\n평가를 남기면 맞춤 추천이 시작돼요',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 15,
+                height: 1.5,
+                fontWeight: FontWeight.w300,
+                color: AppColors.primaryLight,
+              ),
+            ),
+          ),
+          const SizedBox(height: 40),
+          _PrimaryButton(label: '시작하기', onTap: widget.onStart),
         ],
       ),
     );

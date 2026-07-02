@@ -142,6 +142,14 @@ class FeedbackFlowNotifier extends StateNotifier<FeedbackFlowState> {
       // 좋아요(평가)가 바뀌었으니 서버가 추천을 **선제 재계산**하게 fire-and-forget 트리거
       // → 유저가 추천을 열 땐 캐시가 warm(계산을 읽기 경로 밖으로). await 하지 않는다.
       unawaited(_ref.read(recommendationServiceProvider).triggerRecompute());
+      // 추천 섹션만 자동 재조회 (Eden 결정 2026-07-02, #11 '세션 중 자동 리뉴얼 제거'
+      // 정책의 부분 개정 — 홈 전체 리뉴얼은 여전히 금지, 추천 섹션 단독만).
+      // 2초 지연: 위 fire-and-forget recompute 가 서버에 computing 플래그를 세울
+      // 시간을 줘, 재조회가 stale 캐시(computing=false)를 물지 않게 한다.
+      // computing=true 응답은 _RecommendationPoller 가 완료까지 자동 폴링한다.
+      unawaited(Future<void>.delayed(const Duration(seconds: 2)).then((_) {
+        _ref.invalidate(recommendationsProvider);
+      }));
     } catch (e) {
       debugPrint('피드백 저장 실패: $e');
       state = state.copyWith(isSaving: false);

@@ -16,11 +16,40 @@ List<Book> dedupAndFilterPool(List<Book> books) {
   return out;
 }
 
+/// 온보딩 완료 시 user_books 배치 insert 에 쓸 행을 만든다. 순수 함수 — 단위 테스트 대상.
+///
+/// 온보딩 그리드는 "읽었다"는 신호일 뿐 "좋았다"가 아니다 — 유저가 직접 고른
+/// 최애(favoriteBookId)만 평가(rating='good')로 기록하고, 나머지는 미평가(null)로
+/// 남겨 홈 "피드백 남겨보세요" 유도로 진짜 평가를 수집한다 (Eden 결정 2026-07-02).
+/// status 는 전부 'finished' 유지 — wishlist 제약(rating 은 finished 에서만 허용) 회피.
+///
+/// PostgREST 배치 insert 는 모든 행의 키 집합이 동일해야 한다(PGRST102). 따라서
+/// rating/emotion_tags 키는 모든 행에 두고, 최애가 아니면 null 로 채운다.
+List<Map<String, dynamic>> buildOnboardingRows({
+  required String userId,
+  required List<String> selectedBookIds,
+  String? favoriteBookId,
+  List<String> favoriteEmotionTags = const [],
+}) {
+  return selectedBookIds.map((bid) {
+    final isFavorite = bid == favoriteBookId;
+    return <String, dynamic>{
+      'user_id': userId,
+      'book_id': bid,
+      'status': 'finished', // wishlist 제약 회피 + rating 동반 가능
+      'rating': isFavorite ? 'good' : null,
+      'emotion_tags': (isFavorite && favoriteEmotionTags.isNotEmpty)
+          ? favoriteEmotionTags
+          : null,
+    };
+  }).toList();
+}
+
 /// 온보딩 데이터/쓰기 경로.
 /// - 그리드 풀: `fallback_curation`(RLS "모두 읽기") + `books` 조인 직접 select.
-/// - 완료: 선택한 책을 user_books 에 배치 쓰기(status=finished, rating=good) →
-///   DB 트리거(refresh_user_state)가 good 6권 이상이면 current_tier=2 로 올려
-///   온보딩 직후 /recommend("이 책 어때요?")가 작동한다.
+/// - 완료: 선택한 책을 user_books 에 배치 쓰기(status=finished, 최애만 rating=good) →
+///   현재는 최애 1권만 good 이라 DB 트리거(refresh_user_state)의 good 6권 임계로
+///   즉시 tier2 로 오르진 않는다 — 홈 피드백 유도로 점진적으로 채워진다.
 class OnboardingService {
   final SupabaseClient _supabase;
   OnboardingService([SupabaseClient? client])
@@ -55,19 +84,12 @@ class OnboardingService {
     if (userId == null) throw Exception('로그인이 필요합니다');
     if (selectedBookIds.isEmpty) return;
 
-    // PostgREST 배치 insert 는 모든 행의 키 집합이 동일해야 한다(PGRST102).
-    // 따라서 emotion_tags 키는 모든 행에 두고, 최애가 아니면 null 로 채운다.
-    final rows = selectedBookIds.map((bid) {
-      return <String, dynamic>{
-        'user_id': userId,
-        'book_id': bid,
-        'status': 'finished', // wishlist 제약 회피 + rating 동반 가능
-        'rating': 'good',
-        'emotion_tags': (bid == favoriteBookId && favoriteEmotionTags.isNotEmpty)
-            ? favoriteEmotionTags
-            : null,
-      };
-    }).toList();
+    final rows = buildOnboardingRows(
+      userId: userId,
+      selectedBookIds: selectedBookIds,
+      favoriteBookId: favoriteBookId,
+      favoriteEmotionTags: favoriteEmotionTags,
+    );
 
     // 이미 서재에 있는 책과 충돌 시 갱신(멱등). user_books unique(user_id, book_id).
     await _supabase

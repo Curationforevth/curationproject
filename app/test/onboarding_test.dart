@@ -45,4 +45,81 @@ void main() {
       expect(dedupAndFilterPool([]), isEmpty);
     });
   });
+
+  group('buildOnboardingRows', () {
+    // Eden 결정 2026-07-02: 온보딩 그리드는 "읽었다" 신호일 뿐 "좋았다"가 아님 —
+    // 최애만 rating='good', 나머지는 null 로 남겨 홈에서 진짜 평가를 유도한다.
+    test('최애 책만 rating=good, 나머지는 rating=null', () {
+      final rows = buildOnboardingRows(
+        userId: 'u1',
+        selectedBookIds: ['b1', 'b2', 'b3'],
+        favoriteBookId: 'b2',
+      );
+
+      expect(rows, hasLength(3));
+      final byId = {for (final r in rows) r['book_id'] as String: r};
+      expect(byId['b1']!['rating'], isNull);
+      expect(byId['b2']!['rating'], 'good');
+      expect(byId['b3']!['rating'], isNull);
+    });
+
+    test('모든 행의 status 는 finished (wishlist CHECK 회피)', () {
+      final rows = buildOnboardingRows(
+        userId: 'u1',
+        selectedBookIds: ['b1', 'b2'],
+        favoriteBookId: 'b1',
+      );
+      expect(rows.every((r) => r['status'] == 'finished'), isTrue);
+    });
+
+    test('모든 행이 동일한 키 집합을 가진다 (PostgREST 배치 insert PGRST102 회피)', () {
+      final rows = buildOnboardingRows(
+        userId: 'u1',
+        selectedBookIds: ['b1', 'b2'],
+        favoriteBookId: 'b1',
+        favoriteEmotionTags: ['잔잔한'],
+      );
+      const expectedKeys = {
+        'user_id',
+        'book_id',
+        'status',
+        'rating',
+        'emotion_tags'
+      };
+      for (final r in rows) {
+        expect(r.keys.toSet(), expectedKeys);
+      }
+    });
+
+    test('감성태그는 최애 책에만 부여, 나머지는 null', () {
+      final rows = buildOnboardingRows(
+        userId: 'u1',
+        selectedBookIds: ['b1', 'b2'],
+        favoriteBookId: 'b1',
+        favoriteEmotionTags: ['잔잔한', '몰입'],
+      );
+      final byId = {for (final r in rows) r['book_id'] as String: r};
+      expect(byId['b1']!['emotion_tags'], ['잔잔한', '몰입']);
+      expect(byId['b2']!['emotion_tags'], isNull);
+    });
+
+    test('favoriteBookId 가 null 이면 전부 rating=null', () {
+      final rows = buildOnboardingRows(
+        userId: 'u1',
+        selectedBookIds: ['b1', 'b2'],
+        favoriteBookId: null,
+      );
+      expect(rows.every((r) => r['rating'] == null), isTrue);
+    });
+
+    test('user_id/book_id 가 각 행에 정확히 매핑된다', () {
+      final rows = buildOnboardingRows(
+        userId: 'u42',
+        selectedBookIds: ['b1'],
+        favoriteBookId: 'b1',
+      );
+      expect(rows.single['user_id'], 'u42');
+      expect(rows.single['book_id'], 'b1');
+    });
+  });
 }
