@@ -1,62 +1,73 @@
-# 다음 세션 핸드오프 (2026-07-01 갱신)
+# 다음 세션 핸드오프 (2026-07-02 갱신)
 
-> 이번 세션: **새로고침 속도·새 큐레이션 + 추천 캐시 데드락 근본수정(배포 완료)** +
-> **책등(서재) 대개편** — 한글 세로쓰기 룰 확립, golden 실렌더 검증, 폰 설치까지.
-> ✅ **책등 변경 커밋·머지 완료 (PR #30, `79133b0`) + 2컬럼 좌우 여백 보정 (PR #31, `2db1d00`).** 폰 재빌드·설치·Eden 육안 승인까지 완료. 다음 세션 1순위 = 추천 fresh 앱검증.
-
----
-
-## ✅ 이번 세션 완료
-
-### 1. 새로고침 속도 + 매번 새 큐레이션 (PR #28, merged·배포됨)
-- **근본원인**: `onRefresh`가 `/home`·`/recommend`를 **순차 await**(합산 지연) + `/home`이 큐레이션을 **hour 버킷 캐시**해 같은 시간대엔 새로고침해도 동일.
-- **수정**: onRefresh `Future.wait` 병렬화(대기 ~절반) + 서버 `/home?refresh=1` force-refresh(hour 캐시 히트 skip → `weighted_sample_one` 재샘플). 클라 `homeForceRefreshProvider` 플래그로 당겨서 새로고침일 때만 force, 일반 로드는 캐시.
-- 파일: `api/home.py`(refresh param), `app/.../recommendation_service.dart`(?refresh=1), `recommendation_provider.dart`, `home_screen.dart`.
-- ⚠️ **트레이드오프**: force-refresh는 /home을 매번 miss(재조립)로 만들어 웜 기준 ~0.8s→~2.3s. 큐레이션은 *보조* surface라 이 트레이드오프 재검토 여지 있음(추후).
-
-### 2. 추천 캐시 데드락 + 인덱스-stale 근본수정 (PR #29, merged·배포됨)
-- **데드락(실측)**: Eden `recommendation_cache.computing`이 6/29부터 `true` stuck. `recompute_recommendations`가 computing=true면 **무조건 skip** → 재계산이 재시작/OOM으로 중단되면 플래그 영구 true → 모든 재계산 skip → 캐시 영영 안 풀림 → `/home` Tier2가 매 새로고침 인라인 재계산(~8~17s). = Eden이 겪던 "너무 느림"의 진짜 정체.
-- **수정 A**: `STUCK_COMPUTING_SEC=180` + `_age_seconds()` — computed_at 나이가 180s 초과면 stuck으로 보고 재계산 진행(자가치유).
-- **수정 B(같은 클래스 버그)**: `/recommend`는 `computed_at > built_at` 체크로 인덱스 재빌드 시 재계산하는데 `/home` Tier2 재사용엔 없어서 **재빌드 후 옛 인덱스 추천을 계속 서빙**. `rec_cache_reusable()` 순수 헬퍼로 추출 + built_at 포함, 단위테스트.
-- 파일: `engine/cache.py`, `api/home.py`, `tests/test_cache.py`. **서버 pytest 161 통과.**
-- **Eden 캐시 복구**: 수동 리셋(band-aid)은 지양 결정. **다음 피드백/책추가 시 input_hash 변경 → 서버가 자연 재계산**(데드락 수정으로 안 멈춤). 수동 DB surgery 0.
-
-### 3. 추천 품질 진단 (스코어링은 정상, 문제는 staleness였음)
-- "취향 붕괴(호러/SF 소실)"로 의심했으나, **로컬 인덱스(built_at=prod와 동일)로 오프라인 전수 검증**하니 현재 13좋아요 기준 fresh 스코어링은 **다면적**(정유정 스릴러·히가시노 미스터리·김정 SF 등 포함). 붕괴는 **데드락이 캐시를 6/29(10좋아요)에 얼린 staleness** 탓. 스코어링 대공사 불필요. (오프라인 검증 스크립트는 scratchpad, 커밋 안 함.)
-- Eden 좋아요 13권 **전부 인덱스에 있음**(커버리지 문제 아님).
-
-### 4. 책등(서재) 대개편 ✅ **커밋·머지 완료 (PR #30, `79133b0`)** — `book_spine.dart`, `bookshelf_row.dart`, `test/book_spine_golden_test.dart`, `test/bookshelf_test.dart`, `test/goldens/spine_shelf.png`
-레퍼런스 + 원 설계(MOODBOARD 단일컬럼 목업) + 핵심가치(인식+소유)로 **전체 룰** 확립:
-- **위계**: 제목 dominant(11px) > 저자 secondary(8px). 부제 제거(본제목만), **저자 전체명**(역자만 제거 — 성만 금지, 동명이인).
-- **한글 정방향 세로쓰기**(위→아래). 다단 방향 = **좌종서(왼→오른)** — 전통 산문은 우종서지만 *현대 짧은 간판·표지판성 2줄 세로쓰기는 좌종서가 관례*(나무위키 세로쓰기/방향).
-- **word-aware 조판**: 어절(공백) 경계 우선 줄바꿈 → "히가시노 게이고" = `히가시노`|`게이고` (단어 중간 안 깨짐). 한 어절이 컬럼 넘으면 글자 폴백.
-- 균일 폰트, **폰트축소·잘림 없음**(FittedBox/scaleDown 금지 — 책마다 크기 다르면 안 됨), Semantics(전체 제목/저자) 접근성.
-- 책등 높이 190, 비율 66/28/6.
-- **서재 선반 = 여러 선반 줄바꿈**(가로 무한스크롤 → 세로, PRODUCT_PLAN 5-3 "한 선반 5~7권, 넘치면 아래 선반"). `bookshelf_row.dart` LayoutBuilder row-packing.
-- **검증**: `test/book_spine_golden_test.dart`가 AppleGothic 로드해 실렌더 golden(`test/goldens/spine_shelf.png`) 생성 → 저자까지 눈으로 확인. analyze 클린, 테스트 7/7 통과. **폰 재빌드·설치·Eden 육안 승인 완료.**
-
-### 5. 2컬럼 책등 좌우 여백 보정 ✅ **커밋·머지 완료 (PR #31, `2db1d00`)** — `book_spine.dart`, `test/goldens/spine_shelf.png`
-- **문제**: 세로 조판이 2컬럼 이상이 되는 책등에서 텍스트가 좌우 가장자리에 붙음.
-- **수정**: `_spineColumns`/`_columnsFor`(=`_verticalText` 패킹 미러)로 컬럼 수(제목·저자 max) 산출 → 2컬럼+ 이면 `(cols-1)*3px`(상한 8px)만 책등 폭에 가산해 좌우 여백 확보. **단일 컬럼 폭 불변, 폰트축소/잘림 없음**(폭으로만 여백). flex 66/28/6 상수화. golden 재생성·폰 재빌드·Eden 승인.
-- **폰 설치 주의**: iOS 실기기 `flutter run --release` 초기 "Could not run ... Runner.app" 실패는 **폰 잠금**이 원인 — 잠금 해제 후 재시도하면 성공(서명/프로비저닝 문제 아님).
+> 이번 세션: **화차 중복 근본수정** + **추천 반응성 Phase 1**(계산을 읽기→쓰기 시점으로) +
+> **/home 인라인 블로킹 핫픽스**(느림·큐레이션 사라짐 진짜 원인). 모두 머지·배포·검증됨.
+> 다음 1순위 = **Phase 2: 추천 계산 자체 단축(ANN/int8) + 품질 전수 재검증.**
 
 ---
 
-## 🔴 다음 세션 1순위: 추천 fresh 앱검증
-책등 작업 마무리됨(PR #30·#31, 폰 확인 완료). 다음은 추천 신선도 확인:
-- 앱에서 책 추가/평가 변경 → `input_hash` 변경 → 서버 자연 재계산(데드락 수정으로 안 멈춤) → **다양한 추천**(호러·SF·미스터리 등 다면적) 뜨는지. 이미 가진 책은 추천서 제거되는지도.
+## ✅ 이번 세션 완료 (전부 머지·배포)
+
+### 1. 책등(서재) 마무리 (PR #30·#31, 지난 세션 이월분)
+- PR#30 한글 세로쓰기 대개편 + PR#31 2컬럼 좌우 여백 보정. 폰 확인 완료.
+
+### 2. 화차 중복 근본수정 (PR #32, `4a5a57b`)
+- **근본원인**: `registerBook`이 넘어온 `book.id`를 무시하고 isbn만 봄. 추천/홈에서 담으면
+  `toBook()`이 기존 books.id는 싣지만 isbn·source=null → insert 경로로 **새 null-isbn 복제행** 생성.
+- **코드**: `resolveBookRef` 순수헬퍼 — id 있으면 기존행 재사용, isbn 있으면 upsert, 둘다없으면
+  title+author 재사용후 insert. (`book_registration_service.dart`, 유닛테스트 4)
+- **데이터**: 마이그레이션(`20260701000000_repoint_null_isbn_shelf_dups.sql`) — 기존 null-isbn 서재책 15개를
+  정본 isbn'd 행으로 repoint + canonical_book_id 마킹. **삭제 없음**(book_v3_vectors RESTRICT FK).
+  psql BEGIN/ROLLBACK 리허설로 SQL버그 사전차단. **prod 적용: null_isbn 16→0, 같은작품 중복 0.**
+- **검증**: prod E2E throwaway PASS(복제행0·id재사용·unique가드). 폰 재빌드.
+- ⚠️ 남은 판본중복: `화차` vs `화차(개정판)`(다른 ISBN 판본) — Eden "판본 유지" 선택, dedup 안 함.
+
+### 3. 추천 반응성 Phase 1 (PR #33 `1c11aef` + 핫픽스 PR #34 `b01e39e`)
+- **근본원인(코드리뷰)**: 앱은 좋아요/평가를 Supabase 직접 write → 서버 재계산 트리거 안 됨.
+  재계산이 유저가 추천 열 때 `/recommend`·`/home`에서 **처음·동기·8~17s**(무료 CPU) 발생.
+  → 저니 보상(맞춤추천)이 대기에 갇힘. `/home`이 길어 타임아웃 시 **큐레이션까지 사라짐.**
+- **수정 = 계산을 읽기→쓰기 시점으로 (스코어링 무변경 = 품질 그대로)**:
+  - 서버: `/recommend`·**`/home`** 둘 다 인라인 `try_compute_inline` **제거** → 백그라운드 재계산
+    트리거 + 즉시 반환(이전recs+computing / 빈+computing). ⚠️Phase1(PR#33)에서 /recommend만 고쳐
+    /home이 여전히 막혔던 걸 PR#34로 잡음(이게 Eden 느림의 진짜 원인).
+  - 서버: `POST /recompute/{user_id}` 신규 — 앱이 담기/평가 후 fire-and-forget 호출.
+  - 앱: `RecommendationService.triggerRecompute()` → `addBookToShelf`·`feedback submit`에 배선.
+  - 앱: 추천 대기 죽은 스피너 → `_RecommendationSkeleton`(skeleton + "취향 분석 중 · 좋아요 N권
+    살펴보는 중" labor-illusion). reduced-motion·Semantics.
+- **검증**: 서버 pytest 164, 앱 test 48. behavioral E2E(throwaway 실 JWT): `/recompute` 202,
+  `/recommend` 논블로킹, **`/home` 9~12.5s→2.8s**(배포후 실측). 폰 재빌드 완료.
+- **근거 리서치**: numpy f16 matmul은 CPU 안티패턴 / 2-stage+ANN(hnswlib) 이 진짜 단축 /
+  skeleton·labor-illusion(Buell&Norton 2011) 대기 UX. (Phase 2 근거)
+
+---
+
+## 🔴 다음 세션 1순위: Phase 2 — 추천 계산 자체 단축 + 품질 재검증
+Phase 1은 계산을 **쓰기 시점으로 옮겨** 읽기(추천 열기)를 빠르게 했을 뿐, **계산 자체(8~17s)는
+그대로**다. 좋아요 변경 **직후 즉시** 추천을 보면 여전히 재계산 대기(그동안 skeleton). 진짜 단축:
+- **후보 = ANN(hnswlib, 9,483권 메모리내 즉시) 또는 int8 스칼라 양자화**(f16의 절반 메모리+SIMD).
+  전수 f16→f32 업캐스트(`engine/twostage.py` 병목) 제거 → sub-2s 목표.
+- **⚠️ 스코어링을 바꾸므로 추천 품질 전수 재검증 필수**(Eden 최우선, "취향 붕괴" 경계).
+  기존 오프라인 전수검증 방식 + prod E2E throwaway로 다면성 확인.
+- 상세 리서치: 세션 대화(2-stage retrieval·hnswlib/FAISS·int8 recall·perceived-perf).
 
 ## 🔲 남은 것
-- (선택) force-refresh 트레이드오프 재검토 / /home DB 쿼리 병렬화로 웜 지연 단축(리스크: 공유 sync 클라).
+- **Eden 폰 최종 체감 확인**: 홈 새로고침 빨라짐 + 큐레이션 유지 + 평가후 skeleton. (세션 끝에
+  "다음세션 준비"로 넘어감 — 명시적 OK는 다음 세션에 재확인.)
+- 추천 fresh: 평가/담기 → 선제 재계산 → 다면적 추천 뜨는지, 이미 가진 책 제거되는지.
+- (선택) 화차 판본 dedup / force-refresh 트레이드오프 재검토.
 
-## 📌 이번 세션 핵심 학습 (memory `feedback_root_not_bandaid`에도 저장)
-1. **그때그때 band-aid 금지** — 근본원인을 확장성·유지관리로. 수동 DB surgery 최소화, 서버 로직은 서버가.
-2. **UI만 고치지 말 것** — 서비스 핵심가치(서재=인식+소유, 유일한 차별점) 전달이 베이스.
-3. **케이스별 대응 금지, 전체 룰**로. 레퍼런스 제대로 찾아서.
-4. **실제 UI 직접 검증**(스크린샷/golden), 문제시 루프. "검증했다"면서 대충 보지 말 것(저자 3컬럼 놓쳤던 실수).
-5. 원칙 다 줬으면 **묻지 말고 결정·진행**.
+## 📌 이번 세션 핵심 학습
+1. **근본원인 다층 확인** — Phase1이 /recommend만 고치고 /home을 놓쳐 "여전히 느림" 재발.
+   앱이 실제로 뭘 호출하는지(/home + /recommend 둘 다) 코드리뷰로 확인해야 했음.
+2. **dry-run 함정** — 마이그레이션 psql BEGIN/ROLLBACK 리허설이 실쓰기 전 SQL버그 잡음.
+   RESTRICT FK(book_v3_vectors) 때문에 DELETE 금지 → repoint+canonical 마킹으로 우회.
+3. **품질 무손상 우선** — 레이턴시 급해도 스코어링 안 건드리는 선(계산을 쓰기시점으로+UX)부터.
+   진짜 계산 단축(품질 리스크)은 재검증과 함께 Phase 2로 분리.
 
 ## 환경 메모
-- 폰 설치: iCloud 밖 `~/curation_build/app`에서 `flutter run --release -d 00008140-001C34580A0B001C`(iOS 릴리즈, 7일 만료). lib 수정 후 `rsync -a --delete <iCloud>/app/lib/ ~/curation_build/app/lib/` 동기화 먼저.
-- golden 재생성: `flutter test --update-goldens test/book_spine_golden_test.dart` → `test/goldens/spine_shelf.png` Read로 확인.
-- 서버는 PR merge→main→Render 자동배포(~8.5분). CODE_REV 하드코딩이라 /health로 배포확인 불가(behavioral: /home?refresh=1의 cache_hit=false).
+- 활성 gh 계정 **`hyhuh0910`** 확인 필수 — 세션 중 `karrot`로 여러 번 리버트됨(`gh auth switch --user hyhuh0910`).
+- 폰 설치: iCloud 밖 `~/curation_build/app`에서 `rsync -a --delete <iCloud>/app/lib/ ~/curation_build/app/lib/` 후
+  `flutter run --release -d 00008140-001C34580A0B001C`(iOS, 7일 만료). 초기 "Could not run" = **폰 잠금** → 해제후 성공.
+- 서버는 PR merge→main→Render 자동배포(~8.5분, 이번엔 ~10분). CODE_REV 하드코딩이라 /health로 확인불가 →
+  behavioral(신규 라우트 404→존재 / /home 지연 9s→2.8s). psql 검증=pooler `aws-1-ap-south-1:6543/5432`, `SUPABASE_DB_PASSWORD`.
+- prod 진단/E2E: service_role REST + admin API로 throwaway 유저(비번 로그인→실 JWT). 스크립트는 scratchpad(미커밋).
