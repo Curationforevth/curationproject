@@ -11,9 +11,9 @@ from api.home import router as home_router
 from api.curation import router as curation_router
 
 # 배포 검증용 코드 리비전 마커. /health 로 어떤 코드가 라이브인지 관측한다.
-# behavior-signals: user_book_signals(관심없음) 제외+음수항, wishlist 약긍정,
-# input_hash 에 status+signals 포함, 서빙 NI 즉시 필터 (PR#49).
-CODE_REV = "behavior-signals-20260702"
+# index-out-of-image: pkl 을 이미지에서 제외, 부팅 시 Release 다운로드 (PR#50).
+# 직전 behavior-signals(PR#49): 관심없음/wishlist 신호 스코어링+서빙 필터.
+CODE_REV = "index-out-of-image-20260702"
 
 
 @asynccontextmanager
