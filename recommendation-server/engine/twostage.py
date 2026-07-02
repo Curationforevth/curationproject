@@ -1,4 +1,13 @@
-"""Two-stage 추천 엔진. Stage 1 (후보 선별) + Stage 2 (정밀 스코어링)."""
+"""Two-stage 추천 엔진. Stage 1 (후보 선별) + Stage 2 (정밀 스코어링).
+
+Phase 2 (2026-07-02) 벡터화 — 스코어링 수식·가중치·후보 선정 의미 무변경,
+수학적 동치 변환만(float 합산 순서 변화). 동등성은 tests/test_twostage_equivalence.py
+(vs engine/twostage_reference.py 기준선) + scripts/verify_equivalence.py 로 증명.
+- stage1: 선형항(pb/fb)들을 항별 matvec 루프 대신 단일 결합 쿼리벡터로 접음
+  (Σ coef·(M@q) = M@(Σ coef·q)) — 블록당 GEMM 2회 + matvec 3회로 고정.
+- stage2: 후보×쿼리책 이중 Python 루프(쿼리 reason 을 후보마다 재업캐스트)를
+  concat + np.maximum.reduceat 세그먼트 연산으로 대체(scorer.py v3 경로에서 검증된 패턴).
+"""
 from __future__ import annotations
 
 import numpy as np
@@ -93,6 +102,25 @@ def stage1_hybrid(
     for sign, emb in fb_terms:
         pb_desc_terms.append((sign * 2.0, emb))
 
+    # ── 선형항 사전 결합: Σ coef·(M @ q) = M @ (Σ coef·q) — 항별 matvec 루프가
+    # 블록마다 (2G+B+F)회 메모리 패스를 도는 게 진짜 병목이라, 결합벡터 3개로 접어
+    # 블록당 GEMM 2회(max용) + matvec ≤3회로 고정한다. 수식 동치(합산 순서만 변화).
+    q_fb = None
+    if fb_terms:
+        q_fb = np.zeros(D, np.float32)
+        for sign, emb in fb_terms:
+            q_fb += sign * emb
+    q_pb_desc = None
+    if pb_desc_terms:
+        q_pb_desc = np.zeros(D, np.float32)
+        for coef, q in pb_desc_terms:
+            q_pb_desc += coef * q
+    q_pb_agg = None
+    if pb_agg_terms:
+        q_pb_agg = np.zeros(D, np.float32)
+        for coef, q in pb_agg_terms:
+            q_pb_agg += coef * q
+
     # ── 행블록 루프: dm/am 을 블록 단위로만 f32 업캐스트(transient = O(block)) ──
     sq_scores = np.empty(N, dtype=np.float32)
     pb_scores = np.zeros(N, dtype=np.float32)
@@ -104,16 +132,14 @@ def stage1_hybrid(
 
         sq_desc_blk = (dm_blk @ good_descs_T).max(axis=1)
         sq_reason_blk = (am_blk @ good_aggs_T).max(axis=1) if good_aggs.shape[0] else np.zeros(b, np.float32)
-        sq_fb_blk = np.zeros(b, dtype=np.float32)
-        for sign, emb in fb_terms:
-            sq_fb_blk += sign * (dm_blk @ emb)
+        sq_fb_blk = (dm_blk @ q_fb) if q_fb is not None else np.zeros(b, dtype=np.float32)
         sq_scores[s:e] = 3.0 * sq_desc_blk + 2.0 * sq_reason_blk + 2.0 * sq_fb_blk
 
         pb_blk = np.zeros(b, dtype=np.float32)
-        for coef, q in pb_desc_terms:
-            pb_blk += coef * (dm_blk @ q)
-        for coef, q in pb_agg_terms:
-            pb_blk += coef * (am_blk @ q)
+        if q_pb_desc is not None:
+            pb_blk += dm_blk @ q_pb_desc
+        if q_pb_agg is not None:
+            pb_blk += am_blk @ q_pb_agg
         pb_scores[s:e] = pb_blk
 
     # normalize + combine
@@ -151,10 +177,14 @@ def batch_score_prestacked(
     w_fb_desc: float = W_FB_DESC,
     extra_query: dict | None = None,
 ) -> dict:
-    """Stage 2 정밀 스코어링.
+    """Stage 2 정밀 스코어링 — 완전 벡터화.
 
-    _score_one()과 동일한 알고리즘이지만, prestacked reason 배열을 사용해
-    np.stack() 오버헤드를 제거한다.  최대 오차 < 0.01 (float16 양자화 기인).
+    기준선(twostage_reference.batch_score_prestacked_reference)과 점수 동일
+    (max|Δ|<1e-4, float 합산 순서 기인). 과거 구현은 후보 C × 쿼리책 (G+B) 이중
+    Python 루프에서 같은 쿼리 reason 을 후보마다 f16→f32 재업캐스트(C×(G+B)회,
+    prod 150×~25 ≈ 수천 회)했다 — 이게 stage2 병목. 여기선 후보 reasons 를 1회
+    concat 하고 쿼리책마다 GEMM 1회 + np.maximum.reduceat 세그먼트-max 로 전 후보를
+    일괄 계산한다. transient = 후보 reasons f32 1벌(150후보 기준 ~12MB, 512MB 안전).
 
     extra_query: 정적 인덱스 밖 좋/싫 책의 BookVectors(desc 기반 취향 주입).
     """
@@ -169,134 +199,154 @@ def batch_score_prestacked(
     good_books = {bid: (index.get_book(bid) or extra_query.get(bid)) for bid in good_ids}
     good_books = {bid: bv for bid, bv in good_books.items() if bv is not None}
 
-    scores: dict = {}
+    # 인덱스에 없는 후보는 제외(기준선과 동일), 순서 유지
+    cands = [(cid, index.get_book(cid)) for cid in candidate_ids]
+    cands = [(cid, bv) for cid, bv in cands if bv is not None]
+    if not cands:
+        return {}
+    C = len(cands)
+    dim = index.dim
 
-    for cid in candidate_ids:
-        cand = index.get_book(cid)
-        if cand is None:
+    def _reasons_f32(bid, bv):
+        pr = prestacked_reasons.get(bid)
+        if pr is not None and pr.shape[0] > 0:
+            return pr.astype(np.float32)
+        if bv is not None and bv.reasons:
+            return np.stack(bv.reasons).astype(np.float32)
+        return None
+
+    # ── 후보 reasons concat + 세그먼트 경계 (f32 업캐스트는 후보당 1회) ──
+    mats, lens = [], []
+    for cid, bv in cands:
+        r = _reasons_f32(cid, bv)
+        if r is None:
+            lens.append(0)
+        else:
+            lens.append(r.shape[0])
+            mats.append(r)
+    lens = np.asarray(lens)
+    seg = np.concatenate(([0], np.cumsum(lens)[:-1]))
+    empty = lens == 0
+    CR = np.concatenate(mats) if mats else np.zeros((0, dim), np.float32)
+    total_r = CR.shape[0]
+    # reduceat 인덱스는 < len 이어야 한다. 말미 빈 세그먼트는 start==total_r 라
+    # 그대로 넘기면 IndexError, 마지막 유효 인덱스로 클램프하면 **직전 세그먼트가
+    # [start, total_r-1) 로 좁아져 마지막 reason 이 max 에서 누락**된다(동등성 테스트로
+    # 검출). → 말미 빈 세그먼트(seg==total_r)는 reduceat 에서 아예 제외하고 0 으로
+    # 채운다. 중간 빈 세그먼트(start<total_r)는 reduceat 결과가 무의미 값이므로
+    # empty 마스크로 0 덮어씀(기준선의 r_sim=0.0 과 동일).
+    n_lead = int(np.searchsorted(seg, total_r, side="left"))  # 말미 빈 세그먼트 시작 위치
+
+    def _maxsim_vec(qr):
+        """(C,) — 쿼리 reason 별 후보 reason max 의 평균(기준선 r_sim 과 동일)."""
+        if total_r == 0 or qr is None or qr.shape[0] == 0:
+            return np.zeros(C, dtype=np.float32)
+        sm = np.zeros((qr.shape[0], C), dtype=np.float32)
+        sm[:, :n_lead] = np.maximum.reduceat(qr @ CR.T, seg[:n_lead], axis=1)
+        if empty.any():
+            sm[:, empty] = 0.0
+        return sm.mean(axis=0)
+
+    def _fbsim_vec(emb_f32):
+        """(C,) — 후보 reason 중 fb 임베딩과의 max(기준선 fb_sim 과 동일)."""
+        if total_r == 0:
+            return np.zeros(C, dtype=np.float32)
+        sm = np.zeros(C, dtype=np.float32)
+        sm[:n_lead] = np.maximum.reduceat(CR @ emb_f32, seg[:n_lead])
+        if empty.any():
+            sm[empty] = 0.0
+        return sm
+
+    # ── 1. reason_score: good/bad 가중 maxsim 의 평균 (쿼리 reason 업캐스트 책당 1회) ──
+    contribs = []
+    for bid in good_ids:
+        bv = good_books.get(bid)
+        if bv is None:
             continue
-
-        # ── 1. reason_score (per-candidate 루프, prestacked 사용) ──────────
-        # cand_reasons: (n_cand_reasons, dim) float32
-        if cid in prestacked_reasons and prestacked_reasons[cid].shape[0] > 0:
-            cand_reasons_f32 = prestacked_reasons[cid].astype(np.float32)
-        elif cand.reasons:
-            cand_reasons_f32 = np.stack(cand.reasons).astype(np.float32)
+        r_sim = _maxsim_vec(_reasons_f32(bid, bv))
+        fb = fb_data.get(bid)
+        if fb and not fb["is_dislike"]:
+            fb_sim = _fbsim_vec(fb["emb"].astype(np.float32))
+            contribs.append(FB_REASON_WEIGHT * fb_sim + REASON_WEIGHT_WITH_FB * r_sim)
         else:
-            cand_reasons_f32 = None
-
-        weighted_maxsims = []
-
-        for bid in good_ids:
-            bv = good_books.get(bid)
-            if bv is None:
-                continue
-            fb = fb_data.get(bid)
-
-            # query reasons: prestacked 우선, fallback으로 np.stack
-            if bid in prestacked_reasons and prestacked_reasons[bid].shape[0] > 0:
-                q_reasons_f32 = prestacked_reasons[bid].astype(np.float32)
-            elif bv.reasons:
-                q_reasons_f32 = np.stack(bv.reasons).astype(np.float32)
-            else:
-                q_reasons_f32 = None
-
-            if cand_reasons_f32 is not None and q_reasons_f32 is not None:
-                sims = q_reasons_f32 @ cand_reasons_f32.T
-                r_sim = float(sims.max(axis=1).mean())
-            else:
-                r_sim = 0.0
-
-            if fb and not fb["is_dislike"]:
-                if cand_reasons_f32 is not None:
-                    fb_sim = float((cand_reasons_f32 @ fb["emb"].astype(np.float32)).max())
-                else:
-                    fb_sim = 0.0
-                weighted_maxsims.append(FB_REASON_WEIGHT * fb_sim + REASON_WEIGHT_WITH_FB * r_sim)
-            else:
-                weighted_maxsims.append(REASON_WEIGHT_WITHOUT_FB * r_sim)
-
-        for bid in bad_ids:
-            bv = index.get_book(bid) or extra_query.get(bid)
-            if bv is None:
-                continue
-            fb = fb_data.get(bid)
-
-            # query reasons: prestacked 우선
-            if bid in prestacked_reasons and prestacked_reasons[bid].shape[0] > 0:
-                q_reasons_f32 = prestacked_reasons[bid].astype(np.float32)
-            elif bv.reasons:
-                q_reasons_f32 = np.stack(bv.reasons).astype(np.float32)
-            else:
-                q_reasons_f32 = None
-
-            if cand_reasons_f32 is not None and q_reasons_f32 is not None:
-                sims = q_reasons_f32 @ cand_reasons_f32.T
-                r_sim = float(sims.max(axis=1).mean())
-            else:
-                r_sim = 0.0
-
-            if fb and fb["is_dislike"]:
-                if cand_reasons_f32 is not None:
-                    fb_sim = float((cand_reasons_f32 @ fb["emb"].astype(np.float32)).max())
-                else:
-                    fb_sim = 0.0
-                weighted_maxsims.append(-(FB_REASON_WEIGHT * fb_sim + REASON_WEIGHT_WITH_FB * r_sim))
-            else:
-                weighted_maxsims.append(-REASON_WEIGHT_WITHOUT_FB * r_sim)
-
-        reason_score = float(np.mean(weighted_maxsims)) if weighted_maxsims else 0.0
-
-        # ── 2. desc_score ─────────────────────────────────────────────────
-        # desc 는 per-book(BookVectors.desc) 또는 strip 시 index._desc_matrix 에서 조회
-        # (메모리 dedup: desc 1벌). 인덱스 밖 주입책(extra_query)은 per-book desc 사용.
-        def _desc(bid, bv):
-            d = index.desc_of(bid)
-            if d is None and bv is not None:
-                d = bv.desc
-            return d.astype(np.float32) if d is not None else None
-
-        cand_desc = _desc(cid, cand)
-        good_descs = [g for g in (_desc(bid, good_books[bid]) for bid in good_ids if bid in good_books) if g is not None]
-        desc_score = float(max(float(np.dot(d, cand_desc)) for d in good_descs)) if (good_descs and cand_desc is not None) else 0.0
-
-        # ── 3. l1_score (w_l1=0이면 skip) ────────────────────────────────
-        if w_l1 != 0:
-            good_l1s = [good_books[bid].l1.astype(np.float32) for bid in good_ids if bid in good_books]
-            cand_l1 = cand.l1.astype(np.float32)
-            l1_score = float(max(float(np.dot(l, cand_l1)) for l in good_l1s)) if good_l1s else 0.0
+            contribs.append(REASON_WEIGHT_WITHOUT_FB * r_sim)
+    for bid in bad_ids:
+        bv = index.get_book(bid) or extra_query.get(bid)
+        if bv is None:
+            continue
+        r_sim = _maxsim_vec(_reasons_f32(bid, bv))
+        fb = fb_data.get(bid)
+        if fb and fb["is_dislike"]:
+            fb_sim = _fbsim_vec(fb["emb"].astype(np.float32))
+            contribs.append(-(FB_REASON_WEIGHT * fb_sim + REASON_WEIGHT_WITH_FB * r_sim))
         else:
-            l1_score = 0.0
+            contribs.append(-REASON_WEIGHT_WITHOUT_FB * r_sim)
+    reason_score = np.mean(contribs, axis=0) if contribs else np.zeros(C, dtype=np.float32)
 
-        # ── 4. l2_score (w_l2=0이면 skip) ────────────────────────────────
-        if w_l2 != 0:
-            good_l2s = [good_books[bid].l2.astype(np.float32) for bid in good_ids if bid in good_books]
-            cand_l2 = cand.l2.astype(np.float32)
-            l2_score = float(max(float(np.dot(l, cand_l2)) for l in good_l2s)) if good_l2s else 0.0
+    # ── 2. desc_score ──
+    # desc 는 per-book(BookVectors.desc) 또는 strip 시 index._desc_matrix 에서 조회
+    # (메모리 dedup: desc 1벌). 인덱스 밖 주입책(extra_query)은 per-book desc 사용.
+    def _desc_f32(bid, bv):
+        d = index.desc_of(bid)
+        if d is None and bv is not None:
+            d = bv.desc
+        return d.astype(np.float32) if d is not None else None
+
+    zero_d = np.zeros(dim, dtype=np.float32)
+    cd_rows = [_desc_f32(cid, bv) for cid, bv in cands]
+    CD = np.stack([d if d is not None else zero_d for d in cd_rows])   # (C, D)
+
+    good_desc_rows = [g for g in (_desc_f32(bid, good_books[bid])
+                                  for bid in good_ids if bid in good_books) if g is not None]
+    if good_desc_rows:
+        desc_score = (CD @ np.stack(good_desc_rows).T).max(axis=1)
+    else:
+        desc_score = np.zeros(C, dtype=np.float32)
+
+    # ── 3/4. l1_score / l2_score (w=0이면 skip — prod 기본) ──
+    if w_l1 != 0:
+        good_l1s = [good_books[bid].l1.astype(np.float32) for bid in good_ids if bid in good_books]
+        if good_l1s:
+            CL1 = np.stack([bv.l1.astype(np.float32) for _, bv in cands])
+            l1_score = (CL1 @ np.stack(good_l1s).T).max(axis=1)
         else:
-            l2_score = 0.0
+            l1_score = np.zeros(C, dtype=np.float32)
+    else:
+        l1_score = np.zeros(C, dtype=np.float32)
 
-        # ── 5. fb_desc_score ──────────────────────────────────────────────
-        fb_desc_vals = []
-        for bid, fb in fb_data.items():
-            if liked_books.get(bid, {}).get("rating") == "neutral":
-                continue
-            sign = -1.0 if fb["is_dislike"] else 1.0
-            fb_desc_vals.append(sign * float(np.dot(fb["emb"].astype(np.float32), cand_desc)))
-        fb_desc_score = float(np.mean(fb_desc_vals)) if fb_desc_vals else 0.0
+    if w_l2 != 0:
+        good_l2s = [good_books[bid].l2.astype(np.float32) for bid in good_ids if bid in good_books]
+        if good_l2s:
+            CL2 = np.stack([bv.l2.astype(np.float32) for _, bv in cands])
+            l2_score = (CL2 @ np.stack(good_l2s).T).max(axis=1)
+        else:
+            l2_score = np.zeros(C, dtype=np.float32)
+    else:
+        l2_score = np.zeros(C, dtype=np.float32)
 
-        scores[cid] = (
-            w_reason * reason_score
-            + w_desc * desc_score
-            + w_l1 * l1_score
-            + w_l2 * l2_score
-            + w_fb_desc * fb_desc_score
-        )
-        # source_tier 차등 down-weight (positive-part — 음수 점수는 미변경해
-        # 0쪽으로 올려 랭크가 상승하는 버그 방지, B1). 페널티는 후보에만(쿼리책 무관).
-        tier = getattr(index, "_candidate_tier", {}).get(cid, "rich")
-        pen = SOURCE_TIER_PENALTY.get(tier, 1.0)
-        if pen != 1.0 and scores[cid] > 0:
-            scores[cid] *= pen
+    # ── 5. fb_desc_score: mean(sign·(CD@emb)) = CD @ (Σ sign·emb / n) — 선형 결합 ──
+    fb_entries = [(-1.0 if fb["is_dislike"] else 1.0, fb["emb"])
+                  for bid, fb in fb_data.items()
+                  if liked_books.get(bid, {}).get("rating") != "neutral"]
+    if fb_entries:
+        q_fb = np.zeros(dim, dtype=np.float32)
+        for sign, emb in fb_entries:
+            q_fb += sign * emb.astype(np.float32)
+        fb_desc_score = CD @ (q_fb / len(fb_entries))
+    else:
+        fb_desc_score = np.zeros(C, dtype=np.float32)
 
-    return scores
+    total = (w_reason * reason_score
+             + w_desc * desc_score
+             + w_l1 * l1_score
+             + w_l2 * l2_score
+             + w_fb_desc * fb_desc_score)
+
+    # source_tier 차등 down-weight (positive-part — 음수 점수는 미변경해
+    # 0쪽으로 올려 랭크가 상승하는 버그 방지, B1). 페널티는 후보에만(쿼리책 무관).
+    tier_map = getattr(index, "_candidate_tier", {})
+    pen = np.array([SOURCE_TIER_PENALTY.get(tier_map.get(cid, "rich"), 1.0)
+                    for cid, _ in cands], dtype=np.float32)
+    total = np.where((pen != 1.0) & (total > 0), total * pen, total)
+
+    return {cid: float(total[k]) for k, (cid, _) in enumerate(cands)}
