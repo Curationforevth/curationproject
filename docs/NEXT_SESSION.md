@@ -1,4 +1,36 @@
-# 다음 세션 핸드오프 (2026-07-02 #14 진행 중 — 저니 리뷰 + Sprint A 홈 회복력)
+# 다음 세션 핸드오프 (2026-07-02 #14 — 저니 리뷰 + PR#47~51 배포·검증 완료)
+
+> **#14 후반 (PR#48~51, 전부 머지·배포·검증):**
+> - **PR#48 Sprint B**: 온보딩 전권 good 제거(최애만 — Eden 결정 "읽음만 표시, 평가는
+>   묻기") + 완료 직후 recompute 트리거 + 5권 최소 강제 + "서재가 시작됐어요" 연출 +
+>   피드백 2초 후 추천 섹션만 자동 재조회(#11 정책 부분 개정, Eden 승인). flutter 85.
+> - **PR#49 책 삭제 + 관심없음 신호** (Eden: "잘못 넣은 책을 뺄 수 없다" / "관심없는
+>   책 안 뜨게 + 취향 반영"): 바텀시트 '이 책 삭제'(확인 없이 + 실행취소 스낵바,
+>   스냅숏 복원) + 내책/읽고싶은책 카드 **길게 누르기**→시트. `user_book_signals`
+>   테이블(RLS 리허설 PASS) + 스코어링: NI stage1 완전 제외 + desc **-0.75**,
+>   wishlist desc **+1.0** 신규(config 상수, 양 스테이지) + **input_hash 에
+>   status+signals 포함**(전 유저 캐시 1회 무효화 의도) + 서빙 즉시 필터.
+>   검증: pytest 224 + 실인덱스 리포트(NI 제거 20/20·유사작 하락 80%·WL 상승
+>   100%·안정성 75~82%) + **prod E2E throwaway PASS**(실 JWT RLS insert →
+>   /recommend 즉시 제외 + 캐시 무효화 확인, 정리 완료). 리뷰가 잡은 함정:
+>   pop 된 위젯 ref 사용 → ProviderContainer 캡처로 수정.
+> - **PR#50 배포 단축**: index.pkl 을 이미지 밖으로 — GitHub Release 롤링 태그
+>   (index-latest, 자산 --clobber) + 부팅 시 ensure_index_present()(원자적 .part,
+>   Content-Length 검증, 3회 재시도 fail-loud) + .dockerignore + index-direct.yml
+>   릴리즈 업로드를 push **앞에**(순서 중요). **실측: 배포 8.5~12분 → 회당 ~3~4분.**
+> - **PR#51 실기기 버그 2건**(Eden): ①스낵바 영구 고착 — iOS accessibleNavigation
+>   에선 액션 스낵바가 자동 해제 안 됨 + 큐까지 블로킹 → showTimedSnackBar(타이머
+>   강제 close + clearSnackBars) ②시트 하단 터치 불가(미보유 책은 버튼 3개로
+>   길어져 오버플로) → maxHeight 0.85 + SingleChildScrollView + '관심 없어요'
+>   아웃라인 버튼(비활성처럼 보였음).
+> - **⚠️ 폰 재빌드 필요(PR#51 미설치)** — 케이블 연결 후 §7 rsync+flutter run.
+>   PR#49 까지는 설치됨.
+> - CODE_REV 는 PR 마다 범프할 것(이번에 두 번 잊어 관측 공백) — 현행
+>   `index-out-of-image-20260702`.
+
+---
+
+## (이하 #14 전반 기록)
 
 > **#14 (같은 날 오후):** Eden 리포트 "진입 시 큐레이션 안 뜸" 진단 → 핵심가치·유저저니
 > 4방향 코드리뷰 → **PR#47(Sprint A: 홈 회복력) 머지·prod 검증 완료**.
