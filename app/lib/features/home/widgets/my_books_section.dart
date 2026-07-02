@@ -6,6 +6,7 @@ import '../../../core/models/user_book.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../bookshelf/providers/bookshelf_provider.dart';
 import '../providers/home_provider.dart';
+import '../../../core/utils/author_format.dart';
 
 /// 내 책 섹션 — 읽는 중 + 피드백 미작성 책 (최대 5권)
 class MyBooksSection extends ConsumerWidget {
@@ -141,7 +142,7 @@ class _MyBookCard extends ConsumerWidget {
           // 저자
           if (book.author != null && book.author!.isNotEmpty)
             Text(
-              book.author!,
+              displayAuthor(book.author),
               style: const TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w300,

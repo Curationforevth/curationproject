@@ -6,6 +6,7 @@ import '../providers/book_detail_provider.dart';
 import '../widgets/rating_selector.dart';
 import '../widgets/emotion_tag_chips.dart';
 import '../widgets/review_text_section.dart';
+import '../../../core/utils/author_format.dart';
 
 class BookDetailScreen extends ConsumerWidget {
   final String userBookId;
@@ -247,7 +248,7 @@ class _BookInfoHeader extends StatelessWidget {
               if (book?.author != null) ...[
                 const SizedBox(height: 4),
                 Text(
-                  book!.author!,
+                  displayAuthor(book!.author),
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: AppColors.textSecondary,
                       ),

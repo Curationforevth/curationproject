@@ -11,6 +11,7 @@ import '../providers/home_provider.dart';
 import '../providers/recommendation_provider.dart';
 import '../widgets/book_detail_bottom_sheet.dart';
 import '../widgets/my_books_section.dart';
+import '../../../core/utils/author_format.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -276,7 +277,7 @@ class _FeedBookCard extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
             Text(
-              book.author,
+              displayAuthor(book.author),
               style: const TextStyle(
                 fontSize: 11,
                 color: AppColors.textSecondary,
@@ -541,7 +542,7 @@ class _RecommendationCard extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
             Text(
-              book.author,
+              displayAuthor(book.author),
               style: const TextStyle(
                 fontSize: 11,
                 color: AppColors.textSecondary,
@@ -693,7 +694,7 @@ class _WishlistCard extends StatelessWidget {
             ),
             if (book.author != null && book.author!.isNotEmpty)
               Text(
-                book.author!,
+                displayAuthor(book.author),
                 style: const TextStyle(
                   fontSize: 11,
                   color: AppColors.textSecondary,

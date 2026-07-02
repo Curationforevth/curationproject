@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/models/book.dart';
+import '../../../core/utils/author_format.dart';
 
 class BookSearchResultCard extends StatelessWidget {
   final Book book;
@@ -51,7 +52,7 @@ class BookSearchResultCard extends StatelessWidget {
                   if (book.author != null && book.author!.isNotEmpty) ...[
                     const SizedBox(height: 4),
                     Text(
-                      book.author!,
+                      displayAuthor(book.author),
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                             color: Colors.grey[600],
                           ),

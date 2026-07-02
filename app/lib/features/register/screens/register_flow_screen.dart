@@ -6,6 +6,7 @@ import '../../../core/models/user_book.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../bookshelf/providers/bookshelf_provider.dart';
 import '../../search/providers/book_search_provider.dart';
+import '../../../core/utils/author_format.dart';
 
 class RegisterFlowScreen extends ConsumerStatefulWidget {
   const RegisterFlowScreen({super.key});
@@ -305,7 +306,7 @@ class _RegisterBookCard extends StatelessWidget {
                   if (book.author != null && book.author!.isNotEmpty) ...[
                     const SizedBox(height: 4),
                     Text(
-                      book.author!,
+                      displayAuthor(book.author),
                       style: const TextStyle(
                         fontSize: 13,
                         color: AppColors.textSecondary,
@@ -433,7 +434,7 @@ class _StatusBottomSheet extends StatelessWidget {
                       if (book.author != null && book.author!.isNotEmpty) ...[
                         const SizedBox(height: 4),
                         Text(
-                          book.author!,
+                          displayAuthor(book.author),
                           style: const TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w300,
