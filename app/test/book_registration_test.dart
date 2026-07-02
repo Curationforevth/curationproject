@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:curation_app/core/models/book.dart';
+import 'package:curation_app/core/models/user_book.dart';
 import 'package:curation_app/core/services/book_registration_service.dart';
 
 void main() {
@@ -30,6 +31,68 @@ void main() {
     test('id 우선: id·isbn 둘 다 있어도 reuseId (기존 행 신뢰)', () {
       final both = Book(id: 'uuid', isbn: '9788954617437', title: '화차');
       expect(resolveBookRef(both), BookRef.reuseId);
+    });
+  });
+
+  // '읽었어요' 재등록 23505 회귀 방지: user_books 는 (user_id, book_id) UNIQUE.
+  // registerBook 이 무조건 INSERT 하면 이미 서재에 있는 책(북마크해둔 책 등)에
+  // '읽었어요'를 누를 때 duplicate key 에러 — 화차 fix(id 재사용)가 드러낸 잠복 결함.
+  // 기존 행이 있으면 status 전이(UPDATE)로, wishlist 로의 강등은 금지한다
+  // (finished+rating 행을 wishlist 로 내리면 user_books_wishlist_no_rating CHECK 위반).
+  group('resolveShelfWrite — 서재 등록/전이 전략', () {
+    test('기존 행 없으면 insertNew', () {
+      expect(
+        resolveShelfWrite(existingStatus: null, requested: BookStatus.read),
+        ShelfWrite.insertNew,
+      );
+    });
+
+    test('북마크해둔 책에 읽었어요 → 상태 전이 (에러났던 바로 그 경로)', () {
+      expect(
+        resolveShelfWrite(existingStatus: 'wishlist', requested: BookStatus.read),
+        ShelfWrite.updateStatus,
+      );
+    });
+
+    test('읽는 중 → 읽었어요 전이', () {
+      expect(
+        resolveShelfWrite(existingStatus: 'reading', requested: BookStatus.read),
+        ShelfWrite.updateStatus,
+      );
+    });
+
+    test('같은 상태 재탭은 no-op (keepExisting)', () {
+      expect(
+        resolveShelfWrite(existingStatus: 'finished', requested: BookStatus.read),
+        ShelfWrite.keepExisting,
+      );
+      expect(
+        resolveShelfWrite(
+            existingStatus: 'wishlist', requested: BookStatus.wantToRead),
+        ShelfWrite.keepExisting,
+      );
+    });
+
+    test('이미 서재에 있는 책의 북마크(wishlist) 요청 = 강등 금지', () {
+      // finished 행에 rating 이 있으면 wishlist 전이는 CHECK 위반이기도 하다.
+      expect(
+        resolveShelfWrite(
+            existingStatus: 'finished', requested: BookStatus.wantToRead),
+        ShelfWrite.keepExisting,
+      );
+      expect(
+        resolveShelfWrite(
+            existingStatus: 'reading', requested: BookStatus.wantToRead),
+        ShelfWrite.keepExisting,
+      );
+    });
+
+    test('wishlist → reading 승격 허용', () {
+      expect(
+        resolveShelfWrite(
+            existingStatus: 'wishlist', requested: BookStatus.reading),
+        ShelfWrite.updateStatus,
+      );
     });
   });
 }
