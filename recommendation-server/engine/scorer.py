@@ -161,20 +161,28 @@ def recommend_scores_two_stage(index: VectorIndex, liked_books: dict,
     seg = np.array(starts)
     empty = np.array(lens) == 0
     CR = np.concatenate(mats) if mats else np.zeros((0, index.dim), np.float32)
+    total_r = CR.shape[0]
+    # reduceat 인덱스는 < len 이어야 한다. 말미 빈 세그먼트는 start==total_r 라
+    # 그대로 넘기면 IndexError, 마지막 유효 인덱스로 클램프하면 직전 세그먼트의
+    # 마지막 reason 이 max 에서 누락된다 → 말미 빈 세그먼트(seg==total_r)는
+    # reduceat 에서 아예 제외하고 0 으로 채운다(twostage.py 와 동일 패턴).
+    n_lead = int(np.searchsorted(seg, total_r, side="left"))
     cand_desc = M[[bid_to_idx[c] for c in cand_ids]]   # (C, D)
 
     def _maxsim_vec(qr):       # (C,) : mean over query reasons of max over cand reasons
-        if CR.shape[0] == 0 or qr.shape[0] == 0:
+        if total_r == 0 or qr.shape[0] == 0:
             return np.zeros(C, dtype=np.float32)
-        sm = np.maximum.reduceat(qr @ CR.T, seg, axis=1)   # (nq, C)
+        sm = np.zeros((qr.shape[0], C), dtype=np.float32)
+        sm[:, :n_lead] = np.maximum.reduceat(qr @ CR.T, seg[:n_lead], axis=1)
         if empty.any():
             sm[:, empty] = 0.0
         return sm.mean(axis=0)
 
     def _fbsim_vec(emb):       # (C,) : max over cand reasons of emb·reason
-        if CR.shape[0] == 0:
+        if total_r == 0:
             return np.zeros(C, dtype=np.float32)
-        sm = np.maximum.reduceat(CR @ emb.astype(np.float32), seg)
+        sm = np.zeros(C, dtype=np.float32)
+        sm[:n_lead] = np.maximum.reduceat(CR @ emb.astype(np.float32), seg[:n_lead])
         if empty.any():
             sm[empty] = 0.0
         return sm
