@@ -169,3 +169,35 @@ recompute 전체 경로: `cache.recompute_recommendations` (engine/cache.py:173)
 - 서버 단독 변경 + auto-deploy → 문제 시 `git revert` 머지로 ~8.5분 내 원복.
 - computing stuck 가드(180s)·stale-write 가드·Semaphore 등 기존 견고화 로직 무접촉.
 - gh 계정 `hyhuh0910` 확인 후 push (반복 이슈).
+
+---
+
+## 6. 실측 결과 (2026-07-02 실행 완료 — PR#35 계측, PR#36 벡터화)
+
+### prod 계측 baseline (throwaway 14권·fb 3, PR#35 배포 후)
+- **total 63.5~73.5s** — s1 47~48s + s2 15~17s = **스코어링이 97%** (기억된 8~17s 보다
+  훨씬 나쁨). embed(OpenAI 3건) 6s는 첫 계산만, DB I/O 합 ~1.9s.
+- 로컬 동일 계산 130ms — **prod/로컬 500× 괴리** → cgroup 0.1 vCPU 만으로 설명 불가,
+  멀티스레드 OpenBLAS 가 쿼터를 나눠먹는 경합 가설 → Dockerfile 스레드 1 고정 포함.
+
+### PR#36 배포 후 (동일 throwaway·동일 서재 재측정)
+| 항목 | before | after | 배율 |
+|---|---|---|---|
+| s1 | 47.7s | **0.75s** | ×63 |
+| s2 | 15.0s | **0.59s** | ×25 |
+| total (warm) | 63.5s | **2.76s** | ×23 |
+| memory_mb | 353 | 349 | 동일 |
+
+- **top-20 스냅숏 전후 완전 동일(20/20)** — prod 실물로 취향 무손상 증명.
+- 스모크: /recommend 200(1.5s)·/home 200(3.5s)·/similar 200(0.8s). throwaway 정리 완료.
+
+### 검증 통과 요약
+- L0: pytest 186 (동등성 22 신규 — **말미 빈-reason reduceat 경계버그를 TDD 로 검출**).
+- L1: 실인덱스 108명 전원 top-20 동일, 후보 overlap 150/150, max|Δ|=5.4e-06.
+  실유저 5명(Eden 계정 포함) 오프라인 동일 확인.
+- L2: Docker 부재 → 로컬 근사(transient 37~43MB < 54MB 안전선) + prod 실측으로 대체.
+
+### 남은 꼬리 (합격선 sub-2s 대비 +0.8s)
+- total 2.76s = 스코어링 1.34s + **DB/캐시 왕복 5회 ~1.4s** (load_cache 0.16 + flag 0.21 +
+  db1 0.26 + db2 0.24 + save 0.37). 다음 레버 = §2 후속 트랙 1(db2 재read 제거 등 왕복 축소).
+  스코어링은 더 이상 병목 아님 — ANN/int8 불필요 판단 확정(N≥50k 재검토).
