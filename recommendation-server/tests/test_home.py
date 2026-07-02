@@ -10,7 +10,7 @@ def test_similar_books_from_seed_uses_correct_signature(small_index):
     # 호출해 시그니처가 맞아야 결과가 채워진다. (MagicMock 으로는 오인자도 통과해
     # 회귀를 못 잡으므로 반드시 실제 인덱스로 검증.)
     small_index.build_desc_matrix()
-    meta = {bid: {"title": bid, "author": "a", "cover_url": None}
+    meta = {bid: {"title": bid, "author": "a", "cover_url": "http://cover"}
             for bid in small_index.book_ids}
     out = _similar_books_from_seed(small_index, meta, "novel1", limit=3)
     assert out, "similar 결과가 비어있음 — 시그니처 불일치(top_n=) 회귀"
@@ -19,7 +19,7 @@ def test_similar_books_from_seed_uses_correct_signature(small_index):
 
 def test_assemble_sections_tier_0_returns_trending_and_curations():
     """Tier 0: [trending, curation, curation, category_nav]"""
-    fake_books_meta = {"b1": {"title": "T1", "author": "A", "cover_url": None}}
+    fake_books_meta = {"b1": {"title": "T1", "author": "A", "cover_url": "http://cover"}}
     fake_fallback = [{"book_id": "b1"}]  # fallback_curation row
     fake_themes = [
         {"id": 10, "theme_type": "genre_combo", "title": "문학", "personalization": "general",

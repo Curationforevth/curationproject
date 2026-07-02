@@ -13,7 +13,7 @@ from api.curation import router as curation_router
 # 배포 검증용 코드 리비전 마커. /health 로 어떤 코드가 라이브인지 관측한다.
 # stage1-topn-700: 후보 150→700(Eden 승인, 현실형 recall 95→98.9%) + stage2
 # 후보 블록 처리(무분할 transient 175MB→40MB). 직전 scorer-reduceat-fix(PR#38).
-CODE_REV = "home-xsection-dedup-20260702"
+CODE_REV = "home-visual-shelf-20260702"
 
 
 @asynccontextmanager

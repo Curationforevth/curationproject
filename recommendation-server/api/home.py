@@ -60,6 +60,11 @@ def _book_dict(bid: str, books_meta: dict, score: Optional[float] = None) -> Opt
     meta = books_meta.get(bid)
     if meta is None:
         return None  # skip ghost book
+    if not meta.get("cover_url"):
+        # 홈=비주얼 서가(핵심가치 1). 커버 없는(minimal) 책은 홈 표면에서 제외하고
+        # 호출측 fill 루프가 다음 후보로 채운다(실측: 커버 없는 카드가 홈을 깨보이게 함).
+        # 데이터/추천 자체에는 무접촉 — /recommend·/similar API 는 그대로 노출.
+        return None
     d = {
         "book_id": bid,
         "title": meta.get("title", ""),
@@ -77,8 +82,9 @@ def _similar_books_from_seed(index, books_meta: dict, seed_book_id: str, limit: 
         # 가 나고 except 가 삼켜 Tier 1(personal_recommend 없음) 유저의 similar 섹션이
         # 통째로 비어있던 버그. except 도 더는 무음으로 삼키지 않는다.
         # over-fetch 후 시드의 다른 판본·중복 판본 제거 → limit 개.
-        raw = index.similar_by_desc(seed_book_id, limit=limit * 2 + 5)
-        results = dedup_similar(raw, books_meta, seed_book_id, limit)
+        # over-fetch: 판본 dedup + 커버 없는 책 skip 후에도 limit 개가 남도록 넉넉히.
+        raw = index.similar_by_desc(seed_book_id, limit=limit * 3 + 5)
+        results = dedup_similar(raw, books_meta, seed_book_id, limit * 2)
     except Exception as e:
         print(f"[home] similar_by_desc failed (seed={seed_book_id}): {e}", flush=True)
         return []
@@ -87,6 +93,8 @@ def _similar_books_from_seed(index, books_meta: dict, seed_book_id: str, limit: 
         b = _book_dict(bid, books_meta)
         if b:
             out.append(b)
+        if len(out) >= limit:
+            break
     return out
 
 
@@ -139,10 +147,12 @@ def assemble_sections_for_user(
                 lambda t: (books_meta.get(t[0], {}).get("title", ""),
                            books_meta.get(t[0], {}).get("author", "")),
             )
-            for bid, score in scored[:10]:
+            for bid, score in scored:  # 커버 없는/ghost 는 건너뛰고 후보에서 10개 채움
                 b = _book_dict(bid, books_meta, score=score)
                 if b:
                     books.append(b)
+                if len(books) >= 10:
+                    break
             sections.append(_register({
                 "id": section_id, "type": "personal_recommend",
                 "title": "당신을 위한 추천", "books": books,
@@ -206,17 +216,22 @@ def _sample_curation(
     exclude_bids=None,
 ) -> dict:
     exclude_bids = exclude_bids or set()
+    # 렌더 가능한 테마만 샘플링 — 갓 생성돼 curation_cache 가 아직 없는 테마(다음
+    # hourly cron 에 채워짐)를 뽑으면 빈 섹션→드롭으로 홈이 빈약해진다(실측:
+    # author 테마 대량 재생성 직후). 캐시 유무는 뽑기 전에 거른다.
+    pool = [t for t in active_themes if cache_by_id.get(t["id"])]
     # 개인화 필터
-    pool = [t for t in active_themes
+    pool = [t for t in pool
             if personalization_override is None
             or t.get("personalization") == personalization_override]
     pool = filter_by_personalization(pool, tier=tier,
                                      top_authors=top_authors, top_l1s=top_l1s)
     pool = apply_recent_discount(pool, recent_ids)
 
-    # by_author/by_l1 fallback → general
+    # by_author/by_l1 fallback → general (역시 렌더 가능한 테마만)
     if not pool and personalization_override in ("by_author", "by_l1"):
-        pool = [t for t in active_themes if t.get("personalization") == "general"]
+        pool = [t for t in active_themes
+                if t.get("personalization") == "general" and cache_by_id.get(t["id"])]
         pool = apply_recent_discount(pool, recent_ids)
 
     picked = weighted_sample_one(pool)
