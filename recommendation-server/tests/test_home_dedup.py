@@ -111,6 +111,47 @@ class TestCrossSectionDedup:
         # trending 은 중복을 제외하고도 후보(30)에서 10개를 채운다
         assert len(trend) == 10
 
+    def test_trending_shuffles_per_assembly(self):
+        """화제의 책 셔플(2026-07-02 Eden): 조립마다 구성이 달라지되 풀(30권) 안에서."""
+        import random
+        pool = [f"b{i}" for i in range(30)]
+        kw = dict(active_themes=[], curation_cache_by_id={},
+                  fallback_books=[{"book_id": b} for b in pool],
+                  books_meta=_meta(pool))
+        random.seed(1)
+        t1 = [b["book_id"] for s in self._assemble(**kw)
+              if s["type"] == "trending" for b in s["books"]]
+        random.seed(2)
+        t2 = [b["book_id"] for s in self._assemble(**kw)
+              if s["type"] == "trending" for b in s["books"]]
+        assert len(t1) == len(t2) == 10
+        assert set(t1) <= set(pool) and set(t2) <= set(pool)
+        assert t1 != t2, "조립(시드)마다 구성/순서가 달라져야 함"
+
+    def test_tier2_second_curation_slot_falls_back_to_general(self):
+        """tier2+ 테마가 없어도 두 번째 큐레이션 슬롯이 general 폴백으로 살아난다.
+
+        (과거: tier2+ 풀이 항상 비어 섹션 드롭 → tier2 는 큐레이션 실질 1칸 버그)
+        같은 요청 안에서 두 슬롯이 같은 테마를 중복으로 뽑지 않는 것도 함께 고정.
+        """
+        b1 = [f"a{i}" for i in range(10)]
+        b2 = [f"c{i}" for i in range(10)]
+        themes = [
+            {"id": 1, "title": "테마A", "personalization": "general",
+             "priority": 1.0, "click_rate": 0.0, "shown_count": 0},
+            {"id": 2, "title": "테마B", "personalization": "general",
+             "priority": 1.0, "click_rate": 0.0, "shown_count": 0},
+        ]
+        sections = self._assemble(
+            active_themes=themes,
+            curation_cache_by_id={1: b1, 2: b2},
+            fallback_books=[],
+            books_meta=_meta(b1 + b2),
+        )
+        curs = [s for s in sections if s["type"] == "curation" and s.get("books")]
+        assert len(curs) == 2, f"tier2 큐레이션 2칸이어야 함 (실제 {len(curs)})"
+        assert curs[0]["curation_id"] != curs[1]["curation_id"], "같은 테마 중복 금지"
+
     def test_personal_recommend_has_priority(self):
         """personal_recommend(최우선)에 나온 책은 trending 에서 제외."""
         rec = [(f"r{i}", 1.0 - i * 0.01) for i in range(10)]

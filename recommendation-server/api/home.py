@@ -6,6 +6,7 @@
 + recommendation_stage 1 (+ fallback_curation 1)
 """
 from __future__ import annotations
+import random
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
@@ -123,9 +124,14 @@ def assemble_sections_for_user(
     templates = sections_for_tier(tier)
     sections: list[dict] = []
     seen_bids: set = set()
+    # 같은 요청 안에서 두 큐레이션 슬롯이 같은 테마를 뽑지 않게 — 뽑힌 테마는
+    # 이후 슬롯의 recent 제외 집합에 합류(tier2 두 번째 슬롯 활성화로 실제 가능해짐).
+    picked_theme_ids: set = set()
 
     def _register(section: dict) -> dict:
         seen_bids.update(b["book_id"] for b in section.get("books", []))
+        if section.get("curation_id"):
+            picked_theme_ids.add(section["curation_id"])
         return section
 
     # 최근 좋아한 책 id (similar seed)
@@ -174,22 +180,35 @@ def assemble_sections_for_user(
             else:
                 # fallback: general curation
                 sections.append(_register(_sample_curation(
-                    active_themes, top_authors, top_l1s, tier, recent_curation_ids,
+                    active_themes, top_authors, top_l1s, tier,
+                    recent_curation_ids | picked_theme_ids,
                     curation_cache_by_id, books_meta, personalization_override="general",
                     section_id=section_id, exclude_bids=seen_bids,
                 )))
 
         elif stype == "curation":
             sections.append(_register(_sample_curation(
-                active_themes, top_authors, top_l1s, tier, recent_curation_ids,
+                active_themes, top_authors, top_l1s, tier,
+                recent_curation_ids | picked_theme_ids,
                 curation_cache_by_id, books_meta,
                 personalization_override=tpl.get("personalization"),
                 section_id=section_id, exclude_bids=seen_bids,
             )))
 
         elif stype == "trending":
+            # 셔플(2026-07-02 Eden 지시): 과거 rank순 10권 고정 → 30권 풀에서
+            # rank-가중 랜덤 비복원 샘플. 상위 인기권일수록 자주 보이되 조립(새로고침/
+            # hour-bucket)마다 구성이 달라진다 — 고정 anchor 라 "매번 똑같다"던
+            # 지루함 해소. 가중치=선형 감쇠(1위 n … 꼴찌 1), Efraimidis-Spirakis
+            # (key U^(1/w) 내림차순 정렬 = 가중 비복원 샘플과 동치).
+            n = len(fallback_books)
+            weighted = sorted(
+                enumerate(fallback_books),
+                key=lambda t: random.random() ** (1.0 / max(n - t[0], 1)),
+                reverse=True,
+            )
             books = []
-            for row in fallback_books:  # 30개 후보 — 중복 제외하고 10개 채움
+            for _, row in weighted:
                 if row["book_id"] in seen_bids:
                     continue
                 b = _book_dict(row["book_id"], books_meta)
@@ -228,8 +247,11 @@ def _sample_curation(
                                      top_authors=top_authors, top_l1s=top_l1s)
     pool = apply_recent_discount(pool, recent_ids)
 
-    # by_author/by_l1 fallback → general (역시 렌더 가능한 테마만)
-    if not pool and personalization_override in ("by_author", "by_l1"):
+    # 개인화 풀이 비면 general 폴백 (역시 렌더 가능한 테마만).
+    # "tier2+" 포함 — tier2 템플릿의 두 번째 큐레이션 슬롯인데 tier2+ 테마가 DB 에
+    # 하나도 없어 항상 빈 섹션→드롭, tier2 유저는 큐레이션이 실질 1칸뿐이던 버그
+    # (Eden "실제론 1개만 랜더마이즈?" 리포트로 발견).
+    if not pool and personalization_override in ("by_author", "by_l1", "tier2+"):
         pool = [t for t in active_themes
                 if t.get("personalization") == "general" and cache_by_id.get(t["id"])]
         pool = apply_recent_discount(pool, recent_ids)
