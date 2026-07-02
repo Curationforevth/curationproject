@@ -6,6 +6,7 @@ import '../../../core/models/user_book.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../bookshelf/providers/bookshelf_provider.dart';
 import '../providers/home_provider.dart';
+import 'book_detail_bottom_sheet.dart';
 import '../../../core/utils/author_format.dart';
 
 /// 내 책 섹션 — 읽는 중 + 피드백 미작성 책 (최대 5권)
@@ -64,10 +65,7 @@ class _MyBookCard extends ConsumerWidget {
   final UserBook userBook;
   final String ctaType;
 
-  const _MyBookCard({
-    required this.userBook,
-    required this.ctaType,
-  });
+  const _MyBookCard({required this.userBook, required this.ctaType});
 
   bool get _isReading => ctaType == 'reading';
 
@@ -86,9 +84,9 @@ class _MyBookCard extends ConsumerWidget {
         }
       } catch (e) {
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('오류가 발생했어요: $e')),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('오류가 발생했어요: $e')));
         }
       }
     } else {
@@ -101,85 +99,90 @@ class _MyBookCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final book = userBook.book!;
 
-    return Container(
-      width: 140,
-      decoration: BoxDecoration(
-        color: const Color(0xFFFAFAFA),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      padding: const EdgeInsets.all(12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // 표지 이미지
-          ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: SizedBox(
-              width: 116,
-              height: 166,
-              child: book.coverUrl != null
-                  ? Image.network(
-                      book.coverUrl!,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => _CoverPlaceholder(),
-                    )
-                  : _CoverPlaceholder(),
+    return GestureDetector(
+      // 길게 누르기 → 서재 상태 인지 바텀시트(삭제/취소 액션 포함). 탭은 기존
+      // CTA(다 읽었어요/피드백 남기기) 유지 — 설계 §A 진입점 표.
+      onLongPress: () => BookDetailBottomSheet.show(context, book),
+      child: Container(
+        width: 140,
+        decoration: BoxDecoration(
+          color: const Color(0xFFFAFAFA),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 표지 이미지
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: SizedBox(
+                width: 116,
+                height: 166,
+                child: book.coverUrl != null
+                    ? Image.network(
+                        book.coverUrl!,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => _CoverPlaceholder(),
+                      )
+                    : _CoverPlaceholder(),
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
-          // 제목
-          Text(
-            book.title,
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-              color: AppColors.textPrimary,
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          const SizedBox(height: 2),
-          // 저자
-          if (book.author != null && book.author!.isNotEmpty)
+            const SizedBox(height: 8),
+            // 제목
             Text(
-              displayAuthor(book.author),
+              book.title,
               style: const TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w300,
-                color: AppColors.textSecondary,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: AppColors.textPrimary,
               ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
-          const Spacer(),
-          // CTA 버튼
-          SizedBox(
-            width: double.infinity,
-            child: GestureDetector(
-              onTap: () => _onCtaTap(context, ref),
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                decoration: BoxDecoration(
-                  color: _isReading
-                      ? AppColors.primary
-                      : const Color(0xFFF1F5F9),
-                  borderRadius: BorderRadius.circular(8),
+            const SizedBox(height: 2),
+            // 저자
+            if (book.author != null && book.author!.isNotEmpty)
+              Text(
+                displayAuthor(book.author),
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w300,
+                  color: AppColors.textSecondary,
                 ),
-                alignment: Alignment.center,
-                child: Text(
-                  _isReading ? '다 읽었어요' : '피드백 남기기',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            const Spacer(),
+            // CTA 버튼
+            SizedBox(
+              width: double.infinity,
+              child: GestureDetector(
+                onTap: () => _onCtaTap(context, ref),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  decoration: BoxDecoration(
                     color: _isReading
-                        ? AppColors.textOnPrimary
-                        : AppColors.textPrimary,
+                        ? AppColors.primary
+                        : const Color(0xFFF1F5F9),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    _isReading ? '다 읽었어요' : '피드백 남기기',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: _isReading
+                          ? AppColors.textOnPrimary
+                          : AppColors.textPrimary,
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -190,11 +193,7 @@ class _CoverPlaceholder extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       color: AppColors.shelf,
-      child: Icon(
-        Icons.menu_book,
-        color: AppColors.textSecondary,
-        size: 32,
-      ),
+      child: Icon(Icons.menu_book, color: AppColors.textSecondary, size: 32),
     );
   }
 }

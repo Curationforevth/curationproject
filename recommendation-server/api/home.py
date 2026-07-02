@@ -25,8 +25,8 @@ from engine.home_cache import (
     current_hour_bucket, compute_home_input_hash,
     load_home_cache, save_home_cache_if_current,
 )
-from engine.cache import (load_cache, compute_input_hash, recompute_recommendations,
-                          rec_cache_reusable)
+from engine.cache import (load_cache, compute_input_hash, load_signals,
+                          recompute_recommendations, rec_cache_reusable)
 from engine.dedup import dedup_by_work, dedup_similar
 
 import logging
@@ -339,9 +339,13 @@ async def get_home(
 
     # Miss → 섹션 조립용 데이터 조회
     user_books = _safe(lambda: sb.table("user_books").select(
-        "book_id,rating,feedback_embedding,emotion_tags,review_text,updated_at"
+        "book_id,rating,feedback_embedding,emotion_tags,review_text,updated_at,status"
     ).eq("user_id", user_id).order("updated_at", desc=True).execute().data,
         default=[]) or []
+
+    # 행동 신호(관심없음) — rec 캐시 해시 정합 + personal_recommend 즉시 필터.
+    signals = _safe(lambda: load_signals(sb, user_id), default=[]) or []
+    ni_ids = {s["book_id"] for s in signals if s.get("signal") == "not_interested"}
 
     active_themes = _safe(lambda: sb.table("curation_themes").select(
         "id,theme_type,title,description,personalization,"
@@ -380,14 +384,16 @@ async def get_home(
     recs_pending = False  # Tier2 추천이 아직 준비 안 됨(백그라운드 계산중)
     if tier == 2:
         rec_cache = load_cache(user_id)
-        ub_hash = compute_input_hash(user_books)
+        ub_hash = compute_input_hash(user_books, signals)
         built_at = getattr(request.app.state, "built_at", None) or ""
         # computed_at > built_at 포함(rec_cache_reusable) — /recommend 와 동일 기준. 이게
         # 없으면 인덱스 재빌드 후에도 /home 이 옛 인덱스로 계산된 추천을 계속 서빙한다
         # (실측: Eden 추천이 인덱스 빌드 이전 계산본이라 stale 서빙). 재빌드 시 재계산 유도.
         if rec_cache_reusable(rec_cache, ub_hash, built_at):
+            # NI 필터: 신호 직후 재계산 완료 전에도 즉시 사라지게 (/recommend 와 동일).
             recommend_scored = [(r["book_id"], r.get("score", 0.0))
-                                for r in rec_cache["recommendations"]]
+                                for r in rec_cache["recommendations"]
+                                if r["book_id"] not in ni_ids]
         else:
             # 캐시 없음/stale → 요청경로에서 스코어링하지 않는다(무료 단일 CPU 8~17s 블로킹
             # 금지 — /recommend 와 동일 원칙). 백그라운드 재계산을 트리거하고 이번 응답은

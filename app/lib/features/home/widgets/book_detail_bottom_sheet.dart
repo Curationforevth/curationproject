@@ -32,8 +32,7 @@ class BookDetailBottomSheet extends ConsumerStatefulWidget {
       _BookDetailBottomSheetState();
 }
 
-class _BookDetailBottomSheetState
-    extends ConsumerState<BookDetailBottomSheet> {
+class _BookDetailBottomSheetState extends ConsumerState<BookDetailBottomSheet> {
   bool _bookmarked = false;
   bool _isLoading = false;
 
@@ -41,31 +40,30 @@ class _BookDetailBottomSheetState
   void initState() {
     super.initState();
     unawaited(
-      ImpressionLogger(Supabase.instance.client)
-          .logAction(bookId: widget.book.id, action: 'clicked'),
+      ImpressionLogger(
+        Supabase.instance.client,
+      ).logAction(bookId: widget.book.id, action: 'clicked'),
     );
   }
 
   Future<void> _handleReading() async {
     if (_isLoading) return;
     // 사전 상태를 이미 알므로(userBookForProvider) 문구를 등록/전이로 구분한다.
-    final wasShelved =
-        ref.read(userBookForProvider(widget.book.id)) != null;
+    final wasShelved = ref.read(userBookForProvider(widget.book.id)) != null;
     setState(() => _isLoading = true);
     try {
       await addBookToShelf(ref, widget.book, BookStatus.reading);
       if (mounted) {
         Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(
-              wasShelved ? '읽는 중으로 옮겼어요' : '읽는 중으로 추가했어요')),
+          SnackBar(content: Text(wasShelved ? '읽는 중으로 옮겼어요' : '읽는 중으로 추가했어요')),
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('오류가 발생했어요: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('오류가 발생했어요: $e')));
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -76,20 +74,93 @@ class _BookDetailBottomSheetState
     if (_isLoading) return;
     setState(() => _isLoading = true);
     try {
-      final userBookId =
-          await addBookToShelf(ref, widget.book, BookStatus.read);
+      final userBookId = await addBookToShelf(
+        ref,
+        widget.book,
+        BookStatus.read,
+      );
       if (mounted) {
         Navigator.of(context).pop();
         context.push('/feedback/$userBookId');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('오류가 발생했어요: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('오류가 발생했어요: $e')));
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  /// 서재 보유 책 삭제 — 이유를 묻지 않는 기본 동작(확인 다이얼로그 없음).
+  /// 시트 닫기 → user_books 행 DELETE(스냅숏 확보) → 스낵바 "삭제했어요 · 실행 취소".
+  Future<void> _handleDelete(UserBook userBook) async {
+    final navigator = Navigator.of(context);
+    final rootContext = navigator.context;
+    // pop 전에 container 를 캡처 — 시트가 폐기된 뒤(지연 invalidate, 스낵바
+    // 실행 취소)엔 이 위젯의 ref 를 쓸 수 없다(StateError).
+    final container = ProviderScope.containerOf(context, listen: false);
+    navigator.pop();
+
+    final snapshot = await removeFromShelf(container, userBook);
+
+    if (rootContext.mounted) {
+      showDeletedSnackBar(
+        rootContext,
+        onUndo: () {
+          unawaited(restoreToShelf(container, snapshot));
+        },
+      );
+    }
+  }
+
+  /// 서재에 없는 책에 대한 "관심 없어요" — 취향 음수 신호(설계 §B).
+  Future<void> _handleNotInterested(Book book) async {
+    final navigator = Navigator.of(context);
+    final rootContext = navigator.context;
+    // pop 전에 container 캡처 — _handleDelete 와 동일한 이유.
+    final container = ProviderScope.containerOf(context, listen: false);
+    navigator.pop();
+
+    final supabase = Supabase.instance.client;
+    final userId = supabase.auth.currentUser?.id;
+    if (userId != null) {
+      try {
+        await supabase.from('user_book_signals').insert({
+          'user_id': userId,
+          'book_id': book.id,
+          'signal': 'not_interested',
+        });
+      } on PostgrestException catch (e) {
+        // 23505 — 이미 마킹된 책. 조용히 무시.
+        if (e.code != '23505') rethrow;
+      } catch (_) {
+        // 신호 저장 실패해도 로컬 필터/UX 는 계속 진행(fire-and-forget 성격).
+      }
+    }
+
+    // 로컬 즉시 반영 — 재조회 전에도 카드가 바로 사라진다.
+    container.read(hiddenBookIdsProvider.notifier).state = {
+      ...container.read(hiddenBookIdsProvider),
+      book.id,
+    };
+
+    unawaited(
+      ImpressionLogger(supabase).logAction(bookId: book.id, action: 'disliked'),
+    );
+    unawaited(container.read(recommendationServiceProvider).triggerRecompute());
+    unawaited(
+      Future<void>.delayed(const Duration(seconds: 2)).then((_) {
+        container.invalidate(recommendationsProvider);
+      }),
+    );
+
+    if (rootContext.mounted) {
+      ScaffoldMessenger.of(
+        rootContext,
+      ).showSnackBar(const SnackBar(content: Text('알겠어요, 이런 책은 덜 보여드릴게요')));
     }
   }
 
@@ -98,9 +169,9 @@ class _BookDetailBottomSheetState
     // 이미 서재에 있으면 no-op — 데이터 계층(resolveShelfWrite)도 강등을 막지만,
     // 여기서 네트워크 없이 바로 안내한다(정직한 문구: "추가했어요" 오표기 방지).
     if (ref.read(userBookForProvider(widget.book.id)) != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('이미 서재에 있는 책이에요')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('이미 서재에 있는 책이에요')));
       return;
     }
     final wasBookmarked = _bookmarked;
@@ -111,17 +182,17 @@ class _BookDetailBottomSheetState
     try {
       await addBookToShelf(ref, widget.book, BookStatus.wantToRead);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('읽고싶은 책에 추가했어요')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('읽고싶은 책에 추가했어요')));
       }
     } catch (e) {
       // revert on error
       if (mounted) {
         setState(() => _bookmarked = wasBookmarked);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('오류가 발생했어요: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('오류가 발생했어요: $e')));
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -242,7 +313,8 @@ class _BookDetailBottomSheetState
             child: ShelfAwareActions(
               userBook: userBook,
               isLoading: _isLoading,
-              bookmarked: _bookmarked || userBook?.status == BookStatus.wantToRead,
+              bookmarked:
+                  _bookmarked || userBook?.status == BookStatus.wantToRead,
               onReading: _handleReading,
               onRead: _handleRead,
               onBookmark: _handleBookmark,
@@ -253,6 +325,19 @@ class _BookDetailBottomSheetState
                 }
               },
             ),
+          ),
+
+          // destructive 액션 — 서재 보유 책은 삭제, 미보유 책은 관심없음.
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
+            child: userBook != null
+                ? ShelfDeleteAction(
+                    userBook: userBook,
+                    onTap: () => unawaited(_handleDelete(userBook)),
+                  )
+                : NotInterestedAction(
+                    onTap: () => unawaited(_handleNotInterested(book)),
+                  ),
           ),
 
           // 비슷한 책 섹션
@@ -396,6 +481,69 @@ class ShelfAwareActions extends StatelessWidget {
   }
 }
 
+/// 서재 보유 책 삭제 버튼 — destructive 텍스트 버튼(확인 다이얼로그 없음, 설계
+/// §A "이유를 묻지 않는 기본 동작"). status=wishlist 면 라벨만 "읽고 싶어요
+/// 취소"(왓챠 토글 해제 패턴), 그 외 상태는 "이 책 삭제".
+class ShelfDeleteAction extends StatelessWidget {
+  final UserBook userBook;
+  final VoidCallback onTap;
+
+  const ShelfDeleteAction({
+    super.key,
+    required this.userBook,
+    required this.onTap,
+  });
+
+  String get _label =>
+      userBook.status == BookStatus.wantToRead ? '읽고 싶어요 취소' : '이 책 삭제';
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: TextButton(
+        onPressed: onTap,
+        style: TextButton.styleFrom(foregroundColor: AppColors.error),
+        child: Text(
+          _label,
+          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+        ),
+      ),
+    );
+  }
+}
+
+/// 서재에 없는 책의 "관심 없어요" 버튼 — 보조 스타일(삭제보다 약한 톤).
+class NotInterestedAction extends StatelessWidget {
+  final VoidCallback onTap;
+
+  const NotInterestedAction({super.key, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: TextButton(
+        onPressed: onTap,
+        style: TextButton.styleFrom(foregroundColor: AppColors.textSecondary),
+        child: const Text(
+          '관심 없어요',
+          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+        ),
+      ),
+    );
+  }
+}
+
+/// 삭제 직후 스낵바 — "삭제했어요" + "실행 취소" 액션. [onUndo] 는 탭 시
+/// 호출측(restoreToShelf 등)이 스냅숏 복원을 담당한다.
+void showDeletedSnackBar(BuildContext context, {required VoidCallback onUndo}) {
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: const Text('삭제했어요'),
+      action: SnackBarAction(label: '실행 취소', onPressed: onUndo),
+    ),
+  );
+}
+
 class _ActionButton extends StatelessWidget {
   final String label;
   final bool isPrimary;
@@ -418,9 +566,7 @@ class _ActionButton extends StatelessWidget {
         decoration: BoxDecoration(
           color: isPrimary ? AppColors.primary : const Color(0xFFF8FAFC),
           borderRadius: BorderRadius.circular(10),
-          border: isPrimary
-              ? null
-              : Border.all(color: const Color(0xFFF1F5F9)),
+          border: isPrimary ? null : Border.all(color: const Color(0xFFF1F5F9)),
         ),
         alignment: Alignment.center,
         child: Text(
@@ -451,6 +597,7 @@ class _SimilarBooksSection extends ConsumerWidget {
     if (bookId.isEmpty) return const SizedBox.shrink();
 
     final similarAsync = ref.watch(similarBooksProvider(bookId));
+    final hidden = ref.watch(hiddenBookIdsProvider);
 
     return similarAsync.when(
       loading: () => const Padding(
@@ -467,7 +614,10 @@ class _SimilarBooksSection extends ConsumerWidget {
         ),
       ),
       error: (_, __) => const SizedBox.shrink(),
-      data: (books) {
+      data: (allBooks) {
+        final books = hidden.isEmpty
+            ? allBooks
+            : allBooks.where((b) => !hidden.contains(b.bookId)).toList();
         if (books.isEmpty) return const SizedBox.shrink();
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -521,37 +671,37 @@ class _SimilarBookCard extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: SizedBox(
-      width: 72,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: SizedBox(
-              width: 72,
-              height: 104,
-              child: book.coverUrl != null
-                  ? Image.network(
-                      book.coverUrl!,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => _SimilarCoverFallback(),
-                    )
-                  : _SimilarCoverFallback(),
+        width: 72,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: SizedBox(
+                width: 72,
+                height: 104,
+                child: book.coverUrl != null
+                    ? Image.network(
+                        book.coverUrl!,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => _SimilarCoverFallback(),
+                      )
+                    : _SimilarCoverFallback(),
+              ),
             ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            book.title,
-            style: const TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w500,
-              color: AppColors.textPrimary,
+            const SizedBox(height: 4),
+            Text(
+              book.title,
+              style: const TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w500,
+                color: AppColors.textPrimary,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ],
-      ),
+          ],
+        ),
       ),
     );
   }

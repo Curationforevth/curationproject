@@ -27,6 +27,15 @@ REASON_WEIGHT_WITH_FB = 0.5
 REASON_WEIGHT_WITHOUT_FB = 1.0
 FB_REASON_WEIGHT = 3.0
 
+# 추천 화면 행동 신호 (2026-07-02, Eden 승인 — 담기/관심없음이 곧 취향 학습).
+# 두 스테이지 모두 desc 공간 항으로만 반영(벡터 분리 원칙 — reason 공간은 실제
+# 피드백 전용). 앵커: 두 스테이지 다 '좋았어요' desc 항이 3.0.
+# - wishlist(읽고싶어요): 아직 안 읽은 약한 긍정 → good(3.0)의 1/3.
+# - not_interested(관심없음): 안 읽고 거른 것 — 읽고 실망한 bad(-1.5)의 절반.
+#   (해당 책 자체는 후보에서 완전 제외되고, 이 항은 '비슷한 결'을 낮추는 용도.)
+W_WISHLIST_DESC = 1.0
+W_NOT_INTERESTED_DESC = -0.75
+
 # 후보 품질 등급별 down-weight (source_tier). 타이브레이크 수준 — niche 역전 방지(E2E 튜닝).
 # positive-part 곱셈으로만 적용(음수 점수 미변경 → 부호 안전). rich=무감점.
 SOURCE_TIER_PENALTY = {"rich": 1.0, "kakao_desc": 0.95, "minimal": 0.85}

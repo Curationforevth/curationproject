@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from auth import verify_jwt
 from models import RecommendResponse, BookScore
-from engine.cache import (compute_input_hash, load_cache,
+from engine.cache import (compute_input_hash, load_cache, load_signals,
                           recompute_recommendations)
 from engine.dedup import dedup_by_work
 from engine.reasons import attach_reasons
@@ -12,9 +12,15 @@ from config import DEFAULT_RECOMMEND_LIMIT, get_supabase
 router = APIRouter()
 
 
-def _dedup_cached(rows: list, limit: int) -> list:
-    """캐시된 추천(dict)에서 같은 작품의 다른 판본을 접고 limit 개로 자른다.
-    (인덱스의 0.8% 가 중복 판본 — serving 에서만 접고 캐시/스코어는 불변.)"""
+def _dedup_cached(rows: list, limit: int,
+                  not_interested_ids: set | None = None) -> list:
+    """캐시된 추천(dict)에서 관심없음 책을 거르고, 같은 작품의 다른 판본을 접고
+    limit 개로 자른다. NI 필터가 serving 에 있는 이유: 신호 직후 캐시 재계산이
+    끝나기 전(computing/stale 경로)에도 그 책이 즉시 사라져야 한다 — 재계산 완료
+    후엔 stage1 제외로 애초에 캐시에 없다.
+    (판본 dedup: 인덱스의 0.8% 가 중복 판본 — serving 에서만 접고 캐시/스코어는 불변.)"""
+    if not_interested_ids:
+        rows = [r for r in rows if r.get("book_id") not in not_interested_ids]
     deduped = dedup_by_work(rows, lambda r: (r.get("title", ""), r.get("author", "")))
     return [BookScore(**r) for r in deduped[:limit]]
 
@@ -59,9 +65,9 @@ async def get_recommendations(
             },
         )
 
-    # Tier 2 — feedback_embedding + 트리거 술어용 emotion_tags/review_text 포함 fetch
+    # Tier 2 — feedback_embedding + 트리거 술어용 emotion_tags/review_text + 신호용 status
     ub_res = sb.table("user_books").select(
-        "book_id,rating,feedback_embedding,emotion_tags,review_text"
+        "book_id,rating,feedback_embedding,emotion_tags,review_text,status"
     ).eq("user_id", user_id).execute()
 
     if not ub_res.data:
@@ -71,16 +77,22 @@ async def get_recommendations(
         )
 
     # -----------------------------------------------------------------------
-    # 캐시 확인
+    # 캐시 확인 — 행동 신호(관심없음)는 해시(무효화)와 즉시 필터 양쪽에 쓴다.
     # -----------------------------------------------------------------------
-    input_hash = compute_input_hash(ub_res.data)
+    try:
+        signals = load_signals(sb, user_id)
+    except Exception:
+        signals = []  # 신호 read 실패 시 추천 자체는 계속 (필터만 이번 응답에서 생략)
+    ni_ids = {s["book_id"] for s in signals if s.get("signal") == "not_interested"}
+
+    input_hash = compute_input_hash(ub_res.data, signals)
     cache = load_cache(user_id)
 
     if cache:
         # 캐시 히트: hash 일치 + 인덱스 빌드 이후 계산된 것
         if (cache.get("input_hash") == input_hash
                 and cache.get("computed_at", "") > (getattr(request.app.state, "built_at", None) or "")):
-            recs = attach_reasons(sb, _dedup_cached(cache["recommendations"], limit))
+            recs = attach_reasons(sb, _dedup_cached(cache["recommendations"], limit, ni_ids))
             return RecommendResponse(
                 user_id=user_id, recommendations=recs,
                 meta={
@@ -93,7 +105,7 @@ async def get_recommendations(
 
         # C3: 백그라운드 재계산 진행 중이면 stale 캐시라도 반환 (중복 계산 방지)
         if cache.get("computing") and cache.get("recommendations"):
-            recs = attach_reasons(sb, _dedup_cached(cache["recommendations"], limit))
+            recs = attach_reasons(sb, _dedup_cached(cache["recommendations"], limit, ni_ids))
             return RecommendResponse(
                 user_id=user_id, recommendations=recs,
                 meta={
@@ -123,7 +135,7 @@ async def get_recommendations(
     # 앱은 computing 이면 skeleton + 진행표시를 보여주고 다음 호출에서 warm 캐시를 받는다.
     background_tasks.add_task(recompute_recommendations, user_id, request.app.state)
     if cache and cache.get("recommendations"):
-        recs = _dedup_cached(cache["recommendations"], limit)
+        recs = _dedup_cached(cache["recommendations"], limit, ni_ids)
         return RecommendResponse(
             user_id=user_id, recommendations=recs,
             meta={"total_liked": total_liked, "total_disliked": total_disliked,

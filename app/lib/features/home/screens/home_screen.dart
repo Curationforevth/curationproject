@@ -85,8 +85,7 @@ class _HomeContent extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final wishlist = ref.watch(wishlistBooksProvider);
-    final wishlistWithBook =
-        wishlist.where((ub) => ub.book != null).toList();
+    final wishlistWithBook = wishlist.where((ub) => ub.book != null).toList();
 
     return RefreshIndicator(
       // 세션 중엔 자동 리뉴얼하지 않고, 당겨서 새로고침할 때만 추천/홈피드를 갱신한다.
@@ -121,73 +120,73 @@ class _HomeContent extends ConsumerWidget {
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         children: [
-        // ── Top bar ──────────────────────────────────────────────────
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              // 아바타
-              GestureDetector(
-                onTap: () => context.push('/taste'),
-                child: Container(
-                  width: 30,
-                  height: 30,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFF1F5F9),
-                    shape: BoxShape.circle,
+          // ── Top bar ──────────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                // 아바타
+                GestureDetector(
+                  onTap: () => context.push('/taste'),
+                  child: Container(
+                    width: 30,
+                    height: 30,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFF1F5F9),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.person,
+                      size: 18,
+                      color: AppColors.textSecondary,
+                    ),
                   ),
+                ),
+                // 검색 아이콘
+                GestureDetector(
+                  onTap: () => context.push('/search'),
                   child: const Icon(
-                    Icons.person,
-                    size: 18,
-                    color: AppColors.textSecondary,
+                    Icons.search,
+                    size: 20,
+                    color: Color(0xFF94A3B8),
                   ),
                 ),
-              ),
-              // 검색 아이콘
-              GestureDetector(
-                onTap: () => context.push('/search'),
-                child: const Icon(
-                  Icons.search,
-                  size: 20,
-                  color: Color(0xFF94A3B8),
-                ),
-              ),
-            ],
-          ),
-        ),
-
-        // ── 헤더 텍스트 ─────────────────────────────────────────────
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-          child: Text(
-            '오늘은 어떤 책을\n만나볼까요?',
-            style: const TextStyle(
-              fontSize: 26,
-              fontWeight: FontWeight.w300,
-              color: Color(0xFF0F172A),
-              letterSpacing: -1.0,
-              height: 1.35,
+              ],
             ),
           ),
-        ),
 
-        // ── Section 1: 내 책 ─────────────────────────────────────────
-        const MyBooksSection(),
+          // ── 헤더 텍스트 ─────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+            child: Text(
+              '오늘은 어떤 책을\n만나볼까요?',
+              style: const TextStyle(
+                fontSize: 26,
+                fontWeight: FontWeight.w300,
+                color: Color(0xFF0F172A),
+                letterSpacing: -1.0,
+                height: 1.35,
+              ),
+            ),
+          ),
 
-        // ── Section 2: 읽고싶은 책 ─────────────────────────────────
-        if (wishlistWithBook.isNotEmpty) ...[
-          const SizedBox(height: 8),
-          _WishlistSection(books: wishlistWithBook),
-        ],
+          // ── Section 1: 내 책 ─────────────────────────────────────────
+          const MyBooksSection(),
 
-        // ── Section 3: 이 책은 어때요? (추천) ──────────────────────
-        const _RecommendationSection(),
+          // ── Section 2: 읽고싶은 책 ─────────────────────────────────
+          if (wishlistWithBook.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            _WishlistSection(books: wishlistWithBook),
+          ],
 
-        // ── Section 4: 큐레이션 + 화제의 책 (/home) ─────────────────
-        const _CurationSections(),
+          // ── Section 3: 이 책은 어때요? (추천) ──────────────────────
+          const _RecommendationSection(),
 
-        const SizedBox(height: 32),
+          // ── Section 4: 큐레이션 + 화제의 책 (/home) ─────────────────
+          const _CurationSections(),
+
+          const SizedBox(height: 32),
         ],
       ),
     );
@@ -217,10 +216,21 @@ class _CurationSections extends ConsumerWidget {
             ref.read(homeFeedRetryProvider.notifier).state = 0;
           });
         }
+        final hidden = ref.watch(hiddenBookIdsProvider);
         final sections = feed.sections
-            .where((s) =>
-                (s.type == 'curation' || s.type == 'trending') &&
-                s.books.isNotEmpty)
+            .where((s) => s.type == 'curation' || s.type == 'trending')
+            .map(
+              (s) => hidden.isEmpty
+                  ? s
+                  : HomeSection(
+                      type: s.type,
+                      title: s.title,
+                      books: s.books
+                          .where((b) => !hidden.contains(b.bookId))
+                          .toList(),
+                    ),
+            )
+            .where((s) => s.books.isNotEmpty)
             .toList();
         if (sections.isEmpty) return const SizedBox.shrink();
         return Column(
@@ -237,13 +247,13 @@ class _CurationSkeleton extends StatelessWidget {
   const _CurationSkeleton();
 
   Widget _box(double w, double h, {double radius = 6}) => Container(
-        width: w,
-        height: h,
-        decoration: BoxDecoration(
-          color: const Color(0xFFF1F5F9),
-          borderRadius: BorderRadius.circular(radius),
-        ),
-      );
+    width: w,
+    height: h,
+    decoration: BoxDecoration(
+      color: const Color(0xFFF1F5F9),
+      borderRadius: BorderRadius.circular(radius),
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -371,8 +381,7 @@ class _FeedRow extends StatelessWidget {
                 final b = section.books[index];
                 return _FeedBookCard(
                   book: b,
-                  onTap: () =>
-                      BookDetailBottomSheet.show(context, b.toBook()),
+                  onTap: () => BookDetailBottomSheet.show(context, b.toBook()),
                 );
               },
             ),
@@ -466,25 +475,30 @@ class _RecommendationSection extends ConsumerWidget {
           ),
           const SizedBox(height: 10),
           recommendationsAsync.when(
-            loading: () => const _RecommendationSkeleton(
-              caption: '취향을 분석하고 있어요…',
-            ),
+            loading: () =>
+                const _RecommendationSkeleton(caption: '취향을 분석하고 있어요…'),
             error: (_, __) => _RecommendationPlaceholder(),
             data: (result) {
               // computing 이 끝난 결과가 오면(추천 유무와 무관) 폴링 카운트 리셋 —
               // 빈 placeholder 로 끝난 에피소드가 카운트를 남기면 다음 computing 이
               // 남은 횟수로 시작해 조기에 수동 재시도로 떨어진다.
               // (빌드 중 provider 변경 금지 → microtask)
-              if (!result.computing &&
-                  ref.read(recomputePollProvider) != 0) {
+              if (!result.computing && ref.read(recomputePollProvider) != 0) {
                 Future.microtask(() {
                   ref.read(recomputePollProvider.notifier).state = 0;
                 });
               }
+              // "관심 없어요" 를 누른 책은 재조회 전에도 즉시 사라지게 로컬 필터.
+              final hidden = ref.watch(hiddenBookIdsProvider);
+              final visibleRecs = hidden.isEmpty
+                  ? result.recommendations
+                  : result.recommendations
+                        .where((b) => !hidden.contains(b.bookId))
+                        .toList();
               // 추천이 있으면 무조건 보여준다. 갓 온보딩한 유저는 feedback_embedding 이
               // 없어 has_feedback=false 지만 취향벡터로 계산된 추천은 존재한다 — 이를
               // has_feedback 으로 가리던 버그를 제거(온보딩 직후 추천이 안 보이던 원인).
-              if (result.recommendations.isEmpty) {
+              if (visibleRecs.isEmpty) {
                 // 서버가 재계산 중(computing) → 죽은 스피너 대신 skeleton + 자동 폴링.
                 // (재계산이 끝나도 앱이 재조회하지 않으면 warm 상태에서도 영구 스켈레톤
                 // 이 되는 문제를 막는다 — _RecommendationPoller 가 6초 간격으로 확인.)
@@ -498,24 +512,22 @@ class _RecommendationSection extends ConsumerWidget {
                   message: result.totalLiked >= 6
                       ? '아직 추천할 책이 없어요'
                       : result.totalLiked <= 0
-                          ? '책을 평가하면 맞춤 추천이 시작돼요'
-                          : '좋아요 ${6 - result.totalLiked}권만 더 모이면 맞춤 추천이 시작돼요',
+                      ? '책을 평가하면 맞춤 추천이 시작돼요'
+                      : '좋아요 ${6 - result.totalLiked}권만 더 모이면 맞춤 추천이 시작돼요',
                 );
               }
               return SizedBox(
                 height: 212,
                 child: ListView.separated(
                   scrollDirection: Axis.horizontal,
-                  itemCount: result.recommendations.length,
+                  itemCount: visibleRecs.length,
                   separatorBuilder: (_, __) => const SizedBox(width: 12),
                   itemBuilder: (context, index) {
-                    final book = result.recommendations[index];
+                    final book = visibleRecs[index];
                     return _RecommendationCard(
                       book: book,
-                      onTap: () => BookDetailBottomSheet.show(
-                        context,
-                        book.toBook(),
-                      ),
+                      onTap: () =>
+                          BookDetailBottomSheet.show(context, book.toBook()),
                     );
                   },
                 ),
@@ -531,9 +543,7 @@ class _RecommendationSection extends ConsumerWidget {
 class _RecommendationPlaceholder extends StatelessWidget {
   final String message;
 
-  const _RecommendationPlaceholder({
-    this.message = '피드백을 더 남기면 맞춤 추천이 시작돼요',
-  });
+  const _RecommendationPlaceholder({this.message = '피드백을 더 남기면 맞춤 추천이 시작돼요'});
 
   @override
   Widget build(BuildContext context) {
@@ -547,10 +557,7 @@ class _RecommendationPlaceholder extends StatelessWidget {
       child: Center(
         child: Text(
           message,
-          style: const TextStyle(
-            fontSize: 13,
-            color: Color(0xFF94A3B8),
-          ),
+          style: const TextStyle(fontSize: 13, color: Color(0xFF94A3B8)),
           textAlign: TextAlign.center,
         ),
       ),
@@ -663,24 +670,24 @@ class _RecommendationSkeletonState extends State<_RecommendationSkeleton>
   }
 
   Widget _box(double w, double h) => Container(
-        width: w,
-        height: h,
-        decoration: BoxDecoration(
-          color: const Color(0xFFF1F5F9),
-          borderRadius: BorderRadius.circular(6),
-        ),
-      );
+    width: w,
+    height: h,
+    decoration: BoxDecoration(
+      color: const Color(0xFFF1F5F9),
+      borderRadius: BorderRadius.circular(6),
+    ),
+  );
 
   Widget _card() => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _box(120, 172),
-          const SizedBox(height: 8),
-          _box(96, 12),
-          const SizedBox(height: 6),
-          _box(64, 10),
-        ],
-      );
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      _box(120, 172),
+      const SizedBox(height: 8),
+      _box(96, 12),
+      const SizedBox(height: 6),
+      _box(64, 10),
+    ],
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -696,14 +703,18 @@ class _RecommendationSkeletonState extends State<_RecommendationSkeleton>
                 width: 12,
                 height: 12,
                 child: CircularProgressIndicator(
-                    strokeWidth: 1.6, color: AppColors.textSecondary),
+                  strokeWidth: 1.6,
+                  color: AppColors.textSecondary,
+                ),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   widget.caption,
-                  style:
-                      const TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF94A3B8),
+                  ),
                 ),
               ),
             ],
@@ -875,6 +886,8 @@ class _WishlistCard extends StatelessWidget {
     final book = userBook.book!;
     return GestureDetector(
       onTap: onTap,
+      // 길게 누르기 → 서재 상태 인지 바텀시트(읽고싶어요 취소 액션 포함).
+      onLongPress: () => BookDetailBottomSheet.show(context, book),
       child: SizedBox(
         width: 120,
         child: Column(

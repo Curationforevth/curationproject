@@ -56,16 +56,22 @@ def rec_cache_reusable(cache: Optional[dict], ub_hash: str, built_at: str) -> bo
 # compute_input_hash
 # ---------------------------------------------------------------------------
 
-def compute_input_hash(user_books_data: list[dict]) -> str:
+def compute_input_hash(user_books_data: list[dict],
+                       signals: list[dict] | None = None) -> str:
     """
-    user_books_data의 현재 상태를 나타내는 SHA256 해시를 반환한다.
+    추천 계산 입력 상태(user_books + 행동 신호)의 SHA256 해시를 반환한다.
 
-    각 행을 "{book_id}:{rating}:{has_fb}" 문자열로 변환하고
-    정렬한 뒤 연결하여 해싱한다 — 행 순서에 무관하다.
+    각 user_books 행을 "{book_id}:{rating}:{has_fb}:{status}", 각 신호 행을
+    "s:{book_id}:{signal}" 문자열로 변환하고 정렬한 뒤 연결하여 해싱한다 —
+    행 순서에 무관하다.
 
-    Args:
-        user_books_data: user_books 테이블 SELECT 결과 (list[dict])
-                         각 dict는 book_id, rating, feedback_embedding 키를 포함한다.
+    status 포함 이유(2026-07-02): wishlist 가 약한 긍정 신호로 스코어링에
+    들어가면서 상태 전이(wishlist→finished 등)가 계산 입력을 바꾸게 됨.
+    signals(user_book_signals 행): 관심없음이 후보 제외+음수 항으로 계산에
+    들어가므로 해시에도 포함 — 신호 변경 시 캐시가 자동 무효화된다.
+
+    ⚠️ 엔트리 포맷 변경은 배포 시 전 유저 캐시 1회 무효화를 유발한다
+    (다음 요청에서 백그라운드 재계산, warm ~5.7s) — 의도된 비용.
 
     Returns:
         64자 소문자 16진수 문자열 (SHA256)
@@ -75,11 +81,25 @@ def compute_input_hash(user_books_data: list[dict]) -> str:
         book_id = str(row.get("book_id", ""))
         rating = str(row.get("rating", "neutral"))
         has_fb = "1" if row.get("feedback_embedding") else "0"
-        entries.append(f"{book_id}:{rating}:{has_fb}")
+        status = str(row.get("status", ""))
+        entries.append(f"{book_id}:{rating}:{has_fb}:{status}")
+    for row in signals or []:
+        entries.append(f"s:{row.get('book_id', '')}:{row.get('signal', '')}")
 
     entries.sort()
     raw = "|".join(entries).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()
+
+
+def load_signals(sb, user_id: str) -> list[dict]:
+    """user_book_signals 행(book_id, signal)을 읽는다 — 유저당 수십 행 수준.
+
+    서빙(/recommend·/home)과 재계산이 공유: 해시 계산과 관심없음 필터/제외가
+    같은 데이터를 봐야 한다(코히런스). 실패 처리는 호출측(_safe/try) 책임.
+    """
+    res = sb.table("user_book_signals").select(
+        "book_id,signal").eq("user_id", user_id).execute()
+    return res.data or []
 
 
 # ---------------------------------------------------------------------------
@@ -136,10 +156,11 @@ def save_cache_if_current(
     #  캐시가 5권 hash 에 영구 고정 → 모든 /recommend 가 매번 ~8s 재계산하는 버그.
     #  비교 기준을 캐시 행이 아니라 live DB 로 바꿔 정답이 항상 저장되게 한다.)
     try:
-        live = get_supabase().table("user_books").select(
-            "book_id,rating,feedback_embedding"
+        sb_live = get_supabase()
+        live = sb_live.table("user_books").select(
+            "book_id,rating,feedback_embedding,status"
         ).eq("user_id", user_id).execute()
-        live_hash = compute_input_hash(live.data or [])
+        live_hash = compute_input_hash(live.data or [], load_signals(sb_live, user_id))
         if live_hash != input_hash:
             logger.info(
                 "save_cache_if_current: live state moved past computed input "
@@ -251,9 +272,9 @@ def recompute_recommendations(user_id: str, app_state) -> None:
         logger.warning("recompute: prestacked is None — v3 fallback (extra_query 미적용) u=%s", user_id)
 
     try:
-        # 1차 read: 임베딩 판정용으로 emotion_tags/review_text 포함
+        # 1차 read: 임베딩 판정용 emotion_tags/review_text + 신호용 status 포함
         ub_res = sb.table("user_books").select(
-            "book_id,rating,feedback_embedding,emotion_tags,review_text"
+            "book_id,rating,feedback_embedding,emotion_tags,review_text,status"
         ).eq("user_id", user_id).execute()
         _mark("db1")
 
@@ -280,14 +301,25 @@ def recompute_recommendations(user_id: str, app_state) -> None:
             [r["book_id"] for r in rated if r["book_id"] not in bid_order_set], sb)
         _mark("embed")
 
+        # 행동 신호(관심없음) — 후보 제외 + 약한 음수 항 + 해시 포함. 실패는 빈
+        # 목록으로 강등(추천이 신호 없이라도 계산되는 게 낫다).
+        try:
+            signals = load_signals(sb, user_id)
+        except Exception as exc:
+            logger.warning("recompute: load_signals failed for %s: %s", user_id, exc)
+            signals = []
+        not_interested_ids = {s["book_id"] for s in signals
+                              if s.get("signal") == "not_interested"}
+
         # 재read(구 db2) 제거 — ensure_feedback_embedded 가 성공분을 행에 in-place
         # 반영하므로 이 시점의 ub_res.data 가 곧 스코어링 입력. 그 상태를 그대로
         # 해싱해야 hash 와 스코어 입력이 정확히 일치(코히런스). 계산 중 유저 변경의
         # staleness 는 save_cache_if_current 의 live 체크가 가드.
-        input_hash = compute_input_hash(ub_res.data)
+        input_hash = compute_input_hash(ub_res.data, signals)
 
         liked_books: dict = {}
         fb_data: dict = {}
+        wishlist_ids: list = []
         good_count = bad_count = 0
         has_feedback = False
 
@@ -295,6 +327,8 @@ def recompute_recommendations(user_id: str, app_state) -> None:
             bid = ub["book_id"]
             rating = ub.get("rating", "neutral")
             liked_books[bid] = {"rating": rating}
+            if ub.get("status") == "wishlist":
+                wishlist_ids.append(bid)  # 읽고싶어요 = 약한 긍정 신호(config 주석)
             if rating == "good":
                 good_count += 1
             elif rating == "bad":
@@ -318,11 +352,15 @@ def recompute_recommendations(user_id: str, app_state) -> None:
                 app_state.bid_order,
                 top_n=STAGE1_TOP_N,
                 extra_query=extra_query,
+                wishlist_ids=wishlist_ids,
+                not_interested_ids=not_interested_ids,
             )
             _mark("s1")
             scores = batch_score_prestacked(
                 app_state.index, liked_books, fb_data, candidates, prestacked,
-                extra_query=extra_query)
+                extra_query=extra_query,
+                wishlist_ids=wishlist_ids,
+                not_interested_ids=not_interested_ids)
             _mark("s2")
         else:
             scores = recommend_scores_two_stage(
