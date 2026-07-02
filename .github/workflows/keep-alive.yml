@@ -1,7 +1,12 @@
-# Keep-alive 핑 — Render 무료 인스턴스 cold-start 완화
+# Keep-alive 핑 — Render 무료 인스턴스 cold-start 완화 (⚠️ 백업/모니터 역할)
 #
 # 무료 인스턴스는 15분 idle 시 sleep → 깨어날 때 첫 요청 ~21s 지연.
 # 10분마다 /health 를 핑해 깨워둔다.
+#
+# ⚠️ 2026-07-02: GitHub Actions 스케줄 스로틀로 이 크론이 실제로는 하루 ~8회만
+# 실행됨(간격 2~4h) → 주 핑을 pg_cron + pg_net 으로 이전
+# (supabase/migrations/20260702020000_keep_alive_ping.sql, 같은 시간 윈도우).
+# 이 워크플로는 백업 겸 무료 uptime 모니터(--fail 빨간불)로 유지.
 #
 # ⚠️ instance-hours 제어: Render 무료는 750h/월 한도. 24/7 핑(720~744h)은
 # 한도에 너무 붙어 월말 suspend 위험 → cold-start 보다 나쁘다.

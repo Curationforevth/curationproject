@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -26,9 +27,19 @@ class HomeScreen extends ConsumerWidget {
         // 서재가 비어있고 아직 온보딩을 마치거나 건너뛰지 않았으면 온보딩을 띄운다.
         // 그 외엔 _HomeContent — 0권이어도(온보딩 건너뜀) 서버 /home(트렌딩+큐레이션)
         // 콜드스타트 피드를 보여줘 "죽은 빈 홈"을 없앤다.
+        //
+        // 서재 쿼리가 실패해도 홈 전체를 죽이지 않는다 — 서버 /home 피드는 서재와
+        // 무관하게 뜨고, 파생 프로바이더(booksByStatusProvider 등)는 이미
+        // valueOrNull ?? [] 라 _HomeContent 는 에러 상태에서도 안전하다. 단, 에러
+        // 상태에서 온보딩 화면(빈 서재 UX)을 띄우지는 않는다 — data 분기 전용.
         child: bookshelfAsync.when(
           loading: () => const Center(child: CircularProgressIndicator()),
-          error: (e, _) => Center(child: Text('오류: $e')),
+          error: (e, _) => Column(
+            children: [
+              _BookshelfErrorBanner(),
+              Expanded(child: _HomeContent()),
+            ],
+          ),
           data: (books) {
             if (books.isEmpty && !ref.watch(onboardingDismissedProvider)) {
               return const OnboardingScreen();
@@ -36,6 +47,31 @@ class HomeScreen extends ConsumerWidget {
             return _HomeContent();
           },
         ),
+      ),
+    );
+  }
+}
+
+/// 서재 쿼리 실패 시 상단에 뜨는 얇은 배너. 홈 전체를 막지 않고 "다시 시도"만 제공.
+class _BookshelfErrorBanner extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      color: const Color(0xFFFEF2F2),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          const Text(
+            '서재를 불러오지 못했어요',
+            style: TextStyle(fontSize: 12, color: Color(0xFF991B1B)),
+          ),
+          TextButton(
+            onPressed: () => ref.invalidate(bookshelfProvider),
+            child: const Text('다시 시도'),
+          ),
+        ],
       ),
     );
   }
@@ -169,10 +205,18 @@ class _CurationSections extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final feedAsync = ref.watch(homeFeedProvider);
     return feedAsync.when(
-      // 로딩/에러 시엔 조용히 비움 — 위 추천 섹션이 이미 화면을 채운다.
-      loading: () => const SizedBox.shrink(),
-      error: (_, __) => const SizedBox.shrink(),
+      // 로딩 중엔 무표시 대신 스켈레톤 — 레이아웃을 미리 보여줘 체감 성능을 높인다.
+      loading: () => const _CurationSkeleton(),
+      // 에러는 자동 재시도(백오프) 후 수동 재시도로 전환 — 세션 내내 고착되지 않게.
+      error: (_, __) => const _CurationRetry(),
       data: (feed) {
+        // 성공했으니 재시도 카운트를 리셋(빌드 도중 provider 변경 금지 → microtask).
+        final retry = ref.read(homeFeedRetryProvider);
+        if (retry != 0) {
+          Future.microtask(() {
+            ref.read(homeFeedRetryProvider.notifier).state = 0;
+          });
+        }
         final sections = feed.sections
             .where((s) =>
                 (s.type == 'curation' || s.type == 'trending') &&
@@ -184,6 +228,109 @@ class _CurationSections extends ConsumerWidget {
           children: [for (final s in sections) _FeedRow(section: s)],
         );
       },
+    );
+  }
+}
+
+/// 큐레이션 섹션 로딩 스켈레톤 — _FeedRow 와 같은 좌측 패딩, 제목/커버 placeholder.
+class _CurationSkeleton extends StatelessWidget {
+  const _CurationSkeleton();
+
+  Widget _box(double w, double h, {double radius = 6}) => Container(
+        width: w,
+        height: h,
+        decoration: BoxDecoration(
+          color: const Color(0xFFF1F5F9),
+          borderRadius: BorderRadius.circular(radius),
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      key: const ValueKey('curation_skeleton'),
+      padding: const EdgeInsets.fromLTRB(20, 24, 0, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _box(120, 16),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 150,
+            child: Row(
+              children: [
+                _box(100, 150, radius: 8),
+                const SizedBox(width: 12),
+                _box(100, 150, radius: 8),
+                const SizedBox(width: 12),
+                _box(100, 150, radius: 8),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 큐레이션 로드 실패 시 자동 재시도(5s/15s/30s 백오프) 후 수동 재시도로 전환.
+class _CurationRetry extends ConsumerStatefulWidget {
+  const _CurationRetry();
+
+  @override
+  ConsumerState<_CurationRetry> createState() => _CurationRetryState();
+}
+
+class _CurationRetryState extends ConsumerState<_CurationRetry> {
+  static const _backoffSeconds = [5, 15, 30];
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    final attempt = ref.read(homeFeedRetryProvider);
+    if (attempt < _backoffSeconds.length) {
+      _timer = Timer(Duration(seconds: _backoffSeconds[attempt]), () {
+        if (!mounted) return;
+        ref.read(homeFeedRetryProvider.notifier).state = attempt + 1;
+        ref.invalidate(homeFeedProvider);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final attempt = ref.watch(homeFeedRetryProvider);
+    if (attempt < _backoffSeconds.length) {
+      // 자동 재시도 대기 중엔 스켈레톤으로 레이아웃을 유지.
+      return const _CurationSkeleton();
+    }
+    // 자동 재시도 소진 — 수동 재시도로 전환.
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
+      child: Row(
+        children: [
+          const Expanded(
+            child: Text(
+              '추천 서가를 불러오지 못했어요',
+              style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
+            ),
+          ),
+          TextButton(
+            onPressed: () {
+              ref.read(homeFeedRetryProvider.notifier).state = 0;
+              ref.invalidate(homeFeedProvider);
+            },
+            child: const Text('다시 시도'),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -324,16 +471,25 @@ class _RecommendationSection extends ConsumerWidget {
             ),
             error: (_, __) => _RecommendationPlaceholder(),
             data: (result) {
+              // computing 이 끝난 결과가 오면(추천 유무와 무관) 폴링 카운트 리셋 —
+              // 빈 placeholder 로 끝난 에피소드가 카운트를 남기면 다음 computing 이
+              // 남은 횟수로 시작해 조기에 수동 재시도로 떨어진다.
+              // (빌드 중 provider 변경 금지 → microtask)
+              if (!result.computing &&
+                  ref.read(recomputePollProvider) != 0) {
+                Future.microtask(() {
+                  ref.read(recomputePollProvider.notifier).state = 0;
+                });
+              }
               // 추천이 있으면 무조건 보여준다. 갓 온보딩한 유저는 feedback_embedding 이
               // 없어 has_feedback=false 지만 취향벡터로 계산된 추천은 존재한다 — 이를
               // has_feedback 으로 가리던 버그를 제거(온보딩 직후 추천이 안 보이던 원인).
               if (result.recommendations.isEmpty) {
-                // 서버가 재계산 중(computing) → 죽은 스피너 대신 skeleton + 진행표시.
+                // 서버가 재계산 중(computing) → 죽은 스피너 대신 skeleton + 자동 폴링.
+                // (재계산이 끝나도 앱이 재조회하지 않으면 warm 상태에서도 영구 스켈레톤
+                // 이 되는 문제를 막는다 — _RecommendationPoller 가 6초 간격으로 확인.)
                 if (result.computing) {
-                  return _RecommendationSkeleton(
-                    caption:
-                        '취향을 분석하고 있어요 · 좋아요 ${result.totalLiked}권 살펴보는 중',
-                  );
+                  return _RecommendationPoller(totalLiked: result.totalLiked);
                 }
                 return _RecommendationPlaceholder(
                   message: result.totalLiked >= 6
@@ -393,6 +549,72 @@ class _RecommendationPlaceholder extends StatelessWidget {
           textAlign: TextAlign.center,
         ),
       ),
+    );
+  }
+}
+
+/// 서버 재계산 중(computing=true) 스켈레톤을 보여주며 6초 간격으로 재조회한다.
+/// 재계산이 끝나도(warm ~5.7s) 앱이 재조회하지 않으면 당겨서 새로고침 전까지
+/// 영구 스켈레톤이 되는 문제를 막는다. 10회(60s) 초과 시 이상 상황으로 판단해
+/// 수동 재시도로 전환.
+class _RecommendationPoller extends ConsumerStatefulWidget {
+  final int totalLiked;
+  const _RecommendationPoller({required this.totalLiked});
+
+  @override
+  ConsumerState<_RecommendationPoller> createState() =>
+      _RecommendationPollerState();
+}
+
+class _RecommendationPollerState extends ConsumerState<_RecommendationPoller> {
+  static const _maxAttempts = 10;
+  static const _interval = Duration(seconds: 6);
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    final attempt = ref.read(recomputePollProvider);
+    if (attempt < _maxAttempts) {
+      _timer = Timer(_interval, () {
+        if (!mounted) return;
+        ref.read(recomputePollProvider.notifier).state = attempt + 1;
+        ref.invalidate(recommendationsProvider);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final attempt = ref.watch(recomputePollProvider);
+    if (attempt >= _maxAttempts) {
+      // 60초 초과 — 이상 상황. 수동 재시도로 전환.
+      return Row(
+        children: [
+          const Expanded(
+            child: Text(
+              '추천을 불러오지 못했어요',
+              style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
+            ),
+          ),
+          TextButton(
+            onPressed: () {
+              ref.read(recomputePollProvider.notifier).state = 0;
+              ref.invalidate(recommendationsProvider);
+            },
+            child: const Text('다시 시도'),
+          ),
+        ],
+      );
+    }
+    return _RecommendationSkeleton(
+      caption: '취향을 분석하고 있어요 · 좋아요 ${widget.totalLiked}권 살펴보는 중',
     );
   }
 }

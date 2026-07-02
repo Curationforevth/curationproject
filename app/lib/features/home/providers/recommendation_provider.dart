@@ -13,6 +13,14 @@ final recommendationServiceProvider = Provider<RecommendationService>((ref) {
 /// (watch 가 아니라 read 로 소비 — 값 변경만으로 provider 를 재빌드하지 않는다.)
 final homeForceRefreshProvider = StateProvider<bool>((ref) => false);
 
+/// 큐레이션 섹션(homeFeedProvider) 로드 실패 시 자동 재시도 횟수.
+/// 3회(5s/15s/30s 백오프) 소진되면 수동 "다시 시도" 버튼으로 전환한다.
+final homeFeedRetryProvider = StateProvider<int>((ref) => 0);
+
+/// 추천(recommendationsProvider) computing=true 상태 자동 폴링 횟수.
+/// 10회(6초 간격, 최대 60초) 소진되면 수동 "다시 시도" 버튼으로 전환한다.
+final recomputePollProvider = StateProvider<int>((ref) => 0);
+
 /// 홈 피드 — 큐레이션/트렌딩/맞춤추천/비슷한책 섹션. 피드백 후 무효화되면 재요청.
 final homeFeedProvider = FutureProvider<HomeFeed>((ref) async {
   final service = ref.watch(recommendationServiceProvider);
