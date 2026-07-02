@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/models/user_book.dart';
 import '../../../core/services/book_registration_service.dart';
 import '../../../core/models/book.dart';
+import '../../home/providers/recommendation_provider.dart';
 
 /// 유저 서재 데이터 (Supabase에서 user_books + books join)
 final bookshelfProvider = FutureProvider<List<UserBook>>((ref) async {
@@ -77,6 +79,9 @@ Future<String> addBookToShelf(WidgetRef ref, Book book, BookStatus status) async
   final service = ref.read(registrationServiceProvider);
   final userBookId = await service.registerBook(book, status);
   ref.invalidate(bookshelfProvider);
+  // 서재가 바뀌었으니 서버가 추천을 **선제 재계산**하게 fire-and-forget 트리거
+  // → 유저가 추천을 열 땐 캐시가 warm(계산을 읽기 경로 밖으로). await 하지 않는다.
+  unawaited(ref.read(recommendationServiceProvider).triggerRecompute());
   return userBookId;
 }
 

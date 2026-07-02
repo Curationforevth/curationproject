@@ -152,6 +152,22 @@ class RecommendationService {
     throw Exception('Recommendation failed: ${response.statusCode}');
   }
 
+  /// 좋아요 변경(담기/평가/삭제) 직후 **fire-and-forget** 으로 호출한다.
+  /// 앱은 user_books 를 Supabase 에 직접 쓰므로 서버가 변경을 모른다 → 이 호출로 서버가
+  /// 추천을 **선제 재계산**하게 해, 유저가 추천을 열 땐 캐시가 warm 이도록(계산을 읽기
+  /// 경로 밖으로). 실패는 무시(다음 /recommend 가 자연 복구). **await 하지 말 것.**
+  Future<void> triggerRecompute() async {
+    final userId = _userId;
+    if (userId == null || _token == null) return;
+    try {
+      await http
+          .post(Uri.parse('$_baseUrl/recompute/$userId'), headers: _headers)
+          .timeout(const Duration(seconds: 10));
+    } catch (_) {
+      // fire-and-forget: 실패해도 유저 흐름/데이터에 영향 없음.
+    }
+  }
+
   /// 비슷한 책
   Future<List<RecommendedBook>> getSimilarBooks(
     String bookId, {

@@ -318,14 +318,8 @@ class _RecommendationSection extends ConsumerWidget {
           ),
           const SizedBox(height: 10),
           recommendationsAsync.when(
-            loading: () => const SizedBox(
-              height: 212,
-              child: Center(
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: AppColors.textSecondary,
-                ),
-              ),
+            loading: () => const _RecommendationSkeleton(
+              caption: '취향을 분석하고 있어요…',
             ),
             error: (_, __) => _RecommendationPlaceholder(),
             data: (result) {
@@ -333,12 +327,17 @@ class _RecommendationSection extends ConsumerWidget {
               // 없어 has_feedback=false 지만 취향벡터로 계산된 추천은 존재한다 — 이를
               // has_feedback 으로 가리던 버그를 제거(온보딩 직후 추천이 안 보이던 원인).
               if (result.recommendations.isEmpty) {
+                // 서버가 재계산 중(computing) → 죽은 스피너 대신 skeleton + 진행표시.
+                if (result.computing) {
+                  return _RecommendationSkeleton(
+                    caption:
+                        '취향을 분석하고 있어요 · 좋아요 ${result.totalLiked}권 살펴보는 중',
+                  );
+                }
                 return _RecommendationPlaceholder(
-                  message: result.computing
-                      ? '맞춤 추천을 준비하고 있어요…'
-                      : (result.totalLiked >= 6
-                          ? '아직 추천할 책이 없어요'
-                          : '읽은 책을 더 추가하면 맞춤 추천이 시작돼요'),
+                  message: result.totalLiked >= 6
+                      ? '아직 추천할 책이 없어요'
+                      : '읽은 책을 더 추가하면 맞춤 추천이 시작돼요',
                 );
               }
               return SizedBox(
@@ -392,6 +391,110 @@ class _RecommendationPlaceholder extends StatelessWidget {
           ),
           textAlign: TextAlign.center,
         ),
+      ),
+    );
+  }
+}
+
+/// 추천 계산 대기 UX — 죽은 스피너 대신 skeleton 카드 + labor-illusion 진행표시.
+/// skeleton 은 체감 성능을 높이고(레이아웃 미리 보여줌), 진행문구는 "무슨 작업을
+/// 하는 중"인지 가시화해 대기를 견디게 한다(operational transparency). reduced-motion 존중.
+class _RecommendationSkeleton extends StatefulWidget {
+  final String caption;
+  const _RecommendationSkeleton({required this.caption});
+
+  @override
+  State<_RecommendationSkeleton> createState() =>
+      _RecommendationSkeletonState();
+}
+
+class _RecommendationSkeletonState extends State<_RecommendationSkeleton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulse = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1100),
+  );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final reduceMotion =
+        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    if (reduceMotion) {
+      _pulse.stop();
+      _pulse.value = 0.5;
+    } else if (!_pulse.isAnimating) {
+      _pulse.repeat(reverse: true);
+    }
+  }
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  Widget _box(double w, double h) => Container(
+        width: w,
+        height: h,
+        decoration: BoxDecoration(
+          color: const Color(0xFFF1F5F9),
+          borderRadius: BorderRadius.circular(6),
+        ),
+      );
+
+  Widget _card() => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _box(120, 172),
+          const SizedBox(height: 8),
+          _box(96, 12),
+          const SizedBox(height: 6),
+          _box(64, 10),
+        ],
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: '맞춤 추천을 준비하고 있어요',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // labor illusion: 무슨 작업을 하는지 보여줘 대기를 견디게 한다.
+          Row(
+            children: [
+              const SizedBox(
+                width: 12,
+                height: 12,
+                child: CircularProgressIndicator(
+                    strokeWidth: 1.6, color: AppColors.textSecondary),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  widget.caption,
+                  style:
+                      const TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 212,
+            child: FadeTransition(
+              opacity: Tween(begin: 0.45, end: 0.9).animate(_pulse),
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: 4,
+                separatorBuilder: (_, __) => const SizedBox(width: 12),
+                itemBuilder: (_, __) => _card(),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
