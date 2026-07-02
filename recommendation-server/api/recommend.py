@@ -4,12 +4,9 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, R
 from auth import verify_jwt
 from models import RecommendResponse, BookScore
 from engine.cache import (compute_input_hash, load_cache,
-                          recompute_recommendations, save_cache_if_current)
-from engine.recommend_core import try_compute_inline
-from engine.user_embed import resolve_extra_query_vectors, needs_background_embed
+                          recompute_recommendations)
 from engine.dedup import dedup_by_work
 from engine.reasons import attach_reasons
-from engine.utils import to_np
 from config import DEFAULT_RECOMMEND_LIMIT, get_supabase
 
 router = APIRouter()
@@ -119,48 +116,11 @@ async def get_recommendations(
     total_disliked = sum(1 for ub in ub_res.data if ub.get("rating") == "bad")
     has_feedback = any(ub.get("feedback_embedding") for ub in ub_res.data)
 
-    # 메모리 가드 슬롯이 있으면 즉시(inline) 계산해 첫 호출에 개인화 추천을 바로 준다.
-    liked_books = {ub["book_id"]: {"rating": ub.get("rating", "neutral")} for ub in ub_res.data}
-    fb_data = {}
-    for ub in ub_res.data:
-        emb = ub.get("feedback_embedding")
-        if emb:
-            fb_data[ub["book_id"]] = {"emb": to_np(emb), "is_dislike": ub.get("rating") == "bad"}
-
-    # C4 트리거 술어(rating 가드 포함 — engine.user_embed 참조).
-    bid_set = set(getattr(request.app.state, "bid_order", None) or [])
-    needs_bg = needs_background_embed(ub_res.data, bid_set)
-    # 이미 임베딩된 인덱스 밖 책은 inline 에서도 즉시 반영(OpenAI 없이 DB read).
-    extra_query = resolve_extra_query_vectors(list(liked_books.keys()), bid_set, sb) if bid_set else {}
-
-    scored = await try_compute_inline(request.app.state, liked_books, fb_data, extra_query=extra_query)
-    if scored is not None:
-        books_meta = request.app.state.books_meta
-        recs, recs_for_cache = [], []
-        for bid, score in scored:
-            meta = books_meta.get(bid)
-            if meta is None:
-                continue
-            book = BookScore(book_id=bid, score=round(score, 4),
-                             title=meta.get("title", ""), author=meta.get("author", ""),
-                             cover_url=meta.get("cover_url"))
-            recs.append(book)
-            recs_for_cache.append(book.dict())
-        if needs_bg:
-            # 미임베딩 책/피드백 → 빈약 캐시 저장 skip(코히런스), 백그라운드가 임베딩+보강 후 확정.
-            background_tasks.add_task(recompute_recommendations, user_id, request.app.state)
-        else:
-            background_tasks.add_task(save_cache_if_current, user_id, recs_for_cache,
-                                      input_hash, total_liked, total_disliked, has_feedback)
-        recs = dedup_by_work(recs, lambda b: (b.title, b.author))
-        recs = attach_reasons(sb, recs[:limit])
-        return RecommendResponse(
-            user_id=user_id, recommendations=recs,
-            meta={"total_liked": total_liked, "total_disliked": total_disliked,
-                  "has_feedback": has_feedback},
-        )
-
-    # 슬롯 없음(동시 다발) → 메모리 보호: 백그라운드 재계산 + fallback(stale/computing).
+    # 인라인(동기) 스코어링 금지 — 무료 단일 CPU 에서 8~17s 라 요청을 막으면 UX 파탄
+    # (NN/g: 1s 면 주의 이탈). 좋아요 변경 시 /recompute 가 선제 백그라운드 재계산을 걸어
+    # 이 시점엔 대개 캐시 히트다. 미스여도 여기서 계산하지 않고 백그라운드 재계산 트리거 +
+    # 즉시 반환한다(이전 recs 있으면 그것 + computing, 없으면 빈 결과 + computing).
+    # 앱은 computing 이면 skeleton + 진행표시를 보여주고 다음 호출에서 warm 캐시를 받는다.
     background_tasks.add_task(recompute_recommendations, user_id, request.app.state)
     if cache and cache.get("recommendations"):
         recs = _dedup_cached(cache["recommendations"], limit)
