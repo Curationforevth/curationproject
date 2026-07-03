@@ -12,10 +12,12 @@ String? highResCoverUrl(String? url) {
     final fname = uri.queryParameters['fname'];
     if (fname != null && fname.isNotEmpty) return fname;
   }
-  // 알라딘 CDN 썸네일(coversum ≈150px, cover150/200)은 같은 경로에 cover500
-  // 원본이 있다 — 그리드/확장 시트처럼 크게 그릴 때 업스케일 흐림 방지.
+  // 알라딘 CDN 썸네일은 같은 경로에 cover500 원본이 있다 — 크게 그릴 때
+  // 업스케일 흐림 방지. 변형 전수(DB 실측): coversum(~150px)·cover150·
+  // cover200·**cover(접미사 없음, 구형 ~200px — '이기적 유전자' 실기기 흐림
+  // 재발 원인)**. cover500 자신은 옵션 그룹 불일치로 건드리지 않는다.
   if (uri != null && uri.host == 'image.aladin.co.kr') {
-    return url.replaceFirst(RegExp(r'/cover(sum|150|200)/'), '/cover500/');
+    return url.replaceFirst(RegExp(r'/cover(sum|150|200)?/'), '/cover500/');
   }
   return url;
 }
