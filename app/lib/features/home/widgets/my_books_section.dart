@@ -100,9 +100,9 @@ class _MyBookCard extends ConsumerWidget {
     final book = userBook.book!;
 
     return GestureDetector(
-      // 길게 누르기 → 서재 상태 인지 바텀시트(삭제/취소 액션 포함). 탭은 기존
-      // CTA(다 읽었어요/피드백 남기기) 유지 — 설계 §A 진입점 표.
-      onLongPress: () => BookDetailBottomSheet.show(context, book),
+      // 카드 몸통 탭 = 상세 시트 (인터랙션 통일 규칙 1). CTA 버튼은 내부
+      // GestureDetector 가 먼저 잡으므로 그대로 직행(규칙 2 — 1탭 피드백 저니).
+      onTap: () => BookDetailBottomSheet.show(context, book),
       child: Container(
         width: 140,
         decoration: BoxDecoration(
