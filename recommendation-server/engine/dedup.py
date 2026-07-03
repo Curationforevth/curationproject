@@ -59,6 +59,33 @@ def dedup_by_work(items: list, get_meta: Callable[[object], tuple]) -> list:
     return out
 
 
+def strip_not_interested(sections: list, ni_ids: set) -> list:
+    """/home 섹션 서빙 직전 관심없음(NI) 책 제거 — 캐시 원본은 유지(해시 불변),
+    응답만 거른다. personal_recommend 만 걸러 curation/trending/similar 표면에
+    NI 책이 재등장하고 캐시 히트 시 최대 1시간 stale 서빙되던 결함(2026-07-03
+    QA)의 서빙 레이어 수정. 전부 걸러져 비어진 책-섹션은 드롭, books 가 없는
+    섹션(category_nav 등)은 그대로 유지."""
+    if not ni_ids:
+        return sections
+    out = []
+    for s in sections:
+        books = s.get("books")
+        if not books:
+            out.append(s)
+            continue
+        kept = [b for b in books if b.get("book_id") not in ni_ids]
+        if kept:
+            out.append({**s, "books": kept})
+    return out
+
+
+def filter_not_interested(raw: list, ni_ids: set) -> list:
+    """(book_id, score) 후보 리스트에서 관심없음 책 제거 — /similar 계열용."""
+    if not ni_ids:
+        return raw
+    return [(bid, score) for bid, score in raw if bid not in ni_ids]
+
+
 def dedup_similar(raw: list, books_meta: dict, seed_id: str, limit: int) -> list:
     """similar 결과 정제: (a) 시드 자신의 다른 판본 (b) 중복 판본 을 제거하고 limit 개로 자른다.
 

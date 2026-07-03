@@ -27,7 +27,7 @@ from engine.home_cache import (
 )
 from engine.cache import (load_cache, compute_input_hash, load_signals,
                           recompute_recommendations, rec_cache_reusable)
-from engine.dedup import dedup_by_work, dedup_similar
+from engine.dedup import dedup_by_work, dedup_similar, strip_not_interested
 
 import logging
 
@@ -318,20 +318,30 @@ async def get_home(
     input_hash = compute_home_input_hash(us.get("updated_at", ""), hour_bucket)
     cache = load_home_cache(user_id)
 
+    # 행동 신호(관심없음) — 캐시 히트 경로 포함 **전 섹션** 서빙 즉시 필터.
+    # 기존엔 personal_recommend/(/recommend)만 걸러 curation/trending/similar
+    # 표면에 NI 책이 재등장했고(QA-C 결함 1), home 캐시 해시가 신호를 모르므로
+    # 최대 1시간 stale 서빙됐다(결함 2). 캐시 원본은 유지하고 응답만 거른다
+    # (해시/버킷 불변 → 캐시 churn 없음).
+    signals = _safe(lambda: load_signals(sb, user_id), default=[]) or []
+    ni_ids = {s["book_id"] for s in signals if s.get("signal") == "not_interested"}
+
     # refresh=1 (당겨서 새로고침) 이면 hour-bucket 캐시 히트를 건너뛰고 섹션을 재조립한다.
     # → 큐레이션이 weighted_sample_one 으로 매번 새로 샘플링돼 "새 큐레이션"이 나온다.
     # 비싼 Tier2 personal_recommend 는 아래에서 recommendation_cache 를 그대로 재사용하므로
     # (요청경로 재스코어링 없음) force-refresh 여도 저렴하다. 재조립 결과는 background 로
     # home_cache 에 덮어써 이후 일반 로드가 같은 큐레이션을 일관되게 보게 한다.
     if not refresh and cache and cache.get("input_hash") == input_hash:
+        served = strip_not_interested(cache["sections"], ni_ids)
         # cache hit path도 impression + history 로깅 (스펙 §7.3 CTR 정확성)
+        # — 로깅은 실제 서빙본(NI 제거 후) 기준.
         background_tasks.add_task(
             _log_impressions_and_history,
-            user_id, cache["sections"], stage,
+            user_id, served, stage,
         )
         return {
             "user_id": user_id, "tier": tier, "stage": stage,
-            "sections": cache["sections"],
+            "sections": served,
             "cta": cta_for_tier(tier, total_likes),
             "computed_at": cache["computed_at"],
             "cache_hit": True,
@@ -342,10 +352,6 @@ async def get_home(
         "book_id,rating,feedback_embedding,emotion_tags,review_text,updated_at,status"
     ).eq("user_id", user_id).order("updated_at", desc=True).execute().data,
         default=[]) or []
-
-    # 행동 신호(관심없음) — rec 캐시 해시 정합 + personal_recommend 즉시 필터.
-    signals = _safe(lambda: load_signals(sb, user_id), default=[]) or []
-    ni_ids = {s["book_id"] for s in signals if s.get("signal") == "not_interested"}
 
     active_themes = _safe(lambda: sb.table("curation_themes").select(
         "id,theme_type,title,description,personalization,"
@@ -426,19 +432,21 @@ async def get_home(
     # Tier2 추천이 아직 준비 안 된(비어있는) 응답은 캐시하지 않는다 — 캐시하면 백그라운드
     # 재계산이 끝나도 같은 hour_bucket 동안 빈 personal_recommend 가 노출된다. 미저장 시
     # 다음 /home 이 재조립하여 준비된 추천을 즉시 반영한다.
+    # 캐시엔 NI 미적용 원본을 저장(히트 시 서빙 필터가 담당), 응답/로깅은 서빙본.
     if not recs_pending:
         background_tasks.add_task(
             save_home_cache_if_current,
             user_id, sections, tier, stage, input_hash,
         )
+    served = strip_not_interested(sections, ni_ids)
     background_tasks.add_task(
         _log_impressions_and_history,
-        user_id, sections, stage,
+        user_id, served, stage,
     )
 
     return {
         "user_id": user_id, "tier": tier, "stage": stage,
-        "sections": sections,
+        "sections": served,
         "cta": cta_for_tier(tier, total_likes),
         "computed_at": now_iso,
         "cache_hit": False,
