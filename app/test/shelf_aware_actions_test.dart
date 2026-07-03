@@ -47,6 +47,22 @@ void main() {
           ShelfStatusBadge(userBook: _ub(BookStatus.read, rating: 'good'))));
       expect(find.text('✓ 읽은 책 · 좋았어요'), findsOneWidget);
     });
+
+    testWidgets('읽은 책 — 배지 탭 = 되돌리기 콜백(보조 경로)', (tester) async {
+      var revert = 0;
+      await tester.pumpWidget(_wrap(ShelfStatusBadge(
+        userBook: _ub(BookStatus.read, rating: 'good'),
+        onRevert: () => revert++,
+      )));
+      await tester.tap(find.text('✓ 읽은 책 · 좋았어요'));
+      expect(revert, 1);
+    });
+
+    testWidgets('찜한 책 — onRevert null 이면 탭해도 예외 없음(비인터랙티브)', (tester) async {
+      await tester.pumpWidget(
+          _wrap(ShelfStatusBadge(userBook: _ub(BookStatus.wantToRead))));
+      await tester.tap(find.text('🔖 찜한 책'));
+    });
   });
 
   group('SheetActionArea — 상태별 프라이머리 + 아이콘 로우', () {

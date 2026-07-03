@@ -532,7 +532,14 @@ class _BookDetailBottomSheetState extends ConsumerState<BookDetailBottomSheet> {
                                   // 서재 상태 배지 — "이미 내 서재에 있는 책"을 즉시 인지
                                   if (userBook != null) ...[
                                     const SizedBox(height: 8),
-                                    ShelfStatusBadge(userBook: userBook),
+                                    ShelfStatusBadge(
+                                      userBook: userBook,
+                                      onRevert: userBook.status ==
+                                              BookStatus.read
+                                          ? () => unawaited(
+                                              _handleRevertToReading(userBook))
+                                          : null,
+                                    ),
                                   ],
                                 ],
                               ),
@@ -703,7 +710,11 @@ class _BookDetailBottomSheetState extends ConsumerState<BookDetailBottomSheet> {
 class ShelfStatusBadge extends StatelessWidget {
   final UserBook userBook;
 
-  const ShelfStatusBadge({super.key, required this.userBook});
+  /// read 상태일 때만 넘어온다 — 배지 탭 = 읽는 중으로 되돌리기(Goodreads 보조 경로).
+  /// null 이면 비인터랙티브 상태 표시.
+  final VoidCallback? onRevert;
+
+  const ShelfStatusBadge({super.key, required this.userBook, this.onRevert});
 
   String get _label {
     switch (userBook.status) {
@@ -720,22 +731,31 @@ class ShelfStatusBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final badge = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: AppColors.shelf.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        _label,
+        style: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w500,
+          color: AppColors.textSecondary,
+        ),
+      ),
+    );
+    if (onRevert == null) {
+      return Semantics(label: '서재 상태: $_label', child: badge);
+    }
     return Semantics(
-      label: '서재 상태: $_label',
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: AppColors.shelf.withValues(alpha: 0.5),
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: Text(
-          _label,
-          style: const TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-            color: AppColors.textSecondary,
-          ),
-        ),
+      button: true,
+      label: '서재 상태: $_label. 탭하면 읽는 중으로 되돌립니다',
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onRevert,
+        child: badge,
       ),
     );
   }
