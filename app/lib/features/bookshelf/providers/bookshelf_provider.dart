@@ -217,3 +217,42 @@ Future<void> restoreToShelfWith(
     }
   }
 }
+
+/// 읽은 책을 "읽는 중"으로 되돌린다 — 평가(rating/감정태그/감상)는 삭제한다.
+/// DB CHECK("rating 은 finished 에만")를 지키고, 의미상 완독 평가가 소멸하므로
+/// 세 필드를 명시적으로 null 로 UPDATE 한다. addBookToShelf(reading) 재사용
+/// 불가: resolveShelfWrite 가 rating 을 보존해 되돌려도 평가가 남는다.
+Map<String, dynamic> revertToReadingPayload() => {
+      'status': BookStatus.reading.toJson(),
+      'rating': null,
+      'emotion_tags': null,
+      'review_text': null,
+    };
+
+/// Supabase 호출부만 분리 — 테스트 fake client 주입용(removeFromShelfWith 패턴).
+Future<void> revertToReadingWith(
+  SupabaseClient client,
+  UserBook userBook,
+) async {
+  await client
+      .from('user_books')
+      .update(revertToReadingPayload())
+      .eq('id', userBook.id);
+}
+
+/// 되돌리기 커밋 + 서재 무효화 + 취향 재계산 트리거(read+rating 제거는 스코어링
+/// 입력 변화). removeFromShelf 와 동일한 container/지연 invalidate 패턴.
+Future<void> revertToReading(
+  ProviderContainer container,
+  UserBook userBook,
+) async {
+  final supabase = Supabase.instance.client;
+  await revertToReadingWith(supabase, userBook);
+  container.invalidate(bookshelfProvider);
+  unawaited(container.read(recommendationServiceProvider).triggerRecompute());
+  unawaited(
+    Future<void>.delayed(const Duration(seconds: 2)).then((_) {
+      container.invalidate(recommendationsProvider);
+    }),
+  );
+}

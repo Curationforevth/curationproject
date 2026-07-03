@@ -1,3 +1,55 @@
+# 다음 세션 핸드오프 (2026-07-03 #16 — 앱 복구 + 시트 재설계 구현 + 로드맵 재정렬)
+
+## 🔥 #0 최우선: 시트 재설계 마무리 (feature 브랜치, 미머지·미푸시)
+
+**브랜치 `feature/sheet-action-area-redesign` (main 대비 4커밋). 코드·테스트·prod 실쓰기
+전부 검증 완료, 남은 건 Eden 폰 눈확인 → PR.**
+
+- **완료**: 시트 액션 영역 = "풀폭 프라이머리 1개 + 균등 아이콘 로우(뮤트)"로 전면 재설계.
+  - 구 `ShelfAwareActions`/`NotInterestedAction`/`ShelfDeleteAction`/`_BookmarkButton` 삭제
+    → 단일 `SheetActionArea` + `IconActionRow` + 순수 매핑 `actionsForState()`.
+  - **신규 되돌리기**(읽은책→읽는중, 평가 삭제): `revertToReading*`(bookshelf_provider) +
+    로우 `되돌리기` 아이콘 + '읽은 책' 배지 탭(보조 경로).
+  - 설계: `docs/superpowers/specs/2026-07-03-sheet-action-area-redesign-design.md`
+    / 계획: `docs/superpowers/plans/2026-07-03-sheet-action-area-redesign.md`
+- **Eden 확정 결정**: 미보유 프라이머리=읽었어요 · 되돌리기=읽는중(평가삭제, 실행취소 없음)
+  · destructive=로우 흡수 · 톤=뮤트(#8A94A6) · 배지 탭=표시.
+- **제약(발견)**: 읽는 중 로우에서 `읽고싶어요` 제외 — 데이터 계층이 wishlist 강등 금지
+  (_handleBookmark no-op + resolveShelfWrite CHECK 방지). 읽는 중 로우 = 삭제만.
+- **검증**: ✅ flutter test **123 그린** + analyze 클린(신규 이슈 0) · ✅ **prod E2E throwaway
+  되돌리기 실쓰기 PASS**(RLS insert finished+평가 → revert UPDATE → status=reading &
+  rating/emotion_tags/review_text 전부 null, CHECK 위반·트리거 에러 없음, 정리 완료).
+- **남은 것**: ⏳ **B 실기기 눈확인** — 폰에 재설계 빌드 **설치·실행 완료**(exit=0), Eden이
+  5개 상태 + 되돌리기 2경로 확인만 하면 됨. → 그다음 **PR 생성**(push 아직 안 함).
+  실행취소 미포함(린) — 되돌리면 이전 평가 복구 안 됨(스낵바 안내만).
+
+## 🩹 세션 초반: 앱 "먹통" = iOS 무료 프로비저닝 7일 만료 (복구 완료)
+
+- 증상 "아예 안 열림/흰화면" = **무료 개인 인증서 7일 만료**(6/26 생성 → 7/3 19:26 만료).
+  버그 아님. 진단=`devicectl process launch --console` 의 "invalid code signature ...
+  profile not trusted". 복구=재빌드(새 7/10 인증서)+설치+**폰에서 개발자 신뢰**(Eden 수동).
+  **다음 만료 7/10 19:41** — 재발 시 [[project-ios-free-provisioning-7day]] 절차.
+- 폰엔 이제 **feature 브랜치 재설계 빌드** 설치됨(PR#64 커버 수정도 포함). 머지 후 main
+  으로 재빌드 1회 권장.
+
+## 🗺️ 로드맵 재정렬 (코드 검증 기반, Eden "순서대로" 승인)
+
+핵심가치 성숙도 실측: **③추천=과성숙 / ①서재 감정경험≈40%**(책등·서가뷰 ✅, 꽂히는
+애니메이션·마일스톤 배경·피드백 배지 ✗) **/ ②취향 발견 페이오프=0%**(`/taste` 플레이스홀더뿐).
+→ 앱이 "추천 리스트"로만 작동, 비전의 "즐거움" 레이어가 빔. **확정 순서:**
+1. 시트 재설계 마무리(현재) → 2. **서재 감정 보상**(가치① — 꽂히는 애니+마일스톤 배경+
+피드백 배지, 프론트만·저비용·차별점) → 3. **취향 발견 페이오프**(가치② — 취향 요약/프로필
+화면, 백엔드 LLM 의존·데이터 성숙 후). 상세 [[project-roadmap-emotion-layer]].
+
+## 미결/주의 (#16)
+
+- PR 생성 전 `gh api user --jq .login` = hyhuh0910 확인([[feedback-git-push]]).
+- #15 미결 그대로: 데일리 파이프라인 저녁 첫 실행 완주 확인 / /book 제거 여부 / task_ed2f0bde·
+  task_ed2f... 중복세션 닫기.
+- 이번 세션 페르소나(product-manager + design-ux-researcher) 인라인 사용 — 로드맵 판단 근거.
+
+---
+
 # 다음 세션 핸드오프 (2026-07-03 #15 세션 종료 — 책 카드 탭 통일 + 전수 QA, PR#52~62·64)
 
 ## 🔥 #0 최우선 (Eden 지시): 시트 액션 영역 전면 재설계

@@ -12,6 +12,188 @@ import '../../bookshelf/providers/bookshelf_provider.dart';
 import '../providers/recommendation_provider.dart';
 import '../../../core/utils/author_format.dart';
 
+// ---------------------------------------------------------------------------
+// 시트 액션 영역 — 상태→액션 순수 매핑 + 데이터 모델
+// (풀폭 프라이머리 1개 + 균등 아이콘 로우. Netflix/왓챠 컨벤션)
+// ---------------------------------------------------------------------------
+
+enum SheetActionTone { neutral, danger }
+
+class SheetAction {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final SheetActionTone tone;
+  const SheetAction(this.icon, this.label, this.onTap,
+      {this.tone = SheetActionTone.neutral});
+}
+
+/// 프라이머리 슬롯 + 아이콘 로우를 상태로부터 순수하게 파생.
+/// showRatingCard 면 primary 슬롯 대신 MyRatingSection 을 렌더한다.
+class SheetActionSpec {
+  final String? primaryLabel;
+  final VoidCallback? onPrimary;
+  final bool showRatingCard;
+  final List<SheetAction> row;
+  const SheetActionSpec({
+    this.primaryLabel,
+    this.onPrimary,
+    this.showRatingCard = false,
+    required this.row,
+  });
+}
+
+/// 서재 상태 → (프라이머리, 아이콘 로우) 매핑. 콜백은 호출측(시트 State)이 주입.
+/// 읽는 중 로우는 삭제만 — wishlist 강등은 데이터 계층이 막으므로 읽고싶어요 제외.
+SheetActionSpec actionsForState({
+  required UserBook? userBook,
+  required VoidCallback onReading,
+  required VoidCallback onRead,
+  required VoidCallback onBookmark,
+  required VoidCallback onNotInterested,
+  required VoidCallback onDelete,
+  required VoidCallback onRevert,
+  required VoidCallback onOpenFeedback,
+}) {
+  switch (userBook?.status) {
+    case null:
+      return SheetActionSpec(primaryLabel: '읽었어요', onPrimary: onRead, row: [
+        SheetAction(Icons.menu_book_outlined, '읽는 중', onReading),
+        SheetAction(Icons.bookmark_border, '읽고싶어요', onBookmark),
+        SheetAction(Icons.visibility_off_outlined, '관심 없어요', onNotInterested,
+            tone: SheetActionTone.danger),
+      ]);
+    case BookStatus.wantToRead:
+      return SheetActionSpec(primaryLabel: '읽었어요', onPrimary: onRead, row: [
+        SheetAction(Icons.menu_book_outlined, '읽는 중', onReading),
+        SheetAction(Icons.bookmark_remove_outlined, '찜 해제', onDelete),
+      ]);
+    case BookStatus.reading:
+      return SheetActionSpec(primaryLabel: '다 읽었어요', onPrimary: onRead, row: [
+        SheetAction(Icons.delete_outline, '삭제', onDelete,
+            tone: SheetActionTone.danger),
+      ]);
+    case BookStatus.read:
+      final rated = userBook!.rating != null;
+      return SheetActionSpec(
+        primaryLabel: rated ? null : '평가 남기기',
+        onPrimary: rated ? null : onOpenFeedback,
+        showRatingCard: rated,
+        row: [
+          SheetAction(Icons.undo, '되돌리기', onRevert),
+          SheetAction(Icons.delete_outline, '삭제', onDelete,
+              tone: SheetActionTone.danger),
+        ],
+      );
+  }
+}
+
+/// 상태→액션 통합 렌더: 프라이머리(또는 평가有 read 는 카드가 대체) + 균등 아이콘 로우.
+/// 흩어져 있던 삭제/관심없어요/찜해제가 전부 로우로 흡수됐다(보조 액션 산개 소멸).
+class SheetActionArea extends StatelessWidget {
+  final UserBook? userBook;
+  final bool isLoading;
+  final VoidCallback onReading, onRead, onBookmark;
+  final VoidCallback onNotInterested, onDelete, onRevert, onOpenFeedback;
+  const SheetActionArea({
+    super.key,
+    required this.userBook,
+    required this.isLoading,
+    required this.onReading,
+    required this.onRead,
+    required this.onBookmark,
+    required this.onNotInterested,
+    required this.onDelete,
+    required this.onRevert,
+    required this.onOpenFeedback,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final spec = actionsForState(
+      userBook: userBook,
+      onReading: onReading,
+      onRead: onRead,
+      onBookmark: onBookmark,
+      onNotInterested: onNotInterested,
+      onDelete: onDelete,
+      onRevert: onRevert,
+      onOpenFeedback: onOpenFeedback,
+    );
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (!spec.showRatingCard && spec.primaryLabel != null)
+          _ActionButton(
+            label: spec.primaryLabel!,
+            isPrimary: true,
+            isLoading: isLoading,
+            onTap: spec.onPrimary!,
+          ),
+        if (spec.row.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          IconActionRow(actions: spec.row, isLoading: isLoading),
+        ],
+      ],
+    );
+  }
+}
+
+/// 균등 아이콘 액션 로우 — 세로 스택(아이콘 23 + 라벨 11), flex:1 균등, 무테두리.
+/// 뮤트 톤(Netflix/왓챠): neutral #334155/#475569, destructive #8A94A6(약한 구분).
+class IconActionRow extends StatelessWidget {
+  final List<SheetAction> actions;
+  final bool isLoading;
+  const IconActionRow(
+      {super.key, required this.actions, this.isLoading = false});
+
+  static const _neutralIcon = Color(0xFF334155);
+  static const _neutralLabel = Color(0xFF475569);
+  static const _danger = Color(0xFF8A94A6);
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        for (final a in actions)
+          Expanded(
+            child: Semantics(
+              button: true,
+              label: a.label,
+              child: InkWell(
+                onTap: isLoading ? null : a.onTap,
+                borderRadius: BorderRadius.circular(12),
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(vertical: 11, horizontal: 2),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(a.icon,
+                          size: 23,
+                          color: a.tone == SheetActionTone.danger
+                              ? _danger
+                              : _neutralIcon),
+                      const SizedBox(height: 6),
+                      Text(a.label,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                            color: a.tone == SheetActionTone.danger
+                                ? _danger
+                                : _neutralLabel,
+                          )),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
 /// 책 상세 바텀시트 — 커버 피드에서 탭했을 때 표시.
 /// 2단계 확장: peek(0.65) ↔ 확장(1.0), DraggableScrollableSheet 기반.
 class BookDetailBottomSheet extends ConsumerStatefulWidget {
@@ -147,6 +329,23 @@ class _BookDetailBottomSheetState extends ConsumerState<BookDetailBottomSheet> {
         onUndo: () {
           unawaited(restoreToShelf(container, snapshot));
         },
+      );
+    }
+  }
+
+  /// 읽은 책 → 읽는 중 되돌리기(평가 삭제). 실행취소 없음 — 스낵바 안내만.
+  /// 이전 평가(호오·감정태그·감상)는 복구되지 않는다.
+  Future<void> _handleRevertToReading(UserBook userBook) async {
+    final navigator = Navigator.of(context);
+    final rootContext = navigator.context;
+    // pop 전에 container 캡처 — _handleDelete 와 동일 이유(폐기된 위젯 ref 금지).
+    final container = ProviderScope.containerOf(context, listen: false);
+    navigator.pop();
+    await revertToReading(container, userBook);
+    if (rootContext.mounted) {
+      showTimedSnackBar(
+        rootContext,
+        const SnackBar(content: Text('읽는 중으로 되돌렸어요')),
       );
     }
   }
@@ -333,7 +532,14 @@ class _BookDetailBottomSheetState extends ConsumerState<BookDetailBottomSheet> {
                                   // 서재 상태 배지 — "이미 내 서재에 있는 책"을 즉시 인지
                                   if (userBook != null) ...[
                                     const SizedBox(height: 8),
-                                    ShelfStatusBadge(userBook: userBook),
+                                    ShelfStatusBadge(
+                                      userBook: userBook,
+                                      onRevert: userBook.status ==
+                                              BookStatus.read
+                                          ? () => unawaited(
+                                              _handleRevertToReading(userBook))
+                                          : null,
+                                    ),
                                   ],
                                 ],
                               ),
@@ -368,7 +574,8 @@ class _BookDetailBottomSheetState extends ConsumerState<BookDetailBottomSheet> {
 
                       // 평가를 남긴 읽은 책 = 내 평가 조회가 곧 이 시트의 본문
                       // (/book 페이지의 조회 역할 흡수 — 핵심가치 ② 취향 발견).
-                      // 그 외 상태 = 상태별 다음 행동 버튼(Goodreads 패턴).
+                      // 이 경우 카드가 프라이머리 슬롯을 대신하고, 아래 SheetActionArea
+                      // 는 아이콘 로우(되돌리기·삭제)만 렌더한다.
                       if (userBook?.status == BookStatus.read &&
                           userBook!.rating != null)
                         MyRatingSection(
@@ -377,41 +584,31 @@ class _BookDetailBottomSheetState extends ConsumerState<BookDetailBottomSheet> {
                             Navigator.of(context).pop();
                             context.push('/feedback/${userBook.id}');
                           },
-                        )
-                      else
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 24),
-                          child: ShelfAwareActions(
-                            userBook: userBook,
-                            isLoading: _isLoading,
-                            bookmarked: _bookmarked ||
-                                userBook?.status == BookStatus.wantToRead,
-                            onReading: _handleReading,
-                            onRead: _handleRead,
-                            onBookmark: _handleBookmark,
-                            onOpenFeedback: () {
-                              if (userBook != null) {
-                                Navigator.of(context).pop();
-                                context.push('/feedback/${userBook.id}');
-                              }
-                            },
-                          ),
                         ),
 
-                      // destructive 액션 — 서재 보유 책은 삭제, 미보유 책은 관심없음.
+                      // 통합 액션 영역 — 풀폭 프라이머리 1개 + 균등 아이콘 로우.
+                      // 상태별 삭제/관심없어요/찜해제/되돌리기가 전부 로우로 흡수됨.
                       Padding(
-                        padding:
-                            const EdgeInsets.fromLTRB(24, 8, 24, 0),
-                        child: userBook != null
-                            ? ShelfDeleteAction(
-                                userBook: userBook,
-                                onTap: () =>
-                                    unawaited(_handleDelete(userBook)),
-                              )
-                            : NotInterestedAction(
-                                onTap: () => unawaited(
-                                    _handleNotInterested(book)),
-                              ),
+                        padding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
+                        child: SheetActionArea(
+                          userBook: userBook,
+                          isLoading: _isLoading,
+                          onReading: _handleReading,
+                          onRead: _handleRead,
+                          onBookmark: _handleBookmark,
+                          onNotInterested: () =>
+                              unawaited(_handleNotInterested(book)),
+                          onDelete: () =>
+                              unawaited(_handleDelete(userBook!)),
+                          onRevert: () =>
+                              unawaited(_handleRevertToReading(userBook!)),
+                          onOpenFeedback: () {
+                            if (userBook != null) {
+                              Navigator.of(context).pop();
+                              context.push('/feedback/${userBook.id}');
+                            }
+                          },
+                        ),
                       ),
 
                       // 비슷한 책 섹션
@@ -513,7 +710,11 @@ class _BookDetailBottomSheetState extends ConsumerState<BookDetailBottomSheet> {
 class ShelfStatusBadge extends StatelessWidget {
   final UserBook userBook;
 
-  const ShelfStatusBadge({super.key, required this.userBook});
+  /// read 상태일 때만 넘어온다 — 배지 탭 = 읽는 중으로 되돌리기(Goodreads 보조 경로).
+  /// null 이면 비인터랙티브 상태 표시.
+  final VoidCallback? onRevert;
+
+  const ShelfStatusBadge({super.key, required this.userBook, this.onRevert});
 
   String get _label {
     switch (userBook.status) {
@@ -530,140 +731,31 @@ class ShelfStatusBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Semantics(
-      label: '서재 상태: $_label',
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: AppColors.shelf.withValues(alpha: 0.5),
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: Text(
-          _label,
-          style: const TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-            color: AppColors.textSecondary,
-          ),
+    final badge = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: AppColors.shelf.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        _label,
+        style: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w500,
+          color: AppColors.textSecondary,
         ),
       ),
     );
-  }
-}
-
-/// 서재 상태별 액션 버튼 영역 (Goodreads 패턴: 버튼 = 현재 상태에서의 다음 행동).
-///
-/// - 서재에 없음: [읽는 중] [읽었어요] [🔖]
-/// - 찜(wishlist): 동일 + 🔖 filled — 읽는중/읽었어요는 상태 전이로 동작
-/// - 읽는 중: [다 읽었어요] 단독 → 읽음 전이 + 피드백
-/// - 읽은 책: [내 평가 보기 · 수정 | 평가 남기기] → 피드백 화면(재등록 대신 루프 닫기)
-class ShelfAwareActions extends StatelessWidget {
-  final UserBook? userBook;
-  final bool isLoading;
-  final bool bookmarked;
-  final VoidCallback onReading;
-  final VoidCallback onRead;
-  final VoidCallback onBookmark;
-  final VoidCallback onOpenFeedback;
-
-  const ShelfAwareActions({
-    super.key,
-    required this.userBook,
-    required this.isLoading,
-    required this.bookmarked,
-    required this.onReading,
-    required this.onRead,
-    required this.onBookmark,
-    required this.onOpenFeedback,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    switch (userBook?.status) {
-      case BookStatus.reading:
-        return _ActionButton(
-          label: '다 읽었어요',
-          isPrimary: true,
-          isLoading: isLoading,
-          onTap: onRead,
-        );
-      case BookStatus.read:
-        return _ActionButton(
-          label: userBook!.rating != null ? '내 평가 보기 · 수정' : '평가 남기기',
-          isPrimary: true,
-          isLoading: isLoading,
-          onTap: onOpenFeedback,
-        );
-      case BookStatus.wantToRead:
-      case null:
-        return Row(
-          children: [
-            Expanded(
-              child: _ActionButton(
-                label: '읽는 중',
-                isPrimary: false,
-                isLoading: isLoading,
-                onTap: onReading,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _ActionButton(
-                label: '읽었어요',
-                isPrimary: true,
-                isLoading: isLoading,
-                onTap: onRead,
-              ),
-            ),
-            const SizedBox(width: 8),
-            _BookmarkButton(
-              bookmarked: bookmarked,
-              isLoading: isLoading,
-              onTap: onBookmark,
-            ),
-          ],
-        );
+    if (onRevert == null) {
+      return Semantics(label: '서재 상태: $_label', child: badge);
     }
-  }
-}
-
-/// 서재 보유 책 삭제 버튼 — destructive 텍스트 버튼(확인 다이얼로그 없음, 설계
-/// §A "이유를 묻지 않는 기본 동작"). status=wishlist 면 라벨만 "읽고 싶어요
-/// 취소"(왓챠 토글 해제 패턴), 그 외 상태는 "이 책 삭제".
-class ShelfDeleteAction extends StatelessWidget {
-  final UserBook userBook;
-  final VoidCallback onTap;
-
-  const ShelfDeleteAction({
-    super.key,
-    required this.userBook,
-    required this.onTap,
-  });
-
-  String get _label =>
-      userBook.status == BookStatus.wantToRead ? '읽고 싶어요 취소' : '이 책 삭제';
-
-  @override
-  Widget build(BuildContext context) {
-    // NotInterestedAction 과 동일한 조용한 텍스트 액션 톤 — destructive 라
-    // 색만 error, 밀도/높이는 통일.
-    return Center(
-      child: TextButton.icon(
-        onPressed: onTap,
-        style: TextButton.styleFrom(
-          foregroundColor: AppColors.error,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        ),
-        icon: Icon(
-          userBook.status == BookStatus.wantToRead
-              ? Icons.bookmark_remove_outlined
-              : Icons.delete_outline,
-          size: 15,
-        ),
-        label: Text(
-          _label,
-          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-        ),
+    return Semantics(
+      button: true,
+      label: '서재 상태: $_label. 탭하면 읽는 중으로 되돌립니다',
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onRevert,
+        child: badge,
       ),
     );
   }
@@ -771,52 +863,6 @@ class MyRatingSection extends StatelessWidget {
             ),
           ],
         ],
-      ),
-    );
-  }
-}
-
-/// 서재에 없는 책의 "관심 없어요".
-///
-/// 스타일 변천(전부 Eden 실기기 기각): 회색 텍스트=비활성처럼 보임 →
-/// 아웃라인 pill=입력 필드처럼 보임 → 조용한 텍스트 액션=클리커블로 안 보임.
-/// 결론: 새 스타일을 발명하지 않고 **같은 시트의 보조 버튼('읽는 중',
-/// _ActionButton isPrimary:false)과 동일한 시각 언어**를 쓴다 — 같은 화면의
-/// 버튼과 생김새가 같아야 버튼으로 읽힌다.
-class NotInterestedAction extends StatelessWidget {
-  final VoidCallback onTap;
-
-  const NotInterestedAction({super.key, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
-          decoration: BoxDecoration(
-            color: const Color(0xFFF8FAFC),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: const Color(0xFFF1F5F9)),
-          ),
-          child: const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.visibility_off_outlined,
-                  size: 15, color: AppColors.textSecondary),
-              SizedBox(width: 6),
-              Text(
-                '관심 없어요',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                  color: AppColors.textSecondary,
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }
@@ -1059,38 +1105,3 @@ class _SimilarCoverFallback extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
-
-class _BookmarkButton extends StatelessWidget {
-  final bool bookmarked;
-  final bool isLoading;
-  final VoidCallback onTap;
-
-  const _BookmarkButton({
-    required this.bookmarked,
-    required this.isLoading,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: isLoading ? null : onTap,
-      child: Container(
-        width: 48,
-        height: 48,
-        decoration: BoxDecoration(
-          color: const Color(0xFFF8FAFC),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: const Color(0xFFF1F5F9)),
-        ),
-        alignment: Alignment.center,
-        child: Icon(
-          bookmarked ? Icons.bookmark : Icons.bookmark_border,
-          color: AppColors.textPrimary,
-          size: 20,
-        ),
-      ),
-    );
-  }
-}

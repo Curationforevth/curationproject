@@ -40,74 +40,9 @@ UserBook _ub(
 );
 
 void main() {
-  group('변경 1 — 바텀시트 삭제 버튼 노출 분기', () {
-    testWidgets('서재 보유(읽은 책) — "이 책 삭제" 노출, wishlist 는 "읽고 싶어요 취소"', (
-      tester,
-    ) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: ShelfDeleteAction(
-              userBook: _ub(BookStatus.read),
-              onTap: () {},
-            ),
-          ),
-        ),
-      );
-      expect(find.text('이 책 삭제'), findsOneWidget);
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: ShelfDeleteAction(
-              userBook: _ub(BookStatus.wantToRead),
-              onTap: () {},
-            ),
-          ),
-        ),
-      );
-      expect(find.text('읽고 싶어요 취소'), findsOneWidget);
-    });
-
-    testWidgets('미보유 책 — 삭제 버튼 없음(null 이면 렌더 안 함)', (tester) async {
-      await tester.pumpWidget(
-        const MaterialApp(home: Scaffold(body: SizedBox.shrink())),
-      );
-      // userBook == null 인 경우 호출측(BookDetailBottomSheet)이 아예 위젯을
-      // 렌더하지 않는다 — ShelfDeleteAction 은 non-null UserBook 만 받는다(타입으로 보장).
-      expect(find.text('이 책 삭제'), findsNothing);
-    });
-
-    testWidgets('탭하면 onTap 콜백 호출', (tester) async {
-      var tapped = false;
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: ShelfDeleteAction(
-              userBook: _ub(BookStatus.read),
-              onTap: () => tapped = true,
-            ),
-          ),
-        ),
-      );
-      await tester.tap(find.text('이 책 삭제'));
-      expect(tapped, isTrue);
-    });
-  });
-
-  group('변경 2 — "관심 없어요" 버튼', () {
-    testWidgets('탭하면 onTap 콜백 호출', (tester) async {
-      var tapped = false;
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(body: NotInterestedAction(onTap: () => tapped = true)),
-        ),
-      );
-      expect(find.text('관심 없어요'), findsOneWidget);
-      await tester.tap(find.text('관심 없어요'));
-      expect(tapped, isTrue);
-    });
-  });
+  // (구 변경1·2 — ShelfDeleteAction/NotInterestedAction 위젯 테스트는 위젯이
+  //  SheetActionArea/IconActionRow 로 흡수되어 삭제됨. 삭제/관심없어요 렌더·콜백은
+  //  test/sheet_action_area_test.dart + test/shelf_aware_actions_test.dart 가 커버.)
 
   group('변경 3 — hiddenBookIdsProvider', () {
     test('초기값은 빈 Set', () {

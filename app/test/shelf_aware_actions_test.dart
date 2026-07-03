@@ -5,21 +5,28 @@ import 'package:curation_app/core/models/user_book.dart';
 import 'package:curation_app/features/bookshelf/providers/bookshelf_provider.dart';
 import 'package:curation_app/features/home/widgets/book_detail_bottom_sheet.dart';
 
-/// 서재 상태 인지 UI — 상태별 배지/버튼 분기 (Goodreads 패턴).
+/// 서재 상태 인지 액션 영역 — 풀폭 프라이머리 1개 + 균등 아이콘 로우.
 /// BookDetailBottomSheet 전체는 Supabase 의존(impression 로그)이라
-/// 기존 테스트 관례대로 분리된 공개 위젯 + provider 단위로 검증한다.
+/// 분리된 공개 위젯(SheetActionArea/ShelfStatusBadge) 단위로 검증한다.
 
-UserBook _ub(BookStatus status, {String? rating, String bookId = 'b1'}) =>
-    UserBook(
-      id: 'ub-$bookId',
-      userId: 'u1',
-      bookId: bookId,
-      status: status,
-      rating: rating,
+UserBook _ub(BookStatus s, {String? rating}) =>
+    UserBook(id: 'ub1', userId: 'u1', bookId: 'b1', status: s, rating: rating);
+
+Widget _wrap(Widget c) => MaterialApp(home: Scaffold(body: c));
+
+SheetActionArea _area(UserBook? ub,
+        {VoidCallback? onRevert, VoidCallback? onDelete}) =>
+    SheetActionArea(
+      userBook: ub,
+      isLoading: false,
+      onReading: () {},
+      onRead: () {},
+      onBookmark: () {},
+      onNotInterested: () {},
+      onDelete: onDelete ?? () {},
+      onRevert: onRevert ?? () {},
+      onOpenFeedback: () {},
     );
-
-Widget _wrap(Widget child) =>
-    MaterialApp(home: Scaffold(body: Center(child: child)));
 
 void main() {
   group('ShelfStatusBadge — 상태별 라벨', () {
@@ -39,76 +46,81 @@ void main() {
       await tester.pumpWidget(_wrap(
           ShelfStatusBadge(userBook: _ub(BookStatus.read, rating: 'good'))));
       expect(find.text('✓ 읽은 책 · 좋았어요'), findsOneWidget);
+    });
 
+    testWidgets('읽은 책 — 배지 탭 = 되돌리기 콜백(보조 경로)', (tester) async {
+      var revert = 0;
+      await tester.pumpWidget(_wrap(ShelfStatusBadge(
+        userBook: _ub(BookStatus.read, rating: 'good'),
+        onRevert: () => revert++,
+      )));
+      await tester.tap(find.text('✓ 읽은 책 · 좋았어요'));
+      expect(revert, 1);
+    });
+
+    testWidgets('찜한 책 — onRevert null 이면 탭해도 예외 없음(비인터랙티브)', (tester) async {
       await tester.pumpWidget(
-          _wrap(ShelfStatusBadge(userBook: _ub(BookStatus.read))));
-      expect(find.text('✓ 읽은 책'), findsOneWidget);
+          _wrap(ShelfStatusBadge(userBook: _ub(BookStatus.wantToRead))));
+      await tester.tap(find.text('🔖 찜한 책'));
     });
   });
 
-  group('ShelfAwareActions — 상태별 버튼 분기', () {
-    Widget actions(UserBook? ub,
-        {VoidCallback? onRead, VoidCallback? onOpenFeedback}) {
-      return _wrap(ShelfAwareActions(
-        userBook: ub,
-        isLoading: false,
-        bookmarked: ub?.status == BookStatus.wantToRead,
-        onReading: () {},
-        onRead: onRead ?? () {},
-        onBookmark: () {},
-        onOpenFeedback: onOpenFeedback ?? () {},
-      ));
-    }
-
-    testWidgets('서재에 없음 — 새 책 3버튼', (tester) async {
-      await tester.pumpWidget(actions(null));
+  group('SheetActionArea — 상태별 프라이머리 + 아이콘 로우', () {
+    testWidgets('미보유 — 프라이머리 읽었어요 + 아이콘 로우 3개', (t) async {
+      await t.pumpWidget(_wrap(_area(null)));
+      expect(find.text('읽었어요'), findsOneWidget);
       expect(find.text('읽는 중'), findsOneWidget);
-      expect(find.text('읽었어요'), findsOneWidget);
-      expect(find.byIcon(Icons.bookmark_border), findsOneWidget);
+      expect(find.text('읽고싶어요'), findsOneWidget);
+      expect(find.text('관심 없어요'), findsOneWidget);
     });
 
-    testWidgets('찜한 책 — 3버튼 유지 + 북마크 filled', (tester) async {
-      await tester.pumpWidget(actions(_ub(BookStatus.wantToRead)));
+    testWidgets('찜한 책 — 읽었어요 + 읽는중·찜 해제', (t) async {
+      await t.pumpWidget(_wrap(_area(_ub(BookStatus.wantToRead))));
       expect(find.text('읽었어요'), findsOneWidget);
-      expect(find.byIcon(Icons.bookmark), findsOneWidget);
+      expect(find.text('찜 해제'), findsOneWidget);
     });
 
-    testWidgets('읽는 중 — [다 읽었어요] 단독, onRead 연결', (tester) async {
-      var readTapped = false;
-      await tester.pumpWidget(
-          actions(_ub(BookStatus.reading), onRead: () => readTapped = true));
+    testWidgets('읽는 중 — 다 읽었어요 + 삭제만', (t) async {
+      await t.pumpWidget(_wrap(_area(_ub(BookStatus.reading))));
       expect(find.text('다 읽었어요'), findsOneWidget);
-      expect(find.text('읽는 중'), findsNothing);
-      expect(find.byIcon(Icons.bookmark_border), findsNothing);
-      await tester.tap(find.text('다 읽었어요'));
-      expect(readTapped, isTrue);
+      expect(find.text('삭제'), findsOneWidget);
+      expect(find.text('읽고싶어요'), findsNothing);
     });
 
-    testWidgets('읽은 책(평가 있음) — [내 평가 보기 · 수정] → 피드백', (tester) async {
-      var feedbackTapped = false;
-      await tester.pumpWidget(actions(_ub(BookStatus.read, rating: 'good'),
-          onOpenFeedback: () => feedbackTapped = true));
-      expect(find.text('내 평가 보기 · 수정'), findsOneWidget);
-      await tester.tap(find.text('내 평가 보기 · 수정'));
-      expect(feedbackTapped, isTrue);
-    });
-
-    testWidgets('읽은 책(평가 없음) — [평가 남기기]', (tester) async {
-      await tester.pumpWidget(actions(_ub(BookStatus.read)));
+    testWidgets('읽은 책 평가無 — 평가 남기기 + 되돌리기·삭제, 되돌리기 콜백', (t) async {
+      var revert = 0;
+      await t.pumpWidget(
+          _wrap(_area(_ub(BookStatus.read), onRevert: () => revert++)));
       expect(find.text('평가 남기기'), findsOneWidget);
-      expect(find.text('읽었어요'), findsNothing);
+      expect(find.text('되돌리기'), findsOneWidget);
+      await t.tap(find.text('되돌리기'));
+      expect(revert, 1);
+    });
+
+    testWidgets('읽은 책 평가有 — 프라이머리 없음(카드 대체) + 되돌리기·삭제', (t) async {
+      await t.pumpWidget(_wrap(_area(_ub(BookStatus.read, rating: 'good'))));
+      expect(find.text('평가 남기기'), findsNothing);
+      expect(find.text('되돌리기'), findsOneWidget);
+      expect(find.text('삭제'), findsOneWidget);
+    });
+
+    testWidgets('삭제 아이콘 탭 → onDelete 콜백', (t) async {
+      var del = 0;
+      await t.pumpWidget(
+          _wrap(_area(_ub(BookStatus.reading), onDelete: () => del++)));
+      await t.tap(find.text('삭제'));
+      expect(del, 1);
     });
   });
 
   group('userBookForProvider — 서재 조회(네트워크 0)', () {
     test('로드된 서재에서 book_id 매칭, 없으면/로딩 중이면 null', () async {
-      final shelf = [_ub(BookStatus.reading, bookId: 'b1')];
+      final shelf = [_ub(BookStatus.reading)];
       final container = ProviderContainer(overrides: [
         bookshelfProvider.overrideWith((ref) async => shelf),
       ]);
       addTearDown(container.dispose);
 
-      // 로딩 중 → null (새 책 UI 폴백)
       expect(container.read(userBookForProvider('b1')), isNull);
       await container.read(bookshelfProvider.future);
 
