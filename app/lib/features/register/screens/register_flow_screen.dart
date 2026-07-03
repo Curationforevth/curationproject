@@ -2,10 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/models/book.dart';
-import '../../../core/models/user_book.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../bookshelf/providers/bookshelf_provider.dart';
+import '../../home/widgets/book_detail_bottom_sheet.dart';
 import '../../search/providers/book_search_provider.dart';
+import '../../search/utils/resolve_sheet_book.dart';
 import '../../../core/utils/author_format.dart';
 
 class RegisterFlowScreen extends ConsumerStatefulWidget {
@@ -46,59 +47,14 @@ class _RegisterFlowScreenState extends ConsumerState<RegisterFlowScreen> {
     _focusNode.requestFocus();
   }
 
-  Future<void> _showStatusBottomSheet(Book book) async {
-    await showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      isScrollControlled: true,
-      builder: (sheetContext) => _StatusBottomSheet(
-        book: book,
-        onReadingTap: () async {
-          Navigator.pop(sheetContext);
-          await _registerBook(book, BookStatus.reading);
-        },
-        onReadTap: () async {
-          Navigator.pop(sheetContext);
-          await _registerBook(book, BookStatus.read);
-        },
-      ),
-    );
-  }
-
-  Future<void> _registerBook(Book book, BookStatus status) async {
-    try {
-      final userBookId = await addBookToShelf(ref, book, status);
-      ref.read(bookSearchProvider.notifier).markAsAdded(book.isbn);
-
-      if (!mounted) return;
-
-      if (status == BookStatus.reading) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('서재에 추가했어요')),
-        );
-        context.pop();
-      } else {
-        // BookStatus.read — go to feedback
-        context.pop();
-        context.push('/feedback/$userBookId');
-      }
-    } catch (e) {
-      if (!mounted) return;
-      final message = e.toString().contains('unique')
-          ? '이미 서재에 있어요'
-          : '추가 실패: $e';
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final searchState = ref.watch(bookSearchProvider);
+    final shelfIsbns = ref.watch(bookshelfProvider).valueOrNull
+            ?.map((ub) => ub.book?.isbn)
+            .whereType<String>()
+            .toSet() ??
+        const <String>{};
 
     return Scaffold(
       backgroundColor: AppColors.surface,
@@ -174,14 +130,15 @@ class _RegisterFlowScreenState extends ConsumerState<RegisterFlowScreen> {
 
           // Results area
           Expanded(
-            child: _buildResultsBody(searchState),
+            child: _buildResultsBody(searchState, shelfIsbns),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildResultsBody(BookSearchState searchState) {
+  Widget _buildResultsBody(
+      BookSearchState searchState, Set<String> shelfIsbns) {
     switch (searchState.status) {
       case BookSearchStatus.idle:
         return const Center(
@@ -231,14 +188,16 @@ class _RegisterFlowScreenState extends ConsumerState<RegisterFlowScreen> {
 
             final book = searchState.results[index];
             final isAdded = book.isbn != null &&
-                searchState.shelfIsbns.contains(book.isbn);
+                (searchState.shelfIsbns.contains(book.isbn) ||
+                    shelfIsbns.contains(book.isbn));
 
             return Column(
               children: [
                 _RegisterBookCard(
                   book: book,
                   isAdded: isAdded,
-                  onTap: isAdded ? null : () => _showStatusBottomSheet(book),
+                  onTap: () => BookDetailBottomSheet.show(
+                      context, resolveSheetBook(ref, book)),
                 ),
                 if (index < searchState.results.length - 1)
                   const Divider(height: 1, color: AppColors.border),
@@ -367,210 +326,3 @@ class _RegisterBookCard extends StatelessWidget {
   }
 }
 
-// ─── Status selection bottom sheet ────────────────────────────────────────────
-
-class _StatusBottomSheet extends StatelessWidget {
-  final Book book;
-  final VoidCallback onReadingTap;
-  final VoidCallback onReadTap;
-
-  const _StatusBottomSheet({
-    required this.book,
-    required this.onReadingTap,
-    required this.onReadTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Handle bar
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: AppColors.border,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: 20),
-
-            // Book info row
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(6),
-                  child: book.coverUrl != null && book.coverUrl!.isNotEmpty
-                      ? Image.network(
-                          book.coverUrl!,
-                          width: 56,
-                          height: 80,
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) =>
-                              _placeholderCover(),
-                        )
-                      : _placeholderCover(),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        book.title,
-                        style: const TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w500,
-                          color: AppColors.textPrimary,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      if (book.author != null && book.author!.isNotEmpty) ...[
-                        const SizedBox(height: 4),
-                        Text(
-                          displayAuthor(book.author),
-                          style: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w300,
-                            color: AppColors.textSecondary,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 24),
-
-            // Question
-            const Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                '이 책을 어떻게 등록할까요?',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w500,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-            ),
-            const SizedBox(height: 14),
-
-            // Reading button
-            _StatusButton(
-              emoji: '📖',
-              label: '읽는 중',
-              description: '지금 읽고 있어요',
-              onTap: onReadingTap,
-            ),
-            const SizedBox(height: 10),
-
-            // Read button
-            _StatusButton(
-              emoji: '✅',
-              label: '읽었어요',
-              description: '다 읽고 피드백 남기기',
-              onTap: onReadTap,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _placeholderCover() {
-    return Container(
-      width: 56,
-      height: 80,
-      decoration: BoxDecoration(
-        color: AppColors.border,
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: const Icon(Icons.book, color: AppColors.textSecondary, size: 24),
-    );
-  }
-}
-
-class _StatusButton extends StatefulWidget {
-  final String emoji;
-  final String label;
-  final String description;
-  final VoidCallback onTap;
-
-  const _StatusButton({
-    required this.emoji,
-    required this.label,
-    required this.description,
-    required this.onTap,
-  });
-
-  @override
-  State<_StatusButton> createState() => _StatusButtonState();
-}
-
-class _StatusButtonState extends State<_StatusButton> {
-  bool _pressed = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTapDown: (_) => setState(() => _pressed = true),
-      onTapUp: (_) {
-        setState(() => _pressed = false);
-        widget.onTap();
-      },
-      onTapCancel: () => setState(() => _pressed = false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 100),
-        width: double.infinity,
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: _pressed
-                ? const Color(0xFFCBD5E1) // Slate 300 on pressed
-                : AppColors.border, // #F1F5F9
-            width: 1.5,
-          ),
-        ),
-        child: Row(
-          children: [
-            Text(widget.emoji, style: const TextStyle(fontSize: 20)),
-            const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  widget.label,
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w500,
-                    color: AppColors.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  widget.description,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}

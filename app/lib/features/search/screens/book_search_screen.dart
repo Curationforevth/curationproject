@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
-import '../../../core/models/book.dart';
-import '../../../core/models/user_book.dart';
 import '../../bookshelf/providers/bookshelf_provider.dart';
+import '../../home/widgets/book_detail_bottom_sheet.dart';
 import '../providers/book_search_provider.dart';
+import '../utils/resolve_sheet_book.dart';
 import '../widgets/book_search_result_card.dart';
 
 class BookSearchScreen extends ConsumerStatefulWidget {
@@ -16,7 +15,6 @@ class BookSearchScreen extends ConsumerStatefulWidget {
 
 class _BookSearchScreenState extends ConsumerState<BookSearchScreen> {
   final _controller = TextEditingController();
-  bool _isRegistering = false;
 
   @override
   void dispose() {
@@ -24,71 +22,14 @@ class _BookSearchScreenState extends ConsumerState<BookSearchScreen> {
     super.dispose();
   }
 
-  Future<void> _showStatusBottomSheet(Book book) async {
-    if (_isRegistering) return;
-
-    final status = await showModalBottomSheet<BookStatus>(
-      context: context,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Padding(
-              padding: EdgeInsets.all(16),
-              child: Text('읽기 상태 선택',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-            ),
-            ListTile(
-              leading: const Icon(Icons.auto_stories),
-              title: const Text('읽는 중'),
-              onTap: () => Navigator.pop(context, BookStatus.reading),
-            ),
-            ListTile(
-              leading: const Icon(Icons.check_circle_outline),
-              title: const Text('다 읽었어요'),
-              onTap: () => Navigator.pop(context, BookStatus.read),
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
-
-    if (status == null || !mounted) return;
-
-    setState(() => _isRegistering = true);
-
-    try {
-      final userBookId = await addBookToShelf(ref, book, status);
-      ref.read(bookSearchProvider.notifier).markAsAdded(book.isbn);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${book.title} 서재에 추가됨'),
-            action: SnackBarAction(
-              label: '보러가기',
-              onPressed: () => context.push('/book/$userBookId'),
-            ),
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        final message = e.toString().contains('unique')
-            ? '이미 서재에 있어요'
-            : '추가 실패: $e';
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(message)),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isRegistering = false);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final searchState = ref.watch(bookSearchProvider);
+    final shelfIsbns = ref.watch(bookshelfProvider).valueOrNull
+            ?.map((ub) => ub.book?.isbn)
+            .whereType<String>()
+            .toSet() ??
+        const <String>{};
 
     return Scaffold(
       appBar: AppBar(
@@ -147,13 +88,15 @@ class _BookSearchScreenState extends ConsumerState<BookSearchScreen> {
 
                   final book = searchState.results[index];
                   final isAdded = book.isbn != null &&
-                      searchState.shelfIsbns.contains(book.isbn);
+                      (searchState.shelfIsbns.contains(book.isbn) ||
+                          shelfIsbns.contains(book.isbn));
                   return Column(
                     children: [
                       BookSearchResultCard(
                         book: book,
                         isAdded: isAdded,
-                        onTap: () => _showStatusBottomSheet(book),
+                        onTap: () => BookDetailBottomSheet.show(
+                            context, resolveSheetBook(ref, book)),
                       ),
                       if (index < searchState.results.length - 1)
                         const Divider(height: 1),
