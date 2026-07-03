@@ -120,7 +120,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           ),
           const SizedBox(height: 12),
           const Text(
-            '읽은 책 몇 권만 골라주세요.\n취향에 맞는 책을 찾아드릴게요.',
+            '읽은 책을 5권 이상 골라주시면\n취향을 분석해 맘에 들 책을 추천해드려요.',
             style: TextStyle(
               fontSize: 15,
               height: 1.5,
@@ -161,6 +161,10 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                       fontSize: 20,
                       fontWeight: FontWeight.w600,
                       color: AppColors.textPrimary)),
+              const SizedBox(height: 4),
+              const Text('5권 이상 고르면 취향에 맞는 책을 추천해드려요',
+                  style: TextStyle(
+                      fontSize: 13, color: AppColors.textSecondary)),
               const SizedBox(height: 4),
               Text('$count / $target권',
                   style: TextStyle(
@@ -222,7 +226,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
               ? '다음'
               : count == 0
                   ? '읽은 책을 5권 이상 골라주세요'
-                  : '${minRequired - count}권만 더 골라주세요',
+                  : '${minRequired - count}권만 더 고르면 추천이 시작돼요',
           primaryEnabled: count >= minRequired,
           onPrimary: () => setState(() {
             _favoriteId ??= _selected.keys.first;

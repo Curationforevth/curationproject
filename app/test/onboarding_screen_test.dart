@@ -108,10 +108,10 @@ void main() {
       }
       await tester.pump();
 
-      expect(find.text('1권만 더 골라주세요'), findsOneWidget);
+      expect(find.text('1권만 더 고르면 추천이 시작돼요'), findsOneWidget);
 
       // 버튼 비활성 — 탭해도 다음 단계로 넘어가지 않는다.
-      await tester.tap(find.text('1권만 더 골라주세요'));
+      await tester.tap(find.text('1권만 더 고르면 추천이 시작돼요'));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('grid')), findsOneWidget);
       expect(find.byKey(const ValueKey('favorite')), findsNothing);
