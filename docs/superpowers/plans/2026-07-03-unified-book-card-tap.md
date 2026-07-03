@@ -31,7 +31,23 @@
 - Produces: `BookDetailBottomSheet.show(BuildContext, Book)` — 시그니처 불변 (기존 호출부 5곳 무수정 호환). 확장 상태 토글 셰브론 `Key('sheet_expand_chevron')`, 확장 헤더 닫기 `Key('sheet_close_button')`.
 - 시트 내부 상수: `_peekSize = 0.65`, `_minSize = 0.4`.
 
-- [ ] **Step 1: 실패하는 테스트 작성** — `test/book_detail_expand_test.dart`. 기존 `test/book_detail_test.dart` 상단의 하네스(ProviderScope overrides, 가짜 bookshelfProvider/similarBooksProvider)를 그대로 복사해 사용한다.
+**선행 리팩터 (테스트 가능성):** `BookDetailBottomSheet.initState` 가 `Supabase.instance.client` 를 직접 불러 시트 전체를 pump 하는 테스트가 불가능했다(기존 테스트들이 서브위젯만 검증한 이유 — shelf_aware_actions_test.dart 상단 주석). 임프레션 로거를 provider 시임으로 뺀다:
+
+```dart
+// lib/core/services/impression_logger.dart 에 추가:
+final impressionLoggerProvider = Provider<ImpressionLogger>(
+    (ref) => ImpressionLogger(Supabase.instance.client));
+
+// 시트 initState 에선:
+if (widget.book.id.isNotEmpty) {
+  unawaited(ref.read(impressionLoggerProvider)
+      .logAction(bookId: widget.book.id, action: 'clicked'));
+}
+```
+
+테스트는 `impressionLoggerProvider` 를 no-op 페이크(`SupabaseClient('http://localhost', 'anon')` 로 생성한 서브클래스, home_resilience_test.dart 의 페이크 클라이언트 관례)로 override 한다.
+
+- [ ] **Step 1: 실패하는 테스트 작성** — `test/book_detail_expand_test.dart`. 하네스는 ProviderScope overrides 로 직접 구성: `bookshelfProvider`(shelf_aware_actions_test.dart 의 UserBook 헬퍼 참고), `similarBooksProvider`(고정 리스트), `impressionLoggerProvider`(위 no-op 페이크). **주의: `test/book_detail_test.dart` 는 무관한 화면(피드백 별점) 테스트다 — 하네스 복사 대상 아님.**
 
 ```dart
 // 핵심 시나리오 3개 (하네스 셋업은 book_detail_test.dart 참조):
@@ -95,9 +111,9 @@ bool _expanded = false;
 @override
 void initState() {
   super.initState();
-  // 임프레션: 검색 결과 등 DB 미등록 책(id='')은 로깅 스킵 (Task 4 선행 가드)
+  // 임프레션: provider 시임 경유(위 선행 리팩터) + DB 미등록 책(id='') 스킵
   if (widget.book.id.isNotEmpty) {
-    unawaited(ImpressionLogger(Supabase.instance.client)
+    unawaited(ref.read(impressionLoggerProvider)
         .logAction(bookId: widget.book.id, action: 'clicked'));
   }
   _sheetController.addListener(() {
