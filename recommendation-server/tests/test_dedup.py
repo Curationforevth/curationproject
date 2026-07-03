@@ -20,6 +20,16 @@ class TestWorkKey:
         b = work_key("자유론", "존 스튜어트 밀 (지은이)")
         assert a == b
 
+    def test_hyphen_subtitle_editions_collapse(self):
+        # Eden 실기기 리포트(2026-07-03): 콜론만 자르던 키가 ' - ' 부제 판본을 못 접음
+        a = work_key("생각하라 그리고 부자가 되어라 - 나폴레온 힐, 부와 성공의 원칙", "나폴레온 힐 (지은이)")
+        b = work_key("생각하라 그리고 부자가 되어라 :나폴레온 힐, 부와 성공의 원칙", "나폴레온 힐 (지은이), 이한이 (옮긴이)")
+        assert a == b
+
+    def test_inner_hyphen_title_not_split(self):
+        # 양쪽 공백 없는 하이픈은 제목의 일부 — 부제로 자르지 않는다
+        assert work_key("D-Day", "김택수") != work_key("D", "김택수")
+
     def test_different_works_distinct(self):
         assert work_key("동물농장", "조지 오웰") != work_key("1984", "조지 오웰")
 

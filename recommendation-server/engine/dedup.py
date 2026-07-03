@@ -13,18 +13,23 @@ from typing import Callable, Optional
 
 _PAREN = re.compile(r"[\(\[].*?[\)\]]")  # (오리지널 초판본…), [세트] 등
 _WS = re.compile(r"\s+")
+# 부제 구분자: 콜론(':나폴레온…' 처럼 공백 없이도 옴) 또는 ' - ' 하이픈.
+# 하이픈은 양쪽 공백이 있을 때만 부제로 본다('D-Day' 같은 제목 내 하이픈 보호).
+# 실측: "생각하라 그리고 부자가 되어라 - 나폴레온 힐…" vs "… :나폴레온 힐…" 두
+# 판본이 콜론만 자르던 키에서 서로 다른 키가 되어 /similar 에 나란히 노출(Eden 리포트).
+_SUBTITLE_SEP = re.compile(r"[:：]|\s-\s")
 
 
 def work_key(title: str, author: str) -> Optional[str]:
     """같은 작품의 다른 판본을 한 키로 묶는 정규화 키.
 
-    - 괄호/대괄호 표기(판본·역할) 제거, 콜론 이후 부제 제거, 공백 제거, 소문자화.
+    - 괄호/대괄호 표기(판본·역할) 제거, 콜론·' - ' 이후 부제 제거, 공백 제거, 소문자화.
     - 저자는 첫 저자만 사용(역자/편저 등 제외).
     - 제목이 비면 None 을 반환 → 호출측은 절대 묶지 않는다(빈 키로 뭉뚱그리기 방지).
     """
     t = (title or "")
     t = _PAREN.sub("", t)
-    t = t.split(":")[0]
+    t = _SUBTITLE_SEP.split(t)[0]
     t = _WS.sub("", t).lower()
     if not t:
         return None

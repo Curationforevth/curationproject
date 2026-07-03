@@ -13,7 +13,7 @@ from api.curation import router as curation_router
 # 배포 검증용 코드 리비전 마커. /health 로 어떤 코드가 라이브인지 관측한다.
 # index-out-of-image: pkl 을 이미지에서 제외, 부팅 시 Release 다운로드 (PR#50).
 # 직전 behavior-signals(PR#49): 관심없음/wishlist 신호 스코어링+서빙 필터.
-CODE_REV = "index-out-of-image-20260702"
+CODE_REV = "work-dedup-hyphen-20260703"
 
 
 @asynccontextmanager
