@@ -6,7 +6,7 @@
 # 06-25). 근본원인 = 동시 DB 과부하. → `needs` + `if: always()` 로 직렬화해 한 번에
 # 한 잡만 DB 를 쓰게 한다. 핵심가치(추천 엔진)에 직결된 **enrich 를 맨 앞**에 둬
 # 깨끗한 DB 용량을 먼저 주고, 인기신호 작업(discovery/refresh-loan-count)은 뒤로.
-# (새벽 3시 + Actions 무료라 wall-clock 손해는 비용이 아니다.)
+# (Actions 무료라 wall-clock 손해는 비용이 아니다.)
 #
 # 실행 순서: enrich → collect → discovery → refresh-loan-count → (수동)build-and-recompute
 # enrich 는 needs 없이 맨 먼저(이미 DB 의 rich_description 책 처리, 대기 불필요).
@@ -20,8 +20,12 @@ on:
   # 축적(discovery/collect/enrich)만 자동으로 돌린다 — egress·OpenAI 무거운
   # build-and-recompute 는 아래 if 로 수동(workflow_dispatch) 전용. 인덱스 빌드·배포는
   # 항상 사람이 수동 트리거(미검증 인덱스 자동배포 방지 + 무료 유지).
+  # ⚠️ 새벽 실행 금지(2026-07-03): 직렬화 후에도 6/25~7/2 새벽 스케줄(03~05 KST 실제
+  # 실행) 전멸 — 정보나루 connect timeout(discovery/refresh 잡 타임아웃)·알라딘 read
+  # timeout(collect 0건). 외부 한국 API 가 새벽 배치 시간대에 죽는 게 잔여 근본원인.
+  # 저녁 실행은 완주 실측(6/25 20:38 KST). GH 스로틀로 실제 실행은 크론보다 +1~2h 늦음.
   schedule:
-    - cron: '0 18 * * *'  # 매일 03:00 KST — 축적 jobs 만 자동
+    - cron: '0 11 * * *'  # 20:00 KST 목표(실제 21~22시대) — 축적 jobs 만 자동
   workflow_dispatch:
     inputs:
       mode:
