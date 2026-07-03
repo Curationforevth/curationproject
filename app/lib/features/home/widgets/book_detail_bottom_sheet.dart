@@ -427,39 +427,34 @@ class _BookDetailBottomSheetState extends ConsumerState<BookDetailBottomSheet> {
     );
   }
 
-  /// peek 핸들: 기존 드래그바 + 우측 셰브론(접근성 대체 확장 진입).
+  /// peek 핸들: 드래그바 하나만 중앙에. 별도 셰브론 아이콘은 제목과 겹쳐
+  /// 지저분해 보여 제거(Eden 실기기 리포트) — 대신 핸들 영역 전체가 탭
+  /// 타깃(접근성: 드래그 없이 탭으로 확장, Semantics 버튼).
   Widget _buildPeekHandle() {
-    return SizedBox(
-      height: 36,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          const SizedBox(height: 12),
-          Container(
-            width: 36,
-            height: 4,
-            decoration: BoxDecoration(
-              color: AppColors.border,
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          Positioned(
-            right: 8,
-            child: IconButton(
-              key: const Key('sheet_expand_chevron'),
-              icon: const Icon(
-                Icons.keyboard_arrow_up,
-                color: AppColors.textSecondary,
-              ),
-              tooltip: '크게 보기',
-              onPressed: () => _sheetController.animateTo(
-                1.0,
-                duration: const Duration(milliseconds: 250),
-                curve: Curves.easeOut,
+    return Semantics(
+      button: true,
+      label: '크게 보기',
+      child: GestureDetector(
+        key: const Key('sheet_expand_chevron'),
+        behavior: HitTestBehavior.opaque,
+        onTap: () => _sheetController.animateTo(
+          1.0,
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOut,
+        ),
+        child: SizedBox(
+          height: 28,
+          child: Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.border,
+                borderRadius: BorderRadius.circular(2),
               ),
             ),
           ),
-        ],
+        ),
       ),
     );
   }
