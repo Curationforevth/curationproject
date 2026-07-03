@@ -358,25 +358,37 @@ class _BookDetailBottomSheetState extends ConsumerState<BookDetailBottomSheet> {
 
                       const SizedBox(height: 24),
 
-                      // 액션 버튼 — 서재 상태에 따라 분기(Goodreads 패턴: 버튼이 곧 상태/다음 행동)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 24),
-                        child: ShelfAwareActions(
+                      // 평가를 남긴 읽은 책 = 내 평가 조회가 곧 이 시트의 본문
+                      // (/book 페이지의 조회 역할 흡수 — 핵심가치 ② 취향 발견).
+                      // 그 외 상태 = 상태별 다음 행동 버튼(Goodreads 패턴).
+                      if (userBook?.status == BookStatus.read &&
+                          userBook!.rating != null)
+                        MyRatingSection(
                           userBook: userBook,
-                          isLoading: _isLoading,
-                          bookmarked: _bookmarked ||
-                              userBook?.status == BookStatus.wantToRead,
-                          onReading: _handleReading,
-                          onRead: _handleRead,
-                          onBookmark: _handleBookmark,
-                          onOpenFeedback: () {
-                            if (userBook != null) {
-                              Navigator.of(context).pop();
-                              context.push('/feedback/${userBook.id}');
-                            }
+                          onEdit: () {
+                            Navigator.of(context).pop();
+                            context.push('/feedback/${userBook.id}');
                           },
+                        )
+                      else
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          child: ShelfAwareActions(
+                            userBook: userBook,
+                            isLoading: _isLoading,
+                            bookmarked: _bookmarked ||
+                                userBook?.status == BookStatus.wantToRead,
+                            onReading: _handleReading,
+                            onRead: _handleRead,
+                            onBookmark: _handleBookmark,
+                            onOpenFeedback: () {
+                              if (userBook != null) {
+                                Navigator.of(context).pop();
+                                context.push('/feedback/${userBook.id}');
+                              }
+                            },
+                          ),
                         ),
-                      ),
 
                       // destructive 액션 — 서재 보유 책은 삭제, 미보유 책은 관심없음.
                       Padding(
@@ -625,11 +637,22 @@ class ShelfDeleteAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // NotInterestedAction 과 동일한 조용한 텍스트 액션 톤 — destructive 라
+    // 색만 error, 밀도/높이는 통일.
     return Center(
-      child: TextButton(
+      child: TextButton.icon(
         onPressed: onTap,
-        style: TextButton.styleFrom(foregroundColor: AppColors.error),
-        child: Text(
+        style: TextButton.styleFrom(
+          foregroundColor: AppColors.error,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        ),
+        icon: Icon(
+          userBook.status == BookStatus.wantToRead
+              ? Icons.bookmark_remove_outlined
+              : Icons.delete_outline,
+          size: 15,
+        ),
+        label: Text(
           _label,
           style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
         ),
@@ -638,7 +661,116 @@ class ShelfDeleteAction extends StatelessWidget {
   }
 }
 
-/// 서재에 없는 책의 "관심 없어요" 버튼 — 보조 스타일(삭제보다 약한 톤).
+/// 읽은 책의 내 평가(호오·감정태그·한 줄 감상) 카드 — 시트에서 바로 조회.
+/// /book 페이지 진입로가 사라진 뒤 평가 조회 저니의 정본 위치.
+class MyRatingSection extends StatelessWidget {
+  final UserBook userBook;
+  final VoidCallback onEdit;
+
+  const MyRatingSection({
+    super.key,
+    required this.userBook,
+    required this.onEdit,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tags = userBook.emotionTags ?? const <String>[];
+    final review = userBook.reviewText;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(horizontal: 24),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFF1F5F9)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Text(
+                '내 평가',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+              const Spacer(),
+              GestureDetector(
+                onTap: onEdit,
+                behavior: HitTestBehavior.opaque,
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                  child: Text(
+                    '수정',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            userBook.rating == 'good' ? '👍 좋았어요' : '👎 아쉬웠어요',
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          if (tags.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final t in tags)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: AppColors.shelf.withValues(alpha: 0.5),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      '#$t',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+          if (review != null && review.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              review,
+              style: const TextStyle(
+                fontSize: 13,
+                height: 1.5,
+                color: AppColors.textPrimary,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// 서재에 없는 책의 "관심 없어요" — 삭제 버튼과 같은 조용한 텍스트 액션으로
+/// 통일(뚱뚱한 아웃라인 pill 은 입력 필드/비활성처럼 보임, Eden 리포트).
+/// 아이콘이 "눌리는 것"임을 드러낸다.
 class NotInterestedAction extends StatelessWidget {
   final VoidCallback onTap;
 
@@ -646,20 +778,15 @@ class NotInterestedAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 회색 텍스트만 있으면 비활성 버튼처럼 보인다(Eden 리포트) — 아웃라인으로
-    // "눌리는 것"임을 드러내되 destructive 톤은 피한다(보조 액션).
     return Center(
-      child: OutlinedButton(
+      child: TextButton.icon(
         onPressed: onTap,
-        style: OutlinedButton.styleFrom(
+        style: TextButton.styleFrom(
           foregroundColor: AppColors.textSecondary,
-          side: const BorderSide(color: AppColors.border),
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         ),
-        child: const Text(
+        icon: const Icon(Icons.visibility_off_outlined, size: 15),
+        label: const Text(
           '관심 없어요',
           style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
         ),

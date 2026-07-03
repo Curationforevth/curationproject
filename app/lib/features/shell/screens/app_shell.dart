@@ -12,6 +12,10 @@ class AppShell extends StatelessWidget {
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: navigationShell.currentIndex,
         onTap: (index) {
+          // 탭바 탭 = 어디서든 해당 탭 루트로 — 열려 있는 바텀시트/푸시 화면을
+          // 전부 닫고 이동한다(표준 모바일 컨벤션).
+          Navigator.of(context, rootNavigator: true)
+              .popUntil((route) => route.isFirst);
           if (index == 1) {
             // + tab: push register flow as modal, don't switch tab
             context.push('/register');
