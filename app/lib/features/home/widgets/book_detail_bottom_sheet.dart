@@ -12,6 +12,82 @@ import '../../bookshelf/providers/bookshelf_provider.dart';
 import '../providers/recommendation_provider.dart';
 import '../../../core/utils/author_format.dart';
 
+// ---------------------------------------------------------------------------
+// 시트 액션 영역 — 상태→액션 순수 매핑 + 데이터 모델
+// (풀폭 프라이머리 1개 + 균등 아이콘 로우. Netflix/왓챠 컨벤션)
+// ---------------------------------------------------------------------------
+
+enum SheetActionTone { neutral, danger }
+
+class SheetAction {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final SheetActionTone tone;
+  const SheetAction(this.icon, this.label, this.onTap,
+      {this.tone = SheetActionTone.neutral});
+}
+
+/// 프라이머리 슬롯 + 아이콘 로우를 상태로부터 순수하게 파생.
+/// showRatingCard 면 primary 슬롯 대신 MyRatingSection 을 렌더한다.
+class SheetActionSpec {
+  final String? primaryLabel;
+  final VoidCallback? onPrimary;
+  final bool showRatingCard;
+  final List<SheetAction> row;
+  const SheetActionSpec({
+    this.primaryLabel,
+    this.onPrimary,
+    this.showRatingCard = false,
+    required this.row,
+  });
+}
+
+/// 서재 상태 → (프라이머리, 아이콘 로우) 매핑. 콜백은 호출측(시트 State)이 주입.
+/// 읽는 중 로우는 삭제만 — wishlist 강등은 데이터 계층이 막으므로 읽고싶어요 제외.
+SheetActionSpec actionsForState({
+  required UserBook? userBook,
+  required VoidCallback onReading,
+  required VoidCallback onRead,
+  required VoidCallback onBookmark,
+  required VoidCallback onNotInterested,
+  required VoidCallback onDelete,
+  required VoidCallback onRevert,
+  required VoidCallback onOpenFeedback,
+}) {
+  switch (userBook?.status) {
+    case null:
+      return SheetActionSpec(primaryLabel: '읽었어요', onPrimary: onRead, row: [
+        SheetAction(Icons.menu_book_outlined, '읽는 중', onReading),
+        SheetAction(Icons.bookmark_border, '읽고싶어요', onBookmark),
+        SheetAction(Icons.visibility_off_outlined, '관심 없어요', onNotInterested,
+            tone: SheetActionTone.danger),
+      ]);
+    case BookStatus.wantToRead:
+      return SheetActionSpec(primaryLabel: '읽었어요', onPrimary: onRead, row: [
+        SheetAction(Icons.menu_book_outlined, '읽는 중', onReading),
+        SheetAction(Icons.bookmark_remove_outlined, '찜 해제', onDelete),
+      ]);
+    case BookStatus.reading:
+      return SheetActionSpec(primaryLabel: '다 읽었어요', onPrimary: onRead, row: [
+        SheetAction(Icons.delete_outline, '삭제', onDelete,
+            tone: SheetActionTone.danger),
+      ]);
+    case BookStatus.read:
+      final rated = userBook!.rating != null;
+      return SheetActionSpec(
+        primaryLabel: rated ? null : '평가 남기기',
+        onPrimary: rated ? null : onOpenFeedback,
+        showRatingCard: rated,
+        row: [
+          SheetAction(Icons.undo, '되돌리기', onRevert),
+          SheetAction(Icons.delete_outline, '삭제', onDelete,
+              tone: SheetActionTone.danger),
+        ],
+      );
+  }
+}
+
 /// 책 상세 바텀시트 — 커버 피드에서 탭했을 때 표시.
 /// 2단계 확장: peek(0.65) ↔ 확장(1.0), DraggableScrollableSheet 기반.
 class BookDetailBottomSheet extends ConsumerStatefulWidget {
