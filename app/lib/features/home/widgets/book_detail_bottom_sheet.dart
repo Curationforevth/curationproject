@@ -45,6 +45,9 @@ class _BookDetailBottomSheetState extends ConsumerState<BookDetailBottomSheet> {
   bool _bookmarked = false;
   bool _isLoading = false;
   bool _expanded = false;
+  // 드래그로 최소 높이 도달 → pop 은 1회만. 알림은 드래그 내내 연속 발화하므로
+  // 가드 없이는 두 번째 pop 이 모달 아래 화면(홈)까지 닫아버린다.
+  bool _dismissing = false;
   final _sheetController = DraggableScrollableController();
 
   @override
@@ -233,7 +236,10 @@ class _BookDetailBottomSheetState extends ConsumerState<BookDetailBottomSheet> {
 
     return NotificationListener<DraggableScrollableNotification>(
       onNotification: (n) {
-        if (n.extent <= _minSize + 0.01) Navigator.of(context).pop();
+        if (!_dismissing && n.extent <= _minSize + 0.01) {
+          _dismissing = true;
+          Navigator.of(context).pop();
+        }
         return false;
       },
       child: DraggableScrollableSheet(
