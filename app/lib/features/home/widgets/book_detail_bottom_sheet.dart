@@ -768,9 +768,13 @@ class MyRatingSection extends StatelessWidget {
   }
 }
 
-/// 서재에 없는 책의 "관심 없어요" — 삭제 버튼과 같은 조용한 텍스트 액션으로
-/// 통일(뚱뚱한 아웃라인 pill 은 입력 필드/비활성처럼 보임, Eden 리포트).
-/// 아이콘이 "눌리는 것"임을 드러낸다.
+/// 서재에 없는 책의 "관심 없어요".
+///
+/// 스타일 변천(전부 Eden 실기기 기각): 회색 텍스트=비활성처럼 보임 →
+/// 아웃라인 pill=입력 필드처럼 보임 → 조용한 텍스트 액션=클리커블로 안 보임.
+/// 결론: 새 스타일을 발명하지 않고 **같은 시트의 보조 버튼('읽는 중',
+/// _ActionButton isPrimary:false)과 동일한 시각 언어**를 쓴다 — 같은 화면의
+/// 버튼과 생김새가 같아야 버튼으로 읽힌다.
 class NotInterestedAction extends StatelessWidget {
   final VoidCallback onTap;
 
@@ -779,16 +783,31 @@ class NotInterestedAction extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: TextButton.icon(
-        onPressed: onTap,
-        style: TextButton.styleFrom(
-          foregroundColor: AppColors.textSecondary,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        ),
-        icon: const Icon(Icons.visibility_off_outlined, size: 15),
-        label: const Text(
-          '관심 없어요',
-          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF8FAFC),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: const Color(0xFFF1F5F9)),
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.visibility_off_outlined,
+                  size: 15, color: AppColors.textSecondary),
+              SizedBox(width: 6),
+              Text(
+                '관심 없어요',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
