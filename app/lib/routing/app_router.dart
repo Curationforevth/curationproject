@@ -13,6 +13,12 @@ import '../features/profile/screens/taste_screen.dart';
 import '../features/shell/screens/app_shell.dart';
 
 GoRouter createRouter(AuthNotifier authNotifier) {
+  // 탭 탭 시 브랜치에 떠 있는 시트까지 닫기 위한 브랜치 내비게이터 키 (AppShell 참조).
+  final branchNavigatorKeys = [
+    GlobalKey<NavigatorState>(debugLabel: 'branch-home'),
+    GlobalKey<NavigatorState>(debugLabel: 'branch-register'),
+    GlobalKey<NavigatorState>(debugLabel: 'branch-library'),
+  ];
   return GoRouter(
     initialLocation: '/',
     refreshListenable: authNotifier,
@@ -26,11 +32,14 @@ GoRouter createRouter(AuthNotifier authNotifier) {
     },
     routes: [
       StatefulShellRoute.indexedStack(
-        builder: (context, state, navigationShell) =>
-            AppShell(navigationShell: navigationShell),
+        builder: (context, state, navigationShell) => AppShell(
+          navigationShell: navigationShell,
+          branchNavigatorKeys: branchNavigatorKeys,
+        ),
         branches: [
           // Branch 0: Home
           StatefulShellBranch(
+            navigatorKey: branchNavigatorKeys[0],
             routes: [
               GoRoute(
                 path: '/',
@@ -40,6 +49,7 @@ GoRouter createRouter(AuthNotifier authNotifier) {
           ),
           // Branch 1: Register placeholder (never navigated to directly)
           StatefulShellBranch(
+            navigatorKey: branchNavigatorKeys[1],
             routes: [
               GoRoute(
                 path: '/register-placeholder',
@@ -49,6 +59,7 @@ GoRouter createRouter(AuthNotifier authNotifier) {
           ),
           // Branch 2: Library
           StatefulShellBranch(
+            navigatorKey: branchNavigatorKeys[2],
             routes: [
               GoRoute(
                 path: '/library',
