@@ -12,7 +12,8 @@ import '../../bookshelf/providers/bookshelf_provider.dart';
 import '../providers/recommendation_provider.dart';
 import '../../../core/utils/author_format.dart';
 
-/// 책 상세 바텀시트 — 커버 피드에서 탭했을 때 표시
+/// 책 상세 바텀시트 — 커버 피드에서 탭했을 때 표시.
+/// 2단계 확장: peek(0.65) ↔ 확장(1.0), DraggableScrollableSheet 기반.
 class BookDetailBottomSheet extends ConsumerStatefulWidget {
   final Book book;
 
@@ -22,6 +23,11 @@ class BookDetailBottomSheet extends ConsumerStatefulWidget {
     return showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
+      // 모달 자체 드래그를 끈다 — 내부 DraggableScrollableSheet 와 제스처가
+      // 경합해 핸들을 끌면 리사이즈 대신 모달 통째 dismiss 되는 오동작 방지.
+      // 닫기 = 바깥 탭 / 최소 높이까지 드래그(NotificationListener pop) / 확장 헤더 ✕.
+      enableDrag: false,
       backgroundColor: Colors.transparent,
       builder: (_) => BookDetailBottomSheet(book: book),
     );
@@ -33,17 +39,35 @@ class BookDetailBottomSheet extends ConsumerStatefulWidget {
 }
 
 class _BookDetailBottomSheetState extends ConsumerState<BookDetailBottomSheet> {
+  static const _peekSize = 0.65;
+  static const _minSize = 0.4;
+
   bool _bookmarked = false;
   bool _isLoading = false;
+  bool _expanded = false;
+  final _sheetController = DraggableScrollableController();
 
   @override
   void initState() {
     super.initState();
-    unawaited(
-      ImpressionLogger(
-        Supabase.instance.client,
-      ).logAction(bookId: widget.book.id, action: 'clicked'),
-    );
+    // 임프레션: provider 시임 경유(테스트 가능성) + DB 미등록 책(id='') 스킵
+    if (widget.book.id.isNotEmpty) {
+      unawaited(
+        ref
+            .read(impressionLoggerProvider)
+            .logAction(bookId: widget.book.id, action: 'clicked'),
+      );
+    }
+    _sheetController.addListener(() {
+      final expanded = _sheetController.size > 0.9;
+      if (expanded != _expanded) setState(() => _expanded = expanded);
+    });
+  }
+
+  @override
+  void dispose() {
+    _sheetController.dispose();
+    super.dispose();
   }
 
   Future<void> _handleReading() async {
@@ -207,153 +231,180 @@ class _BookDetailBottomSheetState extends ConsumerState<BookDetailBottomSheet> {
     // 등록/전이 후 addBookToShelf 가 invalidate 하므로 자동으로 최신화된다.
     final userBook = ref.watch(userBookForProvider(book.id));
 
-    return Container(
-      decoration: const BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      // 스크롤 + 최대높이: 미보유 책은 상태 버튼 3개로 시트가 길어져 하단
-      // ('관심 없어요', 비슷한 책)이 화면 밖으로 넘치면 그려는 지되 터치가
-      // 안 잡히는 문제가 있었다(Eden 실기기 리포트). 넘치면 스크롤로 도달.
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.sizeOf(context).height * 0.85,
-      ),
-      child: SingleChildScrollView(
-        child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // 드래그 핸들
-          const SizedBox(height: 12),
-          Container(
-            width: 36,
-            height: 4,
-            decoration: BoxDecoration(
-              color: AppColors.border,
-              borderRadius: BorderRadius.circular(2),
+    return NotificationListener<DraggableScrollableNotification>(
+      onNotification: (n) {
+        if (n.extent <= _minSize + 0.01) Navigator.of(context).pop();
+        return false;
+      },
+      child: DraggableScrollableSheet(
+        controller: _sheetController,
+        expand: false,
+        initialChildSize: _peekSize,
+        minChildSize: _minSize,
+        maxChildSize: 1.0,
+        snap: true,
+        snapSizes: const [_peekSize],
+        builder: (context, scrollController) => AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.vertical(
+              top: Radius.circular(_expanded ? 0 : 20),
             ),
           ),
-          const SizedBox(height: 24),
-
-          // 책 정보
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // 표지
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: SizedBox(
-                    width: 80,
-                    height: 116,
-                    child: book.coverUrl != null
-                        ? Image.network(
-                            book.coverUrl!,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) =>
-                                _buildCoverPlaceholder(),
-                          )
-                        : _buildCoverPlaceholder(),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                // 텍스트 정보
-                Expanded(
+          child: Column(
+            children: [
+              // 확장 헤더만 스크롤 밖 고정. peek 핸들은 스크롤 안 첫 요소 —
+              // DraggableScrollableSheet 는 제공된 scrollController 의 스크롤러블
+              // 위 드래그로만 extent 를 움직이므로, 핸들이 밖에 있으면 죽은 드래그가 된다.
+              if (_expanded) _buildExpandedHeader(book),
+              Expanded(
+                child: SingleChildScrollView(
+                  controller: scrollController,
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(
-                        book.title,
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w500,
-                          color: AppColors.textPrimary,
-                          height: 1.3,
+                      if (!_expanded) _buildPeekHandle(),
+
+                      // 책 정보
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // 표지
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: SizedBox(
+                                width: 80,
+                                height: 116,
+                                child: book.coverUrl != null
+                                    ? Image.network(
+                                        book.coverUrl!,
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (_, __, ___) =>
+                                            _buildCoverPlaceholder(),
+                                      )
+                                    : _buildCoverPlaceholder(),
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            // 텍스트 정보
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    book.title,
+                                    style: const TextStyle(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.w500,
+                                      color: AppColors.textPrimary,
+                                      height: 1.3,
+                                    ),
+                                    maxLines: 3,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  if (book.author != null &&
+                                      book.author!.isNotEmpty)
+                                    Text(
+                                      displayAuthor(book.author),
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w300,
+                                        color: AppColors.textSecondary,
+                                      ),
+                                    ),
+                                  // 서재 상태 배지 — "이미 내 서재에 있는 책"을 즉시 인지
+                                  if (userBook != null) ...[
+                                    const SizedBox(height: 8),
+                                    ShelfStatusBadge(userBook: userBook),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
-                        maxLines: 3,
-                        overflow: TextOverflow.ellipsis,
                       ),
-                      const SizedBox(height: 4),
-                      if (book.author != null && book.author!.isNotEmpty)
-                        Text(
-                          displayAuthor(book.author),
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w300,
-                            color: AppColors.textSecondary,
+
+                      // 설명
+                      if (book.description != null &&
+                          book.description!.isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        Padding(
+                          padding:
+                              const EdgeInsets.symmetric(horizontal: 24),
+                          child: Text(
+                            book.description!,
+                            key: const Key('sheet_description'),
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: Color(0xFF64748B),
+                              height: 1.5,
+                            ),
+                            maxLines: _expanded ? null : 3,
+                            overflow:
+                                _expanded ? null : TextOverflow.ellipsis,
                           ),
                         ),
-                      // 서재 상태 배지 — "이미 내 서재에 있는 책"을 즉시 인지
-                      if (userBook != null) ...[
-                        const SizedBox(height: 8),
-                        ShelfStatusBadge(userBook: userBook),
                       ],
+
+                      const SizedBox(height: 24),
+
+                      // 액션 버튼 — 서재 상태에 따라 분기(Goodreads 패턴: 버튼이 곧 상태/다음 행동)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: ShelfAwareActions(
+                          userBook: userBook,
+                          isLoading: _isLoading,
+                          bookmarked: _bookmarked ||
+                              userBook?.status == BookStatus.wantToRead,
+                          onReading: _handleReading,
+                          onRead: _handleRead,
+                          onBookmark: _handleBookmark,
+                          onOpenFeedback: () {
+                            if (userBook != null) {
+                              Navigator.of(context).pop();
+                              context.push('/feedback/${userBook.id}');
+                            }
+                          },
+                        ),
+                      ),
+
+                      // destructive 액션 — 서재 보유 책은 삭제, 미보유 책은 관심없음.
+                      Padding(
+                        padding:
+                            const EdgeInsets.fromLTRB(24, 8, 24, 0),
+                        child: userBook != null
+                            ? ShelfDeleteAction(
+                                userBook: userBook,
+                                onTap: () =>
+                                    unawaited(_handleDelete(userBook)),
+                              )
+                            : NotInterestedAction(
+                                onTap: () => unawaited(
+                                    _handleNotInterested(book)),
+                              ),
+                      ),
+
+                      // 비슷한 책 섹션
+                      _SimilarBooksSection(
+                        bookId: book.id,
+                        expanded: _expanded,
+                      ),
+
+                      // 하단 안전 여백
+                      SizedBox(
+                        height:
+                            MediaQuery.of(context).padding.bottom + 24,
+                      ),
                     ],
                   ),
                 ),
-              ],
-            ),
-          ),
-
-          // 설명
-          if (book.description != null && book.description!.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Text(
-                book.description!,
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: Color(0xFF64748B),
-                  height: 1.5,
-                ),
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
               ),
-            ),
-          ],
-
-          const SizedBox(height: 24),
-
-          // 액션 버튼 — 서재 상태에 따라 분기(Goodreads 패턴: 버튼이 곧 상태/다음 행동)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: ShelfAwareActions(
-              userBook: userBook,
-              isLoading: _isLoading,
-              bookmarked:
-                  _bookmarked || userBook?.status == BookStatus.wantToRead,
-              onReading: _handleReading,
-              onRead: _handleRead,
-              onBookmark: _handleBookmark,
-              onOpenFeedback: () {
-                if (userBook != null) {
-                  Navigator.of(context).pop();
-                  context.push('/feedback/${userBook.id}');
-                }
-              },
-            ),
+            ],
           ),
-
-          // destructive 액션 — 서재 보유 책은 삭제, 미보유 책은 관심없음.
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
-            child: userBook != null
-                ? ShelfDeleteAction(
-                    userBook: userBook,
-                    onTap: () => unawaited(_handleDelete(userBook)),
-                  )
-                : NotInterestedAction(
-                    onTap: () => unawaited(_handleNotInterested(book)),
-                  ),
-          ),
-
-          // 비슷한 책 섹션
-          _SimilarBooksSection(bookId: book.id),
-
-          // 하단 안전 여백
-          SizedBox(height: MediaQuery.of(context).padding.bottom + 24),
-        ],
         ),
       ),
     );
@@ -366,6 +417,71 @@ class _BookDetailBottomSheetState extends ConsumerState<BookDetailBottomSheet> {
         Icons.menu_book,
         color: AppColors.textSecondary,
         size: 32,
+      ),
+    );
+  }
+
+  /// peek 핸들: 기존 드래그바 + 우측 셰브론(접근성 대체 확장 진입).
+  Widget _buildPeekHandle() {
+    return SizedBox(
+      height: 36,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          const SizedBox(height: 12),
+          Container(
+            width: 36,
+            height: 4,
+            decoration: BoxDecoration(
+              color: AppColors.border,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          Positioned(
+            right: 8,
+            child: IconButton(
+              key: const Key('sheet_expand_chevron'),
+              icon: const Icon(
+                Icons.keyboard_arrow_up,
+                color: AppColors.textSecondary,
+              ),
+              tooltip: '크게 보기',
+              onPressed: () => _sheetController.animateTo(
+                1.0,
+                duration: const Duration(milliseconds: 250),
+                curve: Curves.easeOut,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 확장 헤더: 제목 + ✕ (Google Maps 모프 패턴)
+  Widget _buildExpandedHeader(Book book) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 8, 8, 0),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              book.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textPrimary,
+              ),
+            ),
+          ),
+          IconButton(
+            key: const Key('sheet_close_button'),
+            icon: const Icon(Icons.close, color: AppColors.textSecondary),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+        ],
       ),
     );
   }
@@ -624,8 +740,9 @@ class _ActionButton extends StatelessWidget {
 
 class _SimilarBooksSection extends ConsumerWidget {
   final String bookId;
+  final bool expanded;
 
-  const _SimilarBooksSection({required this.bookId});
+  const _SimilarBooksSection({required this.bookId, this.expanded = false});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -655,6 +772,12 @@ class _SimilarBooksSection extends ConsumerWidget {
             ? allBooks
             : allBooks.where((b) => !hidden.contains(b.bookId)).toList();
         if (books.isEmpty) return const SizedBox.shrink();
+
+        void openSimilar(RecommendedBook similar) {
+          Navigator.pop(context);
+          BookDetailBottomSheet.show(context, similar.toBook());
+        }
+
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -670,25 +793,46 @@ class _SimilarBooksSection extends ConsumerWidget {
                 ),
               ),
             ),
-            SizedBox(
-              height: 124,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
+            if (expanded)
+              GridView.builder(
+                key: const Key('sheet_similar_grid'),
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
                 padding: const EdgeInsets.symmetric(horizontal: 24),
+                gridDelegate:
+                    const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  childAspectRatio: 0.52,
+                  crossAxisSpacing: 12,
+                  mainAxisSpacing: 16,
+                ),
                 itemCount: books.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 10),
                 itemBuilder: (context, index) {
                   final similar = books[index];
                   return _SimilarBookCard(
                     book: similar,
-                    onTap: () {
-                      Navigator.pop(context);
-                      BookDetailBottomSheet.show(context, similar.toBook());
-                    },
+                    width: null,
+                    onTap: () => openSimilar(similar),
                   );
                 },
+              )
+            else
+              SizedBox(
+                height: 124,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  itemCount: books.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 10),
+                  itemBuilder: (context, index) {
+                    final similar = books[index];
+                    return _SimilarBookCard(
+                      book: similar,
+                      onTap: () => openSimilar(similar),
+                    );
+                  },
+                ),
               ),
-            ),
           ],
         );
       },
@@ -699,46 +843,49 @@ class _SimilarBooksSection extends ConsumerWidget {
 class _SimilarBookCard extends StatelessWidget {
   final RecommendedBook book;
   final VoidCallback onTap;
+  final double? width;
 
-  const _SimilarBookCard({required this.book, required this.onTap});
+  const _SimilarBookCard({
+    required this.book,
+    required this.onTap,
+    this.width = 72,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(6),
+          child: AspectRatio(
+            aspectRatio: 72 / 104,
+            child: book.coverUrl != null
+                ? Image.network(
+                    book.coverUrl!,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => _SimilarCoverFallback(),
+                  )
+                : _SimilarCoverFallback(),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          book.title,
+          style: const TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w500,
+            color: AppColors.textPrimary,
+          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ],
+    );
+
     return GestureDetector(
       onTap: onTap,
-      child: SizedBox(
-        width: 72,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(6),
-              child: SizedBox(
-                width: 72,
-                height: 104,
-                child: book.coverUrl != null
-                    ? Image.network(
-                        book.coverUrl!,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => _SimilarCoverFallback(),
-                      )
-                    : _SimilarCoverFallback(),
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              book.title,
-              style: const TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w500,
-                color: AppColors.textPrimary,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ),
-      ),
+      child: width != null ? SizedBox(width: width, child: content) : content,
     );
   }
 }
