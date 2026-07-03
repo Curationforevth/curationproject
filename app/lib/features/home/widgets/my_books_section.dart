@@ -71,16 +71,14 @@ class _MyBookCard extends ConsumerWidget {
 
   Future<void> _onCtaTap(BuildContext context, WidgetRef ref) async {
     if (_isReading) {
-      // "다 읽었어요" — update status to read, then push feedback
+      // "다 읽었어요" — 정본 경로(addBookToShelf→resolveShelfWrite)로 전이.
+      // raw update 는 recompute 트리거를 우회해, 피드백을 스킵하면 완독
+      // 신호가 추천 재계산에 반영되지 않았다(QA 결함).
       try {
-        final supabase = Supabase.instance.client;
-        await supabase
-            .from('user_books')
-            .update({'status': BookStatus.read.toJson()})
-            .eq('id', userBook.id);
-        ref.invalidate(bookshelfProvider);
+        final userBookId =
+            await addBookToShelf(ref, userBook.book!, BookStatus.read);
         if (context.mounted) {
-          context.push('/feedback/${userBook.id}');
+          context.push('/feedback/$userBookId');
         }
       } catch (e) {
         if (context.mounted) {

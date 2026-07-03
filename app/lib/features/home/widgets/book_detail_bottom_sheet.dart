@@ -81,10 +81,18 @@ class _BookDetailBottomSheetState extends ConsumerState<BookDetailBottomSheet> {
     try {
       await addBookToShelf(ref, widget.book, BookStatus.reading);
       if (mounted) {
+        // pop 이후 스낵바는 rootContext + showTimedSnackBar 규칙
+        // (accessibleNavigation 자동해제 함정 — _handleNotInterested 와 동일 패턴).
+        final rootContext = Navigator.of(context).context;
         Navigator.of(context).pop();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(wasShelved ? '읽는 중으로 옮겼어요' : '읽는 중으로 추가했어요')),
-        );
+        if (rootContext.mounted) {
+          showTimedSnackBar(
+            rootContext,
+            SnackBar(
+                content:
+                    Text(wasShelved ? '읽는 중으로 옮겼어요' : '읽는 중으로 추가했어요')),
+          );
+        }
       }
     } catch (e) {
       if (mounted) {

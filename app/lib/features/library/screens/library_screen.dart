@@ -309,7 +309,7 @@ class _ReadingCard extends ConsumerWidget {
                     ),
                   ],
                   const SizedBox(height: 8),
-                  _DoneReadingButton(userBookId: userBook.id, ref: ref),
+                  _DoneReadingButton(userBook: userBook, ref: ref),
                 ],
               ),
             ),
@@ -337,19 +337,17 @@ class _ReadingCard extends ConsumerWidget {
 }
 
 class _DoneReadingButton extends StatelessWidget {
-  final String userBookId;
+  final UserBook userBook;
   final WidgetRef ref;
 
-  const _DoneReadingButton({required this.userBookId, required this.ref});
+  const _DoneReadingButton({required this.userBook, required this.ref});
 
   Future<void> _onTap(BuildContext context) async {
     try {
-      final supabase = Supabase.instance.client;
-      await supabase
-          .from('user_books')
-          .update({'status': BookStatus.read.toJson()})
-          .eq('id', userBookId);
-      ref.invalidate(bookshelfProvider);
+      // 정본 경로(addBookToShelf→resolveShelfWrite) — raw update 는 recompute
+      // 트리거를 우회해 피드백 스킵 시 완독 신호가 추천에 미반영(QA 결함).
+      final userBookId =
+          await addBookToShelf(ref, userBook.book!, BookStatus.read);
       if (context.mounted) {
         context.push('/feedback/$userBookId');
       }

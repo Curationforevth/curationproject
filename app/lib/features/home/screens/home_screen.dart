@@ -509,6 +509,8 @@ class _RecommendationSection extends ConsumerWidget {
                   // 온보딩 정책 변경(그리드 자동 좋아요 제거, 최애만 rating=good)으로
                   // 이 placeholder 가 신규 유저의 첫 화면이 된다 — 남은 권수를 명시해
                   // "무엇을 하면 되는지"를 알려준다 (Eden 결정 2026-07-02).
+                  // ⚠️ 6 = 서버 TIER2_THRESHOLD(recommendation-server/engine/
+                  // tier.py)와 이중 관리 — 서버 임계값 변경 시 여기도 함께.
                   message: result.totalLiked >= 6
                       ? '아직 추천할 책이 없어요'
                       : result.totalLiked <= 0
