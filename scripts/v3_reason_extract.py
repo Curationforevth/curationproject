@@ -221,6 +221,7 @@ QC_MIN_AVG_LENGTH = 15       # 평균 길이 최소
 QC_MAX_SHORT_RATIO = 0.10    # 15자 미만 비율 최대 10%
 QC_MIN_AVG_REASONS = 4.0     # 권당 평균 reason 수 최소
 QC_MAX_ERROR_RATIO = 0.15    # 에러율 최대 15%
+EXIT_MAX_ERROR_RATIO = 0.05  # 최종 exit 1 기준 에러율 — 이하면 exit 0 (에러는 리포트에 그대로)
 
 GENERIC_WORDS = [
     "성장", "감동", "몰입감", "흡입력", "걸작", "수작", "재미있",
@@ -337,6 +338,30 @@ def save_reason_checkpoint(done_ids):
         json.dump({"done_ids": list(done_ids), "last_updated": time.strftime("%Y-%m-%dT%H:%M:%S")}, f)
 
 
+def resolve_exit_code(total_done, total_skipped_no_data, total_errors, aborted):
+    """최종 exit code 판정. (exit_code, 요약 메시지) 반환.
+
+    KI-002 fail-loud 유지하되 부분 에러는 임계치 기반으로 판정:
+    - 중단(연속 에러/QC 실패)·전량 실패는 무조건 exit 1
+    - 에러율 > EXIT_MAX_ERROR_RATIO 면 exit 1
+    - 이하면 exit 0 — 에러 건수/비율은 메시지에 그대로 남긴다 (축소 보고 금지)
+    분모는 QC(D2/I2)와 동일하게 no_data 스킵 제외.
+    """
+    if aborted:
+        return 1, f"⛔ 중단된 run — 에러 {total_errors}건, exit 1"
+    if total_errors == 0:
+        return 0, "에러 0건 — 정상 완료"
+    qc_done = total_done - total_skipped_no_data
+    if qc_done <= 0:
+        return 1, f"⛔ 처리 0권 + 에러 {total_errors}건 — exit 1"
+    ratio = total_errors / qc_done
+    if ratio > EXIT_MAX_ERROR_RATIO:
+        return 1, (f"⛔ 에러 {total_errors}건 ({ratio:.1%}) > "
+                   f"임계치 {EXIT_MAX_ERROR_RATIO:.0%} — exit 1")
+    return 0, (f"⚠ 에러 {total_errors}건 ({ratio:.1%}) ≤ "
+               f"임계치 {EXIT_MAX_ERROR_RATIO:.0%} — 부분 에러 허용, exit 0")
+
+
 # ── 메인 루프 ──
 
 def main():
@@ -422,6 +447,7 @@ def main():
     total_done, total_errors, total_saved, total_skipped_no_data = 0, 0, 0, 0
     consecutive_errors = 0
     checkpoint_num = 0
+    aborted = False
 
     for i in range(0, len(ids), CHUNK_SIZE):
         chunk_ids = ids[i:i + CHUNK_SIZE]
@@ -438,6 +464,7 @@ def main():
             consecutive_errors += 1
             if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
                 print(f"\n⛔ 연속 {MAX_CONSECUTIVE_ERRORS}회 에러 — 자동 중단", flush=True)
+                aborted = True
                 break
             time.sleep(10)
             sb = make_client()
@@ -484,6 +511,7 @@ def main():
         # 연속 에러 체크
         if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
             print(f"\n⛔ 연속 {MAX_CONSECUTIVE_ERRORS}회 에러 — 자동 중단", flush=True)
+            aborted = True
             break
 
         # 진행률
@@ -505,6 +533,7 @@ def main():
             passed = run_checkpoint(sb, checkpoint_num, qc_done, total_saved, total_errors)
             if not passed:
                 print("⛔ 품질 검증 실패 — 자동 중단. 위 이슈를 확인하세요.", flush=True)
+                aborted = True
                 break
             print(">> 품질 검증 통과. 계속 진행합니다...\n", flush=True)
 
@@ -527,8 +556,11 @@ def main():
         os.remove(CHECKPOINT_FILE)
         print("  체크포인트 파일 삭제 (정상 완료)", flush=True)
 
-    # 실패가 있으면 caller (cron, pipeline) 가 감지할 수 있도록 exit 1.
-    return 1 if total_errors > 0 else 0
+    # 부분 에러는 임계치 기반 exit — 중단/전량 실패/임계치 초과만 caller 에 실패 신호.
+    exit_code, msg = resolve_exit_code(total_done, total_skipped_no_data,
+                                       total_errors, aborted)
+    print(f"  {msg}", flush=True)
+    return exit_code
 
 
 if __name__ == "__main__":
