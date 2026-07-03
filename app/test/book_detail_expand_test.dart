@@ -116,4 +116,45 @@ void main() {
 
     expect(find.byKey(const Key('sheet_description')), findsNothing);
   });
+
+  testWidgets('비슷한 책 카드 탭 → 이전 시트 닫히고 새 시트로 교체 (스택 누적 없음)',
+      (tester) async {
+    final book = bookWithLongDescription;
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          impressionLoggerProvider.overrideWithValue(_FakeImpressionLogger()),
+          bookshelfProvider.overrideWith((ref) async => <UserBook>[]),
+          similarBooksProvider(book.id)
+              .overrideWith((ref) async => _fixedSimilarBooks),
+          // 교체된 새 시트('s1')의 비슷한 책은 비움 — 네트워크 미접촉 고정.
+          similarBooksProvider('s1')
+              .overrideWith((ref) async => <RecommendedBook>[]),
+        ],
+        child: MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => ElevatedButton(
+                onPressed: () => BookDetailBottomSheet.show(context, book),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    // peek(0.65) 에선 비슷한 책이 접힘 아래 — 스크롤로 노출 후 탭.
+    await tester.ensureVisible(find.text('비슷한 책 1'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('비슷한 책 1'));
+    await tester.pumpAndSettle();
+
+    // 이전 시트(긴 설명)는 사라지고, 시트는 정확히 하나만 떠 있다.
+    expect(find.byKey(const Key('sheet_description')), findsNothing);
+    expect(find.byKey(const Key('sheet_expand_chevron')), findsOneWidget);
+    expect(find.text('비슷한 책 1'), findsOneWidget); // 새 시트 타이틀
+  });
 }
