@@ -11,6 +11,20 @@ void main() {
       );
     });
 
+    test('알라딘 구형 /cover/(접미사 없음) → cover500 — 이기적 유전자 실기기 케이스', () {
+      expect(
+        highResCoverUrl(
+            'https://image.aladin.co.kr/product/17048/25/cover/8932473900_1.jpg'),
+        'https://image.aladin.co.kr/product/17048/25/cover500/8932473900_1.jpg',
+      );
+      // http 스킴(구 데이터)도 동일 처리
+      expect(
+        highResCoverUrl(
+            'http://image.aladin.co.kr/product/751/8/cover/8932471630_1.jpg'),
+        'http://image.aladin.co.kr/product/751/8/cover500/8932471630_1.jpg',
+      );
+    });
+
     test('알라딘 coversum/cover200/cover150 → cover500', () {
       expect(
         highResCoverUrl(
