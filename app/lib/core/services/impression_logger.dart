@@ -1,4 +1,10 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
+/// ImpressionLogger 를 provider 시임으로 노출 — 위젯 테스트에서
+/// Supabase.instance(전역 싱글턴) 없이 no-op 페이크로 override 하기 위함.
+final impressionLoggerProvider = Provider<ImpressionLogger>(
+    (ref) => ImpressionLogger(Supabase.instance.client));
 
 /// 추천 노출/액션을 recommendation_impressions 테이블에 비동기 로깅.
 /// 모든 메서드는 fire-and-forget — 실패해도 UI 응답을 막지 않는다.

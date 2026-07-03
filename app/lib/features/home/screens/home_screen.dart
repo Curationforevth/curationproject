@@ -886,8 +886,6 @@ class _WishlistCard extends StatelessWidget {
     final book = userBook.book!;
     return GestureDetector(
       onTap: onTap,
-      // 길게 누르기 → 서재 상태 인지 바텀시트(읽고싶어요 취소 액션 포함).
-      onLongPress: () => BookDetailBottomSheet.show(context, book),
       child: SizedBox(
         width: 120,
         child: Column(

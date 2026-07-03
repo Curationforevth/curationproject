@@ -7,6 +7,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/bookshelf_row.dart';
 import '../../bookshelf/providers/bookshelf_provider.dart';
 import '../../../core/utils/author_format.dart';
+import '../../home/widgets/book_detail_bottom_sheet.dart';
 
 class LibraryScreen extends ConsumerWidget {
   const LibraryScreen({super.key});
@@ -140,7 +141,7 @@ class _LibraryContent extends ConsumerWidget {
           child: BookshelfRow(
             userBooks: readBooks,
             onBookTap: (userBook) {
-              context.push('/book/${userBook.id}');
+              BookDetailBottomSheet.show(context, userBook.book!);
             },
             onReorder: (reordered) {
               reorderBooks(ref, reordered);
@@ -254,63 +255,66 @@ class _ReadingCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final book = userBook.book!;
 
-    return Container(
-      width: 280,
-      decoration: BoxDecoration(
-        color: const Color(0xFFFAFAFA),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      child: Row(
-        children: [
-          // Cover image
-          ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: book.coverUrl != null
-                ? Image.network(
-                    book.coverUrl!,
-                    width: 44,
-                    height: 64,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) => _coverFallback(),
-                  )
-                : _coverFallback(),
-          ),
-          const SizedBox(width: 12),
-          // Title + author + button
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  book.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textPrimary,
-                  ),
-                ),
-                if (book.author != null && book.author!.isNotEmpty) ...[
-                  const SizedBox(height: 2),
+    return GestureDetector(
+      onTap: () => BookDetailBottomSheet.show(context, book),
+      child: Container(
+        width: 280,
+        decoration: BoxDecoration(
+          color: const Color(0xFFFAFAFA),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(
+          children: [
+            // Cover image
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: book.coverUrl != null
+                  ? Image.network(
+                      book.coverUrl!,
+                      width: 44,
+                      height: 64,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) => _coverFallback(),
+                    )
+                  : _coverFallback(),
+            ),
+            const SizedBox(width: 12),
+            // Title + author + button
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
                   Text(
-                    displayAuthor(book.author),
+                    book.title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      fontSize: 11,
-                      color: AppColors.textSecondary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textPrimary,
                     ),
                   ),
+                  if (book.author != null && book.author!.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      displayAuthor(book.author),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  _DoneReadingButton(userBookId: userBook.id, ref: ref),
                 ],
-                const SizedBox(height: 8),
-                _DoneReadingButton(userBookId: userBook.id, ref: ref),
-              ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
