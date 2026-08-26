@@ -20,10 +20,15 @@ on:
   # 축적(discovery/collect/enrich)만 자동으로 돌린다 — egress·OpenAI 무거운
   # build-and-recompute 는 아래 if 로 수동(workflow_dispatch) 전용. 인덱스 빌드·배포는
   # 항상 사람이 수동 트리거(미검증 인덱스 자동배포 방지 + 무료 유지).
-  # ⚠️ 새벽 실행 금지(2026-07-03): 직렬화 후에도 6/25~7/2 새벽 스케줄(03~05 KST 실제
-  # 실행) 전멸 — 정보나루 connect timeout(discovery/refresh 잡 타임아웃)·알라딘 read
-  # timeout(collect 0건). 외부 한국 API 가 새벽 배치 시간대에 죽는 게 잔여 근본원인.
-  # 저녁 실행은 완주 실측(6/25 20:38 KST). GH 스로틀로 실제 실행은 크론보다 +1~2h 늦음.
+  # ⚠️ 시간대 가설은 틀렸다(2026-08-26 정정). 저녁으로 옮긴 뒤에도 8/1~8/25
+  # **25/25 전부 cancelled**(discovery 25분·refresh 15분 job timeout). 8/25 실행에서
+  # 타임아웃 난 그 ISBN 들을 한국 IP 에서 즉시 재호출하면 6/6 성공(평균 1.82s) —
+  # 근본원인은 시간대가 아니라 **Actions 러너(해외 IP)→data4library.kr 경로**다.
+  # 해법은 스케줄 이동이 아니라 "느린 경로에서도 수집은 계속된다":
+  #   ① 정보나루 실패해도 책은 저장(loan_count=NULL → refresh 크론이 채움)
+  #   ② 연속 실패 시 회로 개방 → 남은 호출 건너뜀
+  #   ③ 시간 예산 소진 시 스스로 flush 후 종료(강제종료 = 전량 유실 방지)
+  # 저녁 유지 자체는 무해하므로 크론은 그대로 둔다.
   schedule:
     - cron: '0 11 * * *'  # 20:00 KST 목표(실제 21~22시대) — 축적 jobs 만 자동
   workflow_dispatch:
@@ -50,6 +55,12 @@ env:
   TIER2_LIMIT: ${{ github.event.inputs.mode == 'small' && '3' || '0' }}
   LOAN_LIMIT: ${{ github.event.inputs.mode == 'small' && '5' || '200' }}
   REEMBED_LIMIT: ${{ github.event.inputs.mode == 'small' && '3' || '300' }}
+  # 시간 예산 — 각 job 의 timeout-minutes 보다 짧게 잡아 **강제종료 대신 스스로
+  # flush 후 종료**하게 한다. 강제종료는 그때까지 처리분을 통째로 버린다.
+  #   discovery: job 25분 → 15분(뒤에 backfill_genre 스텝이 남아있음)
+  #   refresh  : job 15분 → 12분
+  DISCOVERY_BUDGET_SECONDS: '900'
+  REFRESH_BUDGET_SECONDS: '720'
 
 jobs:
   # ── 수집: 정보나루 (enrich·collect 뒤) ──────
@@ -57,7 +68,7 @@ jobs:
     needs: [collect]
     if: ${{ always() }}
     runs-on: ubuntu-latest
-    timeout-minutes: 25  # 직렬화로 DB 경합 없어졌지만 tier1 usageAnalysis 다량 대비 상향
+    timeout-minutes: 25  # 하드 상한(안전망). 실제 종료는 DISCOVERY_BUDGET_SECONDS 가 먼저
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -69,7 +80,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           DATA4LIBRARY_API_KEY: ${{ secrets.DATA4LIBRARY_API_KEY }}
-        run: python3 -u scripts/data4library_discovery_collector.py --tier 1
+        run: python3 -u scripts/data4library_discovery_collector.py --tier 1 --budget-seconds $DISCOVERY_BUDGET_SECONDS
       - name: Backfill genre (알라딘 → genre NULL 책)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -154,7 +165,7 @@ jobs:
     needs: [discovery]
     if: ${{ always() }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15  # 직렬 실행 + limit 200 usageAnalysis 대비 상향(기존 10 은 타임아웃)
+    timeout-minutes: 15  # 하드 상한(안전망). 실제 종료는 REFRESH_BUDGET_SECONDS 가 먼저
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -166,7 +177,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           DATA4LIBRARY_API_KEY: ${{ secrets.DATA4LIBRARY_API_KEY }}
-        run: python3 -u scripts/refresh_loan_count.py --limit $LOAN_LIMIT
+        run: python3 -u scripts/refresh_loan_count.py --limit $LOAN_LIMIT --budget-seconds $REFRESH_BUDGET_SECONDS
 
   # ── 마무리: 인덱스 빌드 + 취향 재계산 (수동 전용) ──
   build-and-recompute:

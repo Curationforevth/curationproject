@@ -259,14 +259,22 @@ def test_fetch_tier2_seeds_from_db_empty_when_no_books():
 # Strategy C: usageAnalysisList 실패 시 row 스킵 (loanItemSrch 기간값 폴백 금지)
 # ============================================================
 
-def test_filter_and_upsert_skips_row_when_usage_fails():
-    """usageAnalysisList 실패(None) 시 loanItemSrch 기간값으로 폴백하지 않고
-    해당 row 를 스킵한다 (loan_count 소스 오염 방지)."""
+def test_filter_and_upsert_saves_row_with_unknown_loan_count_when_usage_fails():
+    """usageAnalysisList 실패(None) 시 **책은 저장하되** loan_count 는 모름(NULL).
+
+    (2026-08-26 개정) 예전엔 row 를 통째로 스킵했는데, GitHub Actions 러너에서
+    정보나루가 상습 타임아웃이라 8월 내내 신규 유입이 0권이 됐다. 저장은 하고
+    loan_count 는 refresh_loan_count 크론(nullsfirst)에 위임한다.
+    원래 의도인 **loanItemSrch 기간값 폴백 금지(소스 오염 방지)** 는 그대로 —
+    100 이 저장되면 안 되고 None 이어야 한다.
+    """
     from scripts.data4library_discovery_collector import DiscoveryCollector
+    from scripts.lib.dedup_checker import DedupAction
 
     c = DiscoveryCollector(dry_run=False)
     c._sb = MagicMock()
     c._dedup = MagicMock()  # property 가 DB 로딩 없이 이걸 반환
+    c._dedup.check.return_value = (DedupAction.NEW, None)
     c._api_key = "x"
 
     rows = [{
@@ -279,13 +287,20 @@ def test_filter_and_upsert_skips_row_when_usage_fails():
     }]
 
     with patch.object(c, "_fetch_accurate_loan_count", return_value=None), \
+         patch("scripts.data4library_discovery_collector.upsert_books_rich_merge",
+               side_effect=lambda sb, r, chunk_size=200: len(r)) as up, \
+         patch.object(DiscoveryCollector, "_apply_usage_fields"), \
          patch("scripts.data4library_discovery_collector.time.sleep"):
         upserted = c.filter_and_upsert(rows)
 
-    assert upserted == 0
-    assert c.stats["skipped_usage_fail"] == 1
-    # usage 실패 시 dedup 비교/upsert 경로로 진입하지 않는다
-    c.dedup.check.assert_not_called()
+    assert upserted == 1, "정보나루 실패가 신규 도서 저장을 막으면 안 된다"
+    assert c.stats["usage_unknown_saved"] == 1
+    saved = up.call_args[0][1][0]
+    assert saved["loan_count"] is None, (
+        "loanItemSrch 기간값(100) 폴백 금지 + 0 위조 금지 → NULL 이어야 "
+        "refresh 크론이 채운다")
+    # 모를 땐 0 으로 보수적 비교 (기존 에디션을 밀어내지 않음)
+    assert c.dedup.check.call_args[0][3] == 0
 
 
 def test_filter_and_upsert_uses_usage_loan_count_not_loanitem():

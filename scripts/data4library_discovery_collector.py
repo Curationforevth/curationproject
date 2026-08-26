@@ -58,6 +58,20 @@ load_dotenv(os.path.join(REPO, ".env"))
 PAGE_SIZE = 50
 REQUEST_DELAY = 0.3  # API 응답 자체가 ~0.4s이므로 실제 간격 ~0.7s
 
+# ── 회복력 파라미터 (2026-08-26) ──────────────────────────────────────────
+# 정보나루는 GitHub Actions 러너(해외 IP)에서 상습적으로 Read timeout 난다
+# (같은 ISBN 이 한국 IP 에선 평균 1.82s). 아래 3개가 "느린 경로에서도 수집은
+# 계속된다" 를 보장한다 — 상세 배경은 scripts/tests/test_discovery_resilience.py.
+#
+#  USAGE_FAIL_STREAK_LIMIT: 연속 N회 실패하면 이번 run 은 usageAnalysisList 를
+#    포기(회로 개방)하고 남은 책을 loan_count=NULL 로 저장한다. 경로가 죽은
+#    상태에서 매 책마다 15s 씩 태우면 25분 예산이 통째로 날아가고 저장은 0권.
+#  FLUSH_EVERY: 루프 끝에 한 번만 upsert 하면 job timeout = 전량 유실.
+#  DISCOVERY_BUDGET_SECONDS: job timeout 보다 먼저 스스로 멈추고 flush 한다.
+USAGE_FAIL_STREAK_LIMIT = int(os.getenv("DISCOVERY_USAGE_FAIL_STREAK", "5"))
+FLUSH_EVERY = int(os.getenv("DISCOVERY_FLUSH_EVERY", "50"))
+DEFAULT_BUDGET_SECONDS = float(os.getenv("DISCOVERY_BUDGET_SECONDS", "0") or 0)
+
 
 KDC_BUCKETS = [
     {"kdc": "0", "label": "총류"},
@@ -154,6 +168,10 @@ def sanitize_for_upsert(parsed: dict) -> dict:
     loan_count 는 loanItemSrch 가 반환한 기간별 값을 임시 저장. 이후 usageAnalysisList
     후처리 (Strategy C) 에서 book.loanCnt (누적) + loan_count_12mo 로 덮어써짐.
     sales_point 는 알라딘 전용 → 여기서 건드리지 않음 (2026-04-16 버그 fix).
+
+    loan_count=None(모름) 은 None 그대로 둔다 — 0 으로 위조하면 "대출 0회로
+    확인됨" 이라는 거짓이 축적되고, loan_count_updated_at 도 NULL 로 남아야
+    refresh_loan_count(nullsfirst) 가 우선 채운다. 미수록 확정(빈 응답)은 0.
     """
     return {
         "isbn": parsed["isbn13"],
@@ -161,7 +179,7 @@ def sanitize_for_upsert(parsed: dict) -> dict:
         "author": extract_first_author(parsed.get("author_raw")),
         "publisher": parsed.get("publisher"),
         "cover_url": parsed.get("cover_url"),
-        "loan_count": parsed.get("loan_count") or 0,
+        "loan_count": parsed.get("loan_count"),
         "source": "data4library",
     }
 
@@ -172,6 +190,10 @@ class DiscoveryCollector:
         self._api_key: Optional[str] = None
         self._sb = None
         self._dedup: Optional[DeduplicateChecker] = None
+        # 회복력 상태 — 연속 실패 회로 + 시간 예산
+        self._usage_fail_streak = 0
+        self._usage_circuit_open = False
+        self._deadline: Optional[float] = None
         self.stats = {
             "fetched_raw": 0,
             "filtered_children": 0,
@@ -181,10 +203,22 @@ class DiscoveryCollector:
             "usage_api_errors": 0,
             "usage_no_data": 0,
             "skipped_usage_fail": 0,
+            "usage_unknown_saved": 0,     # loan_count 모름으로 저장(크론이 채움)
+            "usage_circuit_skipped": 0,   # 회로 개방 후 호출 자체를 건너뜀
+            "budget_exhausted": 0,        # 예산 소진으로 중단(1=중단됨)
             "updated_existing_loan_count": 0,
             "upserted": 0,
             "errors": 0,
         }
+
+    # ── 시간 예산 ────────────────────────────────────────────────────────
+    def set_budget(self, seconds: Optional[float]):
+        """이 run 이 쓸 수 있는 최대 시간. job timeout 보다 짧게 잡아야
+        강제 종료(전량 유실) 대신 스스로 멈추고 flush 할 수 있다."""
+        self._deadline = (time.monotonic() + seconds) if seconds else None
+
+    def _budget_exhausted(self) -> bool:
+        return self._deadline is not None and time.monotonic() >= self._deadline
 
     @property
     def api_key(self) -> str:
@@ -313,20 +347,36 @@ class DiscoveryCollector:
             (무한). no_data(loan_count=0) 로 확정·반환해 **저장**하면 dedup index 에
             올라 다음 run SKIP → 재호출 멈춤. (loan_count 0 은 ~14일 주기 loan_count
             cron 이 재확인. Strategy C 상 loanItemSrch 기간값은 저장 안 함.)
-          - timeout/connection(RequestException): 진짜 transient → None(skip),
-            다음 discovery run 에서 재시도.
+          - timeout/connection(RequestException): 진짜 transient → None.
+            호출측이 loan_count '모름'(NULL)으로 **저장**하고 refresh 크론에 넘긴다.
+
+        연속 USAGE_FAIL_STREAK_LIMIT 회 실패하면 회로를 열어 남은 호출을 아예
+        건너뛴다 — 러너→정보나루 경로가 죽은 run 에서 책당 15s 씩 태우다 job
+        timeout 으로 전량 유실되던 것이 8월 25/25 실패의 직접 원인이었다.
         """
+        if self._usage_circuit_open:
+            self.stats["usage_circuit_skipped"] += 1
+            return None
         try:
             raw = fetch_usage_analysis(self.api_key, isbn, timeout=15.0)
-            return parse_usage_analysis(raw)
+            parsed = parse_usage_analysis(raw)
+            self._usage_fail_streak = 0
+            return parsed
         except RuntimeError:
-            # 빈 응답 = 미수록 확정 → no_data 로 저장(축적).
+            # 빈 응답 = 미수록 확정 → no_data 로 저장(축적). 서버가 응답은 했으므로
+            # 경로는 살아있다 → 연속 실패 카운터 리셋.
+            self._usage_fail_streak = 0
             self.stats["usage_no_data"] += 1
             return parse_usage_analysis(None)
         except requests.exceptions.RequestException as e:
             self.stats["usage_api_errors"] += 1
+            self._usage_fail_streak += 1
             if self.stats["usage_api_errors"] <= 5:
                 print(f"  ✗ usageAnalysisList transient ({isbn}): {e}")
+            if self._usage_fail_streak >= USAGE_FAIL_STREAK_LIMIT:
+                self._usage_circuit_open = True
+                print(f"  ⚡ usageAnalysisList 연속 {self._usage_fail_streak}회 실패 "
+                      f"→ 이번 run 은 호출 중단, loan_count 는 refresh 크론에 위임")
             return None
 
     def filter_and_upsert(self, parsed_rows: list[dict]) -> int:
@@ -363,7 +413,18 @@ class DiscoveryCollector:
 
         # Strategy C 핵심: 각 row 에 usageAnalysisList 호출 + dedup_checker 분기
         new_rows: list[dict] = []
-        for r in by_isbn:
+        total_upserted = 0
+        for idx, r in enumerate(by_isbn):
+            # 예산 소진 → 남은 row 를 붙들지 않고 중단(아래에서 flush).
+            # job timeout 으로 강제 종료되면 그때까지 처리분이 통째로 날아간다.
+            # 잔여 건수는 루프 인덱스 기준 — new_rows 는 flush 마다 비워지므로
+            # 그걸로 세면 틀린다.
+            if self._budget_exhausted():
+                self.stats["budget_exhausted"] = 1
+                print(f"  ⏱ 시간 예산 소진 → {idx}/{len(by_isbn)} 처리 후 중단 "
+                      f"(남은 {len(by_isbn) - idx}건은 다음 run)")
+                break
+
             title = r.get("title") or ""
             author = extract_first_author(r.get("author_raw"))
             isbn = r["isbn13"]
@@ -378,17 +439,24 @@ class DiscoveryCollector:
                 accurate_loan_12mo = 0
             else:
                 usage = self._fetch_accurate_loan_count(isbn)
-                time.sleep(REQUEST_DELAY)
+                if not self._usage_circuit_open:
+                    time.sleep(REQUEST_DELAY)
                 if usage is None:
-                    # usageAnalysisList 실패 → 이 row 스킵 (다음 run 에서 재시도).
-                    self.stats["skipped_usage_fail"] += 1
-                    continue
-                accurate_loan_count = usage.get("loan_count") or 0  # 0 도 유효한 누적값
-                accurate_loan_12mo = usage.get("loan_count_12mo") or 0
+                    # transient 실패(또는 회로 개방) → **책은 저장하고** loan_count 만
+                    # 모름(NULL)으로 남긴다. refresh_loan_count 가 nullsfirst 로
+                    # 우선 채운다. 예전엔 여기서 continue 해 row 를 통째로 버렸고,
+                    # 러너 경로가 느린 8월 내내 신규 유입이 0권이 됐다.
+                    accurate_loan_count = None
+                    accurate_loan_12mo = None
+                else:
+                    accurate_loan_count = usage.get("loan_count") or 0  # 0 도 유효한 누적값
+                    accurate_loan_12mo = usage.get("loan_count_12mo") or 0
 
-            # dedup 판정
+            # dedup 판정 — loan_count 를 모르면 0 으로 비교(보수적).
+            # 기존 에디션을 밀어내지(UPDATE) 않고, 같은 작품이 이미 있으면 SKIP 된다.
             action, existing_book_id = self.dedup.check(
-                title, author, isbn, accurate_loan_count,
+                title, author, isbn,
+                0 if accurate_loan_count is None else accurate_loan_count,
             )
             if action == DedupAction.SKIP:
                 self.stats["filtered_edition_dup"] += 1
@@ -414,35 +482,51 @@ class DiscoveryCollector:
                         print(f"  ✗ UPDATE loan_count ({isbn} → {existing_book_id}): {e}")
                 continue
 
-            # NEW — 새 row. loan_count 를 usageAnalysisList 기준으로 교체.
+            # NEW — 새 row. loan_count 를 usageAnalysisList 기준으로 교체
+            # (모르면 None → NULL 저장, _usage=None 이라 loan_count_updated_at 도
+            #  안 찍혀 refresh 크론이 nullsfirst 로 먼저 집어간다).
             r["loan_count"] = accurate_loan_count
             r["_usage"] = usage  # Strategy C 필드 저장용 보관
+            if accurate_loan_count is None:
+                self.stats["usage_unknown_saved"] += 1
             new_rows.append(r)
             if not self.dry_run:
                 self.dedup.register(title, author, isbn,
                                     book_id=None, loan_count=accurate_loan_count)
 
-        print(f"  Strategy C dedup: NEW {len(new_rows)} / "
+            # 중간 flush — job 이 강제 종료돼도 여기까지는 DB 에 남는다.
+            if not self.dry_run and len(new_rows) >= FLUSH_EVERY:
+                total_upserted += self._flush_new_rows(new_rows)
+                new_rows = []
+
+        print(f"  Strategy C dedup: NEW {total_upserted + len(new_rows)} / "
               f"UPDATE {self.stats['updated_existing_loan_count']} / "
               f"SKIP {self.stats['filtered_edition_dup']}")
 
-        if not new_rows:
-            return 0
-
-        rows = [sanitize_for_upsert(r) for r in new_rows]
         if self.dry_run:
+            rows = [sanitize_for_upsert(r) for r in new_rows]
+            if not rows:
+                return 0
             print(f"  (dry-run) would upsert {len(rows)} rows")
             print(f"  sample: {rows[0]}")
             return len(rows)
 
+        total_upserted += self._flush_new_rows(new_rows)
+        return total_upserted
+
+    def _flush_new_rows(self, new_rows: list[dict]) -> int:
+        """모아둔 NEW row 를 즉시 저장한다(부분 진행 보존)."""
+        if not new_rows:
+            return 0
+        rows = [sanitize_for_upsert(r) for r in new_rows]
         # B6: field-level richer merge (cross-source overwrite 방지 + richer 선택).
         upserted = upsert_books_rich_merge(self.sb, rows, chunk_size=200)
         self.stats["upserted"] += upserted
 
         # Strategy C: 갓 upsert된 NEW 책들에 대해 loan_count_12mo / source / updated_at
         # 을 별도 UPDATE. upsert_books_rich_merge 는 해당 필드를 모르므로 이 경로 필요.
+        # _usage 가 None(모름)인 row 는 건너뛴다 → loan_count_updated_at NULL 유지.
         self._apply_usage_fields(new_rows)
-
         return upserted
 
     def _apply_usage_fields(self, new_rows: list[dict]):
@@ -520,9 +604,17 @@ def main():
     p.add_argument("--enrich-limit", type=int, default=None,
                    help="--with-enrich 시 각 enrich step 에 전달할 limit "
                         "(생략 = 전체 backlog 처리)")
+    p.add_argument("--budget-seconds", type=float, default=None,
+                   help="이 run 의 최대 수행 시간. 초과 시 스스로 멈추고 flush "
+                        "한다(job timeout 강제종료 = 전량 유실 방지). "
+                        "생략 시 env DISCOVERY_BUDGET_SECONDS, 그것도 없으면 무제한")
     args = p.parse_args()
 
     c = DiscoveryCollector(dry_run=args.dry_run)
+    budget = args.budget_seconds if args.budget_seconds is not None else DEFAULT_BUDGET_SECONDS
+    if budget:
+        print(f"⏱ 시간 예산 {budget:.0f}s")
+        c.set_budget(budget)
     if args.status:
         c.show_status()
         return 0
