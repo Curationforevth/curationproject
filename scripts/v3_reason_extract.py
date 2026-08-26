@@ -338,6 +338,39 @@ def save_reason_checkpoint(done_ids):
         json.dump({"done_ids": list(done_ids), "last_updated": time.strftime("%Y-%m-%dT%H:%M:%S")}, f)
 
 
+def fetch_done_book_ids(sb) -> set:
+    """v3 처리 '완료' 인 book_id 집합.
+
+    ⚠️ 완료 기준은 **임베딩된 reason 이 하나라도 있는 것**이다(행 존재가 아니다).
+    2026-04-01~12 에 임베딩 없이 저장된 v3 reason 8,991건 때문에 **1,240권이
+    임베딩 0개인 채 '완료'로 분류**돼, 재실행해도 영원히 복구되지 않았다 —
+    추천의 reason 축에서 통째로 누락된 상태였다. 임베딩 실패가 조용히
+    영구화되지 않도록, 임베딩이 없는 책은 다음 run 이 다시 집어간다.
+    (재추출돼도 unique(book_id, source, reason) 로 중복 저장되지 않는다.)
+    """
+    done_ids = set()
+    offset = 0
+    while True:
+        res = None
+        for attempt in range(3):
+            try:
+                res = (sb.table("book_love_reasons").select("book_id")
+                       .eq("source", SOURCE_TAG)
+                       .not_.is_("reason_embedding", "null")
+                       .range(offset, offset + 999).execute())
+                break
+            except Exception as e:
+                print(f"  조회 재시도 {attempt+1}/3: {e}", flush=True)
+                time.sleep(5)
+        if res is None or not res.data:
+            break
+        done_ids.update(r["book_id"] for r in res.data)
+        if len(res.data) < 1000:
+            break
+        offset += 1000
+    return done_ids
+
+
 def resolve_exit_code(total_done, total_skipped_no_data, total_errors, aborted):
     """최종 exit code 판정. (exit_code, 요약 메시지) 반환.
 
@@ -406,27 +439,7 @@ def main():
 
     # 2) 이미 v3 처리된 book_id 스킵
     print("2) v3 처리 완료 확인...", flush=True)
-    done_ids = set()
-    offset = 0
-    while True:
-        for attempt in range(3):
-            try:
-                res = sb.table("book_love_reasons").select("book_id") \
-                    .eq("source", SOURCE_TAG) \
-                    .range(offset, offset + 999).execute()
-                break
-            except Exception as e:
-                print(f"  조회 재시도 {attempt+1}/3: {e}", flush=True)
-                time.sleep(5)
-                sb = make_client()
-        else:
-            break
-        if not res.data:
-            break
-        done_ids.update(r["book_id"] for r in res.data)
-        if len(res.data) < 1000:
-            break
-        offset += 1000
+    done_ids = fetch_done_book_ids(sb)
 
     checkpoint_ids = load_reason_checkpoint()
     done_ids = done_ids | checkpoint_ids
