@@ -43,17 +43,33 @@ RETRY_BASE_DELAY = 1.0
 EMPTY_RETRIES = 1
 EMPTY_RETRY_DELAY = 0.5
 
+# 시간 예산 (2026-08-26). 러너→정보나루 경로가 느리면 호출이 '실패'하지 않고
+# 그냥 느려서 MAX_CONSECUTIVE_ERRORS 조기중단에 안 걸린다 — 8/25 실측 200권 중
+# 3권 처리 후 job timeout cancelled. 예산을 넘기면 정상 종료(exit 0)하고 다음
+# run 이 nullsfirst 로 이어받는다. discovery 가 loan_count=NULL 로 저장하게 된
+# 뒤로 이 스크립트가 유일한 채움 경로라 조용히 죽으면 안 된다.
+DEFAULT_BUDGET_SECONDS = float(os.getenv("REFRESH_BUDGET_SECONDS", "0") or 0)
+
 
 class LoanCountRefresher:
     def __init__(self, dry_run: bool = False):
         self.dry_run = dry_run
         self._api_key = None
         self._sb = None
+        self._deadline: float | None = None
         self.stats = {
             "fetched": 0, "updated": 0,
             "skipped_empty": 0, "no_data": 0,
             "retried": 0, "errors": 0,
+            "budget_exhausted": 0,
         }
+
+    def set_budget(self, seconds: float | None):
+        """이 run 이 쓸 수 있는 최대 시간(job timeout 보다 짧게)."""
+        self._deadline = (time.monotonic() + seconds) if seconds else None
+
+    def _budget_exhausted(self) -> bool:
+        return self._deadline is not None and time.monotonic() >= self._deadline
 
     @property
     def api_key(self):
@@ -163,6 +179,14 @@ class LoanCountRefresher:
         consecutive_errors = 0
         early_stop = False
         for i, book in enumerate(candidates, 1):
+            # 예산 소진 → 강제종료(cancelled) 대신 정상 종료. 남은 대상은
+            # loan_count_updated_at 이 그대로라 다음 run 이 nullsfirst 로 이어받는다.
+            if self._budget_exhausted():
+                self.stats["budget_exhausted"] = 1
+                print(f"\n⏱ 시간 예산 소진 — {i - 1}/{total} 처리 후 정상 중단 "
+                      f"(남은 {total - i + 1}권은 다음 run)")
+                break
+
             result = self.refresh_one(book)
 
             if result == "error":
@@ -203,9 +227,17 @@ def main():
                    help="API 호출은 하되 DB 쓰기 생략")
     p.add_argument("--limit", type=int, default=200,
                    help="갱신할 최대 권수 (기본 200)")
+    p.add_argument("--budget-seconds", type=float, default=None,
+                   help="이 run 의 최대 수행 시간. 초과 시 정상 종료(exit 0)하고 "
+                        "남은 대상은 다음 run 이 이어받는다. 생략 시 "
+                        "env REFRESH_BUDGET_SECONDS, 그것도 없으면 무제한")
     args = p.parse_args()
 
     r = LoanCountRefresher(dry_run=args.dry_run)
+    budget = args.budget_seconds if args.budget_seconds is not None else DEFAULT_BUDGET_SECONDS
+    if budget:
+        print(f"⏱ 시간 예산 {budget:.0f}s")
+        r.set_budget(budget)
     return r.run(limit=args.limit)
 
 
