@@ -202,7 +202,8 @@ class DiscoveryCollector:
             "filtered_edition_dup": 0,
             "usage_api_errors": 0,
             "usage_no_data": 0,
-            "skipped_usage_fail": 0,
+            # (구 skipped_usage_fail 제거 — transient 실패는 더 이상 row 를 버리지
+            #  않고 usage_unknown_saved 로 저장된다)
             "usage_unknown_saved": 0,     # loan_count 모름으로 저장(크론이 채움)
             "usage_circuit_skipped": 0,   # 회로 개방 후 호출 자체를 건너뜀
             "budget_exhausted": 0,        # 예산 소진으로 중단(1=중단됨)
