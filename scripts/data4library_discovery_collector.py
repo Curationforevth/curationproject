@@ -72,6 +72,40 @@ USAGE_FAIL_STREAK_LIMIT = int(os.getenv("DISCOVERY_USAGE_FAIL_STREAK", "5"))
 FLUSH_EVERY = int(os.getenv("DISCOVERY_FLUSH_EVERY", "50"))
 DEFAULT_BUDGET_SECONDS = float(os.getenv("DISCOVERY_BUDGET_SECONDS", "0") or 0)
 
+# 외부 API 페이지 조회의 허용 실패율. 이 이하면 exit 0 (에러 건수는 리포트에 그대로).
+# 같은 불안정 경로 탓에 KDC 10개 중 1~2개는 상시 실패하는데, 그걸로 job 을 죽이면
+# ①daily-pipeline 이 매일 failure 로 남아 진짜 장애를 가리고 ②같은 job 의
+# backfill_genre 스텝까지 통째로 건너뛴다. PR#54(enrich)와 같은 규약.
+MAX_FETCH_ERROR_RATIO = float(os.getenv("DISCOVERY_MAX_FETCH_ERROR_RATIO", "0.5"))
+
+
+def resolve_exit_code(stats: dict) -> tuple[int, str]:
+    """최종 exit code 판정. (code, 요약 메시지) 반환.
+
+    KI-002 fail-loud 는 유지하되 "무엇이 실패했는지" 로 구분한다:
+      - DB 쓰기 실패(errors) → 항상 exit 1. 축적이 깨지는 진짜 장애.
+      - 수집 0건 → exit 1. 할 일을 못 했다.
+      - 외부 API 페이지 실패(fetch_errors)가 임계치 초과 → exit 1 (경로 전면 장애).
+      - 그 이하 산발 실패 → exit 0. 건수/비율은 메시지에 그대로 남긴다
+        (축소 보고 금지 — [[feedback_monitor_logs]]).
+    """
+    errors = stats.get("errors", 0)
+    fetch_errors = stats.get("fetch_errors", 0)
+    attempted = stats.get("pages_attempted", 0)
+    if errors > 0:
+        return 1, f"⛔ DB 쓰기 에러 {errors}건 — exit 1"
+    if stats.get("fetched_raw", 0) <= 0:
+        return 1, f"⛔ 수집 0건 (외부 API 실패 {fetch_errors}건) — exit 1"
+    if attempted > 0:
+        ratio = fetch_errors / attempted
+        if ratio > MAX_FETCH_ERROR_RATIO:
+            return 1, (f"⛔ 외부 API 실패 {fetch_errors}/{attempted} ({ratio:.0%}) > "
+                       f"임계치 {MAX_FETCH_ERROR_RATIO:.0%} — exit 1")
+        if fetch_errors:
+            return 0, (f"⚠ 외부 API 실패 {fetch_errors}/{attempted} ({ratio:.0%}) ≤ "
+                       f"임계치 {MAX_FETCH_ERROR_RATIO:.0%} — 부분 실패 허용, exit 0")
+    return 0, "정상 완료"
+
 
 KDC_BUCKETS = [
     {"kdc": "0", "label": "총류"},
@@ -196,6 +230,8 @@ class DiscoveryCollector:
         self._deadline: Optional[float] = None
         self.stats = {
             "fetched_raw": 0,
+            "pages_attempted": 0,   # 외부 API 페이지 조회 시도 수(실패율 분모)
+            "fetch_errors": 0,      # 외부 API 조회 실패(transient) — exit 판정 분리
             "filtered_children": 0,
             "filtered_non_book": 0,
             "filtered_isbn_dup": 0,
@@ -259,6 +295,7 @@ class DiscoveryCollector:
         all_rows: list[dict] = []
         for bucket in KDC_BUCKETS:
             for page in range(1, pages + 1):
+                self.stats["pages_attempted"] += 1
                 try:
                     raw = fetch_loan_item_page(
                         api_key=self.api_key,
@@ -272,7 +309,7 @@ class DiscoveryCollector:
                     self.stats["fetched_raw"] += len(parsed)
                 except Exception as e:
                     print(f"  ✗ [KDC {bucket['kdc']}] page {page}: {e}")
-                    self.stats["errors"] += 1
+                    self.stats["fetch_errors"] += 1
                 time.sleep(REQUEST_DELAY)
         return all_rows
 
@@ -299,6 +336,7 @@ class DiscoveryCollector:
         """Tier 2: recommandList for each seed ISBN."""
         all_rows: list[dict] = []
         for i, isbn in enumerate(seed_isbns):
+            self.stats["pages_attempted"] += 1
             try:
                 raw = fetch_recommand(api_key=self.api_key, isbn13=isbn, page_size=10)
                 parsed = parse_book_docs(raw)
@@ -308,7 +346,7 @@ class DiscoveryCollector:
                     print(f"  recommandList progress: {i+1}/{len(seed_isbns)}")
             except Exception as e:
                 print(f"  ✗ recommandList isbn={isbn}: {e}")
-                self.stats["errors"] += 1
+                self.stats["fetch_errors"] += 1
             time.sleep(REQUEST_DELAY)
         return all_rows
 
@@ -318,7 +356,7 @@ class DiscoveryCollector:
             kw_raw = fetch_monthly_keywords(api_key=self.api_key, month=month)
         except Exception as e:
             print(f"  ✗ monthlyKeywords {month}: {e}")
-            self.stats["errors"] += 1
+            self.stats["fetch_errors"] += 1
             return []
         keywords = parse_monthly_keywords(kw_raw)
         single = filter_single_token_keywords(keywords)
@@ -326,6 +364,7 @@ class DiscoveryCollector:
 
         all_rows: list[dict] = []
         for i, (word, _weight) in enumerate(single):
+            self.stats["pages_attempted"] += 1
             try:
                 raw = fetch_search(api_key=self.api_key, keyword=word, page_size=10)
                 parsed = parse_book_docs(raw)
@@ -335,7 +374,7 @@ class DiscoveryCollector:
                     print(f"  srchBooks progress: {i+1}/{len(single)}")
             except Exception as e:
                 print(f"  ✗ srchBooks '{word}': {e}")
-                self.stats["errors"] += 1
+                self.stats["fetch_errors"] += 1
             time.sleep(REQUEST_DELAY)
         return all_rows
 
@@ -658,8 +697,11 @@ def main():
             completed=True,
         )
 
-    # B2: stats.errors 가 있으면 exit 1. cron 이 감지 가능하도록.
-    rc = 1 if c.stats.get("errors", 0) > 0 else 0
+    # B2 개정(2026-08-26): DB 쓰기 실패는 fail-loud, 외부 API 산발 실패는 허용.
+    # 이전엔 KDC 페이지 1~2개 실패만으로 exit 1 → job failure → 같은 job 의
+    # backfill_genre 까지 건너뛰고, 매일 failure 라 진짜 장애가 묻혔다.
+    rc, exit_msg = resolve_exit_code(c.stats)
+    print(exit_msg)
 
     if args.with_enrich:
         code = trigger_enrich_pipeline(dry_run=args.dry_run, limit=args.enrich_limit)

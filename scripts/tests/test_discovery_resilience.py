@@ -260,3 +260,52 @@ def test_sanitize_preserves_unknown_loan_count():
     row0 = sanitize_for_upsert({"isbn13": "9791100000010", "title": "t",
                                 "author_raw": "a", "loan_count": 0})
     assert row0["loan_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# ⑥ exit code — 외부 API 산발 실패로 job 을 죽이지 않는다(PR#54 규약과 동일)
+# ---------------------------------------------------------------------------
+
+def _stats(**kw):
+    base = {"fetched_raw": 400, "pages_attempted": 10, "fetch_errors": 0,
+            "errors": 0, "upserted": 362}
+    base.update(kw)
+    return base
+
+
+def test_exit_zero_when_clean():
+    from data4library_discovery_collector import resolve_exit_code
+    code, msg = resolve_exit_code(_stats())
+    assert code == 0
+
+
+def test_exit_one_on_db_write_errors():
+    """DB 쓰기 실패는 산발이어도 fail-loud (KI-002)."""
+    from data4library_discovery_collector import resolve_exit_code
+    code, msg = resolve_exit_code(_stats(errors=1))
+    assert code == 1
+    assert "쓰기" in msg or "errors" in msg
+
+
+def test_exit_zero_on_sporadic_fetch_errors():
+    """실측 케이스: KDC 10개 중 2개 실패했지만 400권 수집·362권 저장 → exit 0.
+
+    이걸 exit 1 로 두면 daily-pipeline 이 매일 failure 로 남아 진짜 장애를
+    가리고, 같은 job 의 backfill_genre 스텝까지 통째로 건너뛴다.
+    """
+    from data4library_discovery_collector import resolve_exit_code
+    code, msg = resolve_exit_code(_stats(fetch_errors=2))
+    assert code == 0, msg
+    assert "2" in msg, "에러 건수는 메시지에 그대로 남아야 한다(축소 보고 금지)"
+
+
+def test_exit_one_when_most_pages_fail():
+    from data4library_discovery_collector import resolve_exit_code
+    code, msg = resolve_exit_code(_stats(fetch_errors=8))
+    assert code == 1
+
+
+def test_exit_one_when_nothing_fetched():
+    from data4library_discovery_collector import resolve_exit_code
+    code, msg = resolve_exit_code(_stats(fetched_raw=0, fetch_errors=10, upserted=0))
+    assert code == 1
