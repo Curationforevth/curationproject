@@ -13,6 +13,7 @@ rich_description이 있는 도서의 임베딩을 업그레이드.
 """
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -287,7 +288,10 @@ class Tier2Embedder:
                             "book_id": bid,
                             "embedding": emb,
                             "tier": 2,
-                            "source_text": txt,
+                            # 원문 대신 sha256 만 저장(2026-08-27) — 이 컬럼을 읽는 코드가
+                            # 없는데 10.2MB 를 먹고 있었다. 변경 감지는 해시 비교로 가능.
+                            "source_text_sha": hashlib.sha256(
+                                (txt or "").encode("utf-8")).hexdigest(),
                             "data_sources": src,
                         }
                         for bid, emb, txt, src in zip(book_ids, embeddings, texts, sources_list)
