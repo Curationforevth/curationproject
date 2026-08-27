@@ -8,6 +8,7 @@ OpenAI 호출은 ensure_* 안에서만 (백그라운드 recompute 컨텍스트).
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 
 import numpy as np
@@ -85,7 +86,8 @@ def ensure_books_embedded(book_ids, sb=None, embed_fn=None) -> None:
             sb.table("book_v3_vectors").upsert({
                 "book_id": row["id"],
                 "desc_embedding": emb,
-                "source_text": text[:2000],
+                # 원문 대신 sha256(2026-08-27) — scripts/reembed_provisional.source_sha 와 동일 규칙.
+                "source_text_sha": hashlib.sha256(text[:2000].encode("utf-8")).hexdigest(),
                 "source_tier": tier,
                 "provisional": tier != "rich",
             }, on_conflict="book_id").execute()

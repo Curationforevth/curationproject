@@ -242,7 +242,10 @@ def main():
             rows.append({
                 "book_id": p["book_id"],
                 "desc_embedding": emb,
-                "source_text": p["source_text"],
+                # 원문 대신 sha256(2026-08-27) — 전문은 변경 감지 비교에만 쓰여
+                # 13.2MB 를 먹고 있었다. reembed_provisional.source_sha 와 동일 규칙.
+                "source_text_sha": hashlib.sha256(
+                    (p["source_text"] or "").encode("utf-8")).hexdigest(),
                 "source_tier": p["source_tier"],
                 "provisional": p["source_tier"] != "rich",
                 "l1_text": p["l1_text"],
