@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import sys
 import time
@@ -38,18 +39,29 @@ RETRY_BACKOFF = 10
 PAGE_SLEEP = 0.3
 
 
-def plan_row_action(stored_tier, stored_source_text, new_text, new_tier):
+def source_sha(text) -> str:
+    """임베딩 원문의 sha256(hex). 마이그레이션의
+    encode(sha256(source_text::bytea),'hex') 와 동일해야 한다 — 다르면 첫 run 에
+    전 행이 '변경됨' 으로 판정돼 대량 재임베딩(OpenAI 비용)이 터진다."""
+    return hashlib.sha256((text or "").encode("utf-8")).hexdigest()
+
+
+def plan_row_action(stored_tier, stored_source_sha, new_text, new_tier):
     """순수 결정: 한 행을 어떻게 처리할지.
 
     - new_text 가 없거나(텍스트 소실) new_tier None → 아무것도 안 함(기존 보존).
-    - source_text 가 바뀌면 재임베딩(OpenAI). 안 바뀌면 재임베딩 skip(embed-once).
-    - 재도출 tier 가 저장 tier 와 다르면 항상 라벨 UPDATE(R3 — source_text 불변이어도
+    - 원문이 바뀌면 재임베딩(OpenAI). 안 바뀌면 재임베딩 skip(embed-once).
+      2026-08-27 부터 원문 전문 대신 **sha256 비교**다(전문 13.2MB 를 이 비교
+      하나에만 쓰고 있어 Free DB 한계에서 해시로 대체). 해시 동등 ⟺ 원문 동등.
+      해시가 없는 행(백필 누락)은 재임베딩으로 복구한다 — 조용히 skip 하면
+      임베딩 실패가 영구화되던 v3 reason 사고와 같은 함정이 된다.
+    - 재도출 tier 가 저장 tier 와 다르면 항상 라벨 UPDATE(R3 — 원문 불변이어도
       backfill 임시라벨('kakao_desc'→실제 'minimal') 교정).
     """
     if not new_text or new_tier is None:
         return {"reembed": False, "update_tier": False, "new_tier": stored_tier}
     return {
-        "reembed": new_text != stored_source_text,
+        "reembed": source_sha(new_text) != stored_source_sha,
         "update_tier": new_tier != stored_tier,
         "new_tier": new_tier,
     }
@@ -61,7 +73,7 @@ def fetch_provisional(sb, limit):
     offset = 0
     while True:
         res = with_retry(lambda o=offset: sb.table("book_v3_vectors")
-                         .select("book_id, source_text, source_tier")
+                         .select("book_id, source_text_sha, source_tier")
                          .neq("source_tier", "rich")
                          .range(o, o + PAGE - 1).execute())
         rows = res.data or []
@@ -132,7 +144,7 @@ def main():
         if not book:
             continue
         new_text, new_tier = build_desc_source(book)
-        action = plan_row_action(r.get("source_tier"), r.get("source_text"),
+        action = plan_row_action(r.get("source_tier"), r.get("source_text_sha"),
                                  new_text, new_tier)
         if not action["reembed"] and not action["update_tier"]:
             n_noop += 1
@@ -145,7 +157,7 @@ def main():
             elif action["reembed"]:
                 emb = _embed_one(new_text)
                 with_retry(lambda: sb.table("book_v3_vectors").upsert({
-                    "book_id": bid, "desc_embedding": emb, "source_text": new_text[:2000],
+                    "book_id": bid, "desc_embedding": emb, "source_text_sha": source_sha(new_text),
                     "source_tier": action["new_tier"],
                     "provisional": action["new_tier"] != "rich",
                 }, on_conflict="book_id").execute())
